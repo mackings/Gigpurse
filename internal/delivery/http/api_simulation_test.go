@@ -40,6 +40,10 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	musicianUser := client.signup("musician@example.com", "password123", "musician", "Demo Musician")
 	adminUser := client.signup("admin@example.com", "password123", "admin", "Demo Admin")
 
+	client.verifyEmail(app, clientUser.ID, "client@example.com", "111111")
+	client.verifyEmail(app, musicianUser.ID, "musician@example.com", "222222")
+	client.verifyEmail(app, adminUser.ID, "admin@example.com", "333333")
+
 	clientToken := client.login("client@example.com", "password123")
 	musicianToken := client.login("musician@example.com", "password123")
 	adminToken := client.login("admin@example.com", "password123")
@@ -200,8 +204,9 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 }
 
 type testApp struct {
-	mux       *http.ServeMux
-	resetRepo *memoryPasswordResetRepo
+	mux             *http.ServeMux
+	resetRepo       *memoryPasswordResetRepo
+	emailVerifyRepo *memoryEmailVerificationRepo
 }
 
 func newTestApp() *testApp {
@@ -212,10 +217,11 @@ func newTestApp() *testApp {
 	reviewRepo := newMemoryReviewRepo()
 	notifRepo := newMemoryNotificationRepo()
 	resetRepo := newMemoryPasswordResetRepo()
+	emailVerifyRepo := newMemoryEmailVerificationRepo()
 	disputeRepo := newMemoryDisputeRepo()
 	walletRepo := memory.NewWalletRepository()
 
-	userUsecase := usecase.NewUserUsecase(userRepo, resetRepo)
+	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
 	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
@@ -247,7 +253,7 @@ func newTestApp() *testApp {
 	delivery.NewAdminHandler(adminUsecase).RegisterRoutes(mux)
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
 
-	return &testApp{mux: mux, resetRepo: resetRepo}
+	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo}
 }
 
 type apiClient struct {
@@ -272,6 +278,20 @@ func (c *apiClient) login(email, password string) string {
 		c.t.Fatal("expected login token")
 	}
 	return res.Token
+}
+
+func (c *apiClient) verifyEmail(app *testApp, userID, email, code string) {
+	hash := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email)) + ":" + strings.TrimSpace(code)))
+	err := app.emailVerifyRepo.Create(context.Background(), &domain.EmailVerificationToken{
+		UserID:    userID,
+		TokenHash: hex.EncodeToString(hash[:]),
+		ExpiresAt: time.Now().Add(time.Hour),
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		c.t.Fatalf("seed email verification code: %v", err)
+	}
+	c.post("/auth/email-verification/confirm", "", map[string]any{"email": email, "code": code}, http.StatusOK, nil)
 }
 
 func (c *apiClient) get(path, token string, want int, out any) {
@@ -320,8 +340,22 @@ func (c *apiClient) request(method, path, token string, body any, want int, out 
 		c.t.Fatalf("%s %s status=%d want=%d", method, path, resp.StatusCode, want)
 	}
 	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		var envelope struct {
+			Success bool            `json:"success"`
+			Data    json.RawMessage `json:"data"`
+			Error   any             `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 			c.t.Fatalf("decode %s %s: %v", method, path, err)
+		}
+		if !envelope.Success {
+			c.t.Fatalf("%s %s returned unsuccessful envelope: %#v", method, path, envelope.Error)
+		}
+		if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+			return
+		}
+		if err := json.Unmarshal(envelope.Data, out); err != nil {
+			c.t.Fatalf("decode data %s %s: %v", method, path, err)
 		}
 	}
 }
@@ -866,6 +900,47 @@ func (r *memoryPasswordResetRepo) MarkUsed(ctx context.Context, id string, usedA
 		}
 	}
 	return errors.New("password reset token not found")
+}
+
+type memoryEmailVerificationRepo struct {
+	mu     sync.RWMutex
+	tokens map[string]*domain.EmailVerificationToken
+}
+
+func newMemoryEmailVerificationRepo() *memoryEmailVerificationRepo {
+	return &memoryEmailVerificationRepo{tokens: map[string]*domain.EmailVerificationToken{}}
+}
+
+func (r *memoryEmailVerificationRepo) Create(ctx context.Context, token *domain.EmailVerificationToken) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	token.ID = fmt.Sprintf("emv_%d", len(r.tokens)+1)
+	cp := *token
+	r.tokens[token.TokenHash] = &cp
+	return nil
+}
+
+func (r *memoryEmailVerificationRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.EmailVerificationToken, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	token, ok := r.tokens[tokenHash]
+	if !ok {
+		return nil, errors.New("email verification token not found")
+	}
+	cp := *token
+	return &cp, nil
+}
+
+func (r *memoryEmailVerificationRepo) MarkUsed(ctx context.Context, id string, usedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, token := range r.tokens {
+		if token.ID == id {
+			token.UsedAt = usedAt
+			return nil
+		}
+	}
+	return errors.New("email verification token not found")
 }
 
 type memoryDisputeRepo struct {

@@ -24,35 +24,34 @@ func (h *NotificationHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *NotificationHandler) HandleNotifications(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	notifications, err := h.notifUsecase.ListForUser(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "notifications_list_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(notifications)
+	respondSuccess(w, http.StatusOK, "notifications retrieved successfully", notifications)
 }
 
 func (h *NotificationHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
@@ -61,18 +60,17 @@ func (h *NotificationHandler) MarkAsRead(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	err := h.notifUsecase.MarkAsRead(r.Context(), req.NotificationID, userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "notification_mark_read_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	respondSuccess(w, http.StatusOK, "notification marked as read", map[string]string{
 		"message": "notification marked as read",
 	})
 }

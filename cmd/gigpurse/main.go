@@ -53,11 +53,12 @@ func main() {
 	reviewRepo := mongodb.NewReviewRepository(db)
 	notifRepo := mongodb.NewNotificationRepository(db)
 	resetRepo := mongodb.NewPasswordResetRepository(db)
+	emailVerifyRepo := mongodb.NewEmailVerificationRepository(db)
 	disputeRepo := mongodb.NewDisputeRepository(db)
 	walletRepo := memory.NewWalletRepository() // Keep memory wallet repo for now
 
 	// 3. Initialize Usecases
-	userUsecase := usecase.NewUserUsecase(userRepo, resetRepo)
+	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
 	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
@@ -87,7 +88,7 @@ func main() {
 	mux.HandleFunc("/{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"online", "service":"gigpurse-backend"}`))
+		w.Write([]byte(`{"success":true,"status":"success","status_code":200,"message":"service online","data":{"status":"online","service":"gigpurse-backend"}}`))
 	})
 
 	userHandler.RegisterRoutes(mux)

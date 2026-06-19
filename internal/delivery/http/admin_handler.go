@@ -26,7 +26,7 @@ func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *AdminHandler) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
 	_, role, ok := GetUserFromContext(r.Context())
 	if !ok || role != "admin" {
-		http.Error(w, "forbidden: admin role required", http.StatusForbidden)
+		respondError(w, http.StatusForbidden, "admin_required", "forbidden: admin role required")
 		return false
 	}
 	return true
@@ -34,7 +34,7 @@ func (h *AdminHandler) checkAdmin(w http.ResponseWriter, r *http.Request) bool {
 
 func (h *AdminHandler) GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	if !h.checkAdmin(w, r) {
@@ -43,17 +43,16 @@ func (h *AdminHandler) GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	analytics, err := h.adminUsecase.GetAnalytics(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "analytics_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(analytics)
+	respondSuccess(w, http.StatusOK, "analytics retrieved successfully", analytics)
 }
 
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	if !h.checkAdmin(w, r) {
@@ -62,12 +61,11 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, err := h.adminUsecase.ListAllUsers(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "users_list_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	respondSuccess(w, http.StatusOK, "users retrieved successfully", users)
 }
 
 func (h *AdminHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
@@ -81,19 +79,18 @@ func (h *AdminHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		h.DeleteJob(w, r)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
 }
 
 func (h *AdminHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.adminUsecase.ListAllJobs(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "jobs_list_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jobs)
+	respondSuccess(w, http.StatusOK, "jobs retrieved successfully", jobs)
 }
 
 func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -102,18 +99,17 @@ func (h *AdminHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	err := h.adminUsecase.DeleteJobListing(r.Context(), req.JobID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "job_delete_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	respondSuccess(w, http.StatusOK, "job deleted successfully by administrator", map[string]string{
 		"message": "job deleted successfully by administrator",
 	})
 }

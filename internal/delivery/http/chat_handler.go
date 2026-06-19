@@ -47,13 +47,13 @@ func (h *ChatHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *ChatHandler) HandleChats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
@@ -63,69 +63,65 @@ func (h *ChatHandler) HandleChats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	msg, err := h.chatUsecase.SendMessage(r.Context(), userID, req.RecvID, req.Content)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "chat_send_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(msg)
+	respondSuccess(w, http.StatusCreated, "message sent successfully", msg)
 }
 
 func (h *ChatHandler) GetChatHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	otherUserID := r.URL.Query().Get("user_id")
 	if otherUserID == "" {
-		http.Error(w, "user_id query parameter is required", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "missing_user_id", "user_id query parameter is required")
 		return
 	}
 
 	history, err := h.chatUsecase.GetChatHistory(r.Context(), userID, otherUserID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "chat_history_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+	respondSuccess(w, http.StatusOK, "chat history retrieved successfully", history)
 }
 
 func (h *ChatHandler) GetRecentChats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	recent, err := h.chatUsecase.GetRecentChats(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "recent_chats_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(recent)
+	respondSuccess(w, http.StatusOK, "recent chats retrieved successfully", recent)
 }
 
 // HandleWebSocket upgrades HTTP to WebSockets and handles real-time messages
@@ -141,7 +137,7 @@ func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if tokenStr == "" {
-		http.Error(w, "unauthorized: token required", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "token_required", "unauthorized: token required")
 		return
 	}
 
@@ -150,19 +146,19 @@ func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return getJWTSecret(), nil
 	})
 	if err != nil || !token.Valid {
-		http.Error(w, "unauthorized: invalid token", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "invalid_token", "unauthorized: invalid token")
 		return
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		http.Error(w, "unauthorized: invalid claims", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "invalid_token_claims", "unauthorized: invalid claims")
 		return
 	}
 
 	userID, ok := claims["user_id"].(string)
 	if !ok {
-		http.Error(w, "unauthorized: invalid user_id in token", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "invalid_token_claims", "unauthorized: invalid user_id in token")
 		return
 	}
 

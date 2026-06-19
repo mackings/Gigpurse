@@ -8,6 +8,7 @@ import (
 type User struct {
 	ID              string           `json:"id" bson:"_id"`
 	Email           string           `json:"email" bson:"email"`
+	EmailVerified   bool             `json:"email_verified" bson:"email_verified"`
 	PasswordHash    string           `json:"-" bson:"password_hash"`
 	Role            string           `json:"role" bson:"role"` // "client" or "musician"
 	Name            string           `json:"name" bson:"name"`
@@ -57,6 +58,8 @@ type UserRepository interface {
 type UserUsecase interface {
 	SignUp(ctx context.Context, email, password, role, name string) (*User, error)
 	Login(ctx context.Context, email, password string) (string, *User, error) // Returns JWT token and User
+	ResendEmailVerification(ctx context.Context, email string) error
+	VerifyEmail(ctx context.Context, email, code string) error
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	GetProfile(ctx context.Context, id string) (*User, error)

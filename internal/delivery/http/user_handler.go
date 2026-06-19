@@ -21,6 +21,8 @@ func NewUserHandler(uu domain.UserUsecase) *UserHandler {
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/auth/signup", h.SignUp)
 	mux.HandleFunc("/auth/login", h.Login)
+	mux.HandleFunc("/auth/email-verification/resend", h.ResendEmailVerification)
+	mux.HandleFunc("/auth/email-verification/confirm", h.VerifyEmail)
 	mux.HandleFunc("/auth/password-reset/request", h.RequestPasswordReset)
 	mux.HandleFunc("/auth/password-reset/confirm", h.ResetPassword)
 	mux.HandleFunc("/users/profile", h.HandleProfile)
@@ -29,7 +31,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -41,24 +43,22 @@ func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	user, err := h.userUsecase.SignUp(r.Context(), req.Email, req.Password, req.Role, req.Name)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "signup_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(user)
+	respondSuccess(w, http.StatusCreated, "signup successful. verify your email before login", user)
 }
 
 func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -68,46 +68,83 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	token, user, err := h.userUsecase.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "login_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	respondSuccess(w, http.StatusOK, "login successful", map[string]interface{}{
 		"token": token,
 		"user":  user,
 	})
 }
 
-func (h *UserHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandler) ResendEmailVerification(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	var req struct {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.userUsecase.ResendEmailVerification(r.Context(), req.Email); err != nil {
+		respondError(w, http.StatusBadRequest, "email_verification_resend_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "if the email exists and is unverified, a verification message has been sent", nil)
+}
+
+func (h *UserHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.userUsecase.VerifyEmail(r.Context(), req.Email, req.Code); err != nil {
+		respondError(w, http.StatusBadRequest, "email_verification_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "email verified successfully", nil)
+}
+
+func (h *UserHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 	if err := h.userUsecase.RequestPasswordReset(r.Context(), req.Email); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "password_reset_request_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a password reset message has been sent"})
+	respondSuccess(w, http.StatusOK, "if the email exists, a password reset message has been sent", nil)
 }
 
 func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	var req struct {
@@ -115,15 +152,14 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 	if err := h.userUsecase.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "password_reset_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "password reset successfully"})
+	respondSuccess(w, http.StatusOK, "password reset successfully", nil)
 }
 
 func (h *UserHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +171,7 @@ func (h *UserHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 		case http.MethodPut:
 			h.UpdateProfile(w, r, userID)
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	})(w, r)
 }
@@ -143,12 +179,11 @@ func (h *UserHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request, userID string) {
 	user, err := h.userUsecase.GetProfile(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		respondError(w, http.StatusNotFound, "profile_not_found", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	respondSuccess(w, http.StatusOK, "profile retrieved successfully", user)
 }
 
 func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, userID string) {
@@ -161,23 +196,22 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, user
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	user, err := h.userUsecase.UpdateProfile(r.Context(), userID, req.Name, req.Bio, req.Location, req.MusicianProfile, req.ClientProfile)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "profile_update_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	respondSuccess(w, http.StatusOK, "profile updated successfully", user)
 }
 
 func (h *UserHandler) BrowseMusicians(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -195,10 +229,9 @@ func (h *UserHandler) BrowseMusicians(w http.ResponseWriter, r *http.Request) {
 
 	musicians, err := h.userUsecase.BrowseMusicians(r.Context(), filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "musician_search_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(musicians)
+	respondSuccess(w, http.StatusOK, "musicians retrieved successfully", musicians)
 }

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"gigpurse/internal/domain"
@@ -21,20 +20,19 @@ func (h *DashboardHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *DashboardHandler) GetTalentDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	userID, role, ok := GetUserFromContext(r.Context())
 	if !ok || role != "musician" {
-		http.Error(w, "unauthorized: only musicians can view talent dashboard", http.StatusForbidden)
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can view talent dashboard")
 		return
 	}
 
 	dashboard, err := h.dashboardUsecase.GetTalentDashboard(r.Context(), userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "dashboard_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dashboard)
+	respondSuccess(w, http.StatusOK, "talent dashboard retrieved successfully", dashboard)
 }

@@ -24,7 +24,7 @@ func (h *DisputeHandler) RegisterRoutes(mux *http.ServeMux) {
 func (h *DisputeHandler) HandleUserDisputes(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
@@ -35,57 +35,53 @@ func (h *DisputeHandler) HandleUserDisputes(w http.ResponseWriter, r *http.Reque
 			Reason     string `json:"reason"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 			return
 		}
 		dispute, err := h.disputeUsecase.OpenDispute(r.Context(), userID, req.ContractID, req.Reason)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			respondError(w, http.StatusBadRequest, "dispute_open_failed", err.Error())
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(dispute)
+		respondSuccess(w, http.StatusCreated, "dispute opened successfully", dispute)
 	case http.MethodGet:
 		disputes, err := h.disputeUsecase.ListUserDisputes(r.Context(), userID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			respondError(w, http.StatusInternalServerError, "disputes_list_failed", err.Error())
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(disputes)
+		respondSuccess(w, http.StatusOK, "disputes retrieved successfully", disputes)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
 }
 
 func (h *DisputeHandler) HandleAdminDisputes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	_, role, ok := GetUserFromContext(r.Context())
 	if !ok || role != "admin" {
-		http.Error(w, "forbidden: admin role required", http.StatusForbidden)
+		respondError(w, http.StatusForbidden, "admin_required", "forbidden: admin role required")
 		return
 	}
 	disputes, err := h.disputeUsecase.ListAllDisputes(r.Context(), r.URL.Query().Get("status"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "disputes_list_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(disputes)
+	respondSuccess(w, http.StatusOK, "admin disputes retrieved successfully", disputes)
 }
 
 func (h *DisputeHandler) ResolveDispute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	_, role, ok := GetUserFromContext(r.Context())
 	if !ok || role != "admin" {
-		http.Error(w, "forbidden: admin role required", http.StatusForbidden)
+		respondError(w, http.StatusForbidden, "admin_required", "forbidden: admin role required")
 		return
 	}
 	var req struct {
@@ -93,14 +89,13 @@ func (h *DisputeHandler) ResolveDispute(w http.ResponseWriter, r *http.Request) 
 		Resolution string `json:"resolution"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 	dispute, err := h.disputeUsecase.ResolveDispute(r.Context(), req.DisputeID, req.Resolution)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "dispute_resolve_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dispute)
+	respondSuccess(w, http.StatusOK, "dispute resolved successfully", dispute)
 }

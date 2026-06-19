@@ -26,7 +26,7 @@ func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *ContractHandler) HandleContracts(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -34,44 +34,42 @@ func (h *ContractHandler) HandleContracts(w http.ResponseWriter, r *http.Request
 	if id != "" {
 		userID, role, ok := GetUserFromContext(r.Context())
 		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 			return
 		}
 		contract, err := h.contractUsecase.GetContract(r.Context(), userID, role, id)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			respondError(w, http.StatusForbidden, "contract_access_denied", err.Error())
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(contract)
+		respondSuccess(w, http.StatusOK, "contract retrieved successfully", contract)
 		return
 	}
 
 	userID, role, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	contracts, err := h.contractUsecase.ListUserContracts(r.Context(), userID, role)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "contracts_list_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(contracts)
+	respondSuccess(w, http.StatusOK, "contracts retrieved successfully", contracts)
 }
 
 func (h *ContractHandler) CompleteContract(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	userID, _, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
@@ -80,18 +78,17 @@ func (h *ContractHandler) CompleteContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	err := h.contractUsecase.CompleteContract(r.Context(), userID, req.ContractID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "contract_complete_failed", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	respondSuccess(w, http.StatusOK, "contract marked completed successfully", map[string]string{
 		"message": "contract marked completed successfully",
 	})
 }
@@ -99,14 +96,14 @@ func (h *ContractHandler) CompleteContract(w http.ResponseWriter, r *http.Reques
 func (h *ContractHandler) HandleDirectHires(w http.ResponseWriter, r *http.Request) {
 	userID, role, ok := GetUserFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	switch r.Method {
 	case http.MethodPost:
 		if role != "client" {
-			http.Error(w, "unauthorized: only clients can create direct hire requests", http.StatusForbidden)
+			respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can create direct hire requests")
 			return
 		}
 		var req struct {
@@ -116,38 +113,35 @@ func (h *ContractHandler) HandleDirectHires(w http.ResponseWriter, r *http.Reque
 			Price       float64 `json:"price"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 			return
 		}
 		directHire, err := h.contractUsecase.CreateDirectHireRequest(r.Context(), userID, req.MusicianID, req.Title, req.Description, req.Price)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			respondError(w, http.StatusBadRequest, "direct_hire_create_failed", err.Error())
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(directHire)
+		respondSuccess(w, http.StatusCreated, "direct hire request created successfully", directHire)
 	case http.MethodGet:
 		requests, err := h.contractUsecase.ListDirectHireRequests(r.Context(), userID, role, r.URL.Query().Get("status"))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			respondError(w, http.StatusInternalServerError, "direct_hires_list_failed", err.Error())
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(requests)
+		respondSuccess(w, http.StatusOK, "direct hire requests retrieved successfully", requests)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
 }
 
 func (h *ContractHandler) RespondToDirectHire(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	userID, role, ok := GetUserFromContext(r.Context())
 	if !ok || role != "musician" {
-		http.Error(w, "unauthorized: only musicians can respond to direct hire requests", http.StatusForbidden)
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can respond to direct hire requests")
 		return
 	}
 	var req struct {
@@ -155,14 +149,13 @@ func (h *ContractHandler) RespondToDirectHire(w http.ResponseWriter, r *http.Req
 		Decision  string `json:"decision"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 	directHire, err := h.contractUsecase.RespondToDirectHireRequest(r.Context(), userID, req.RequestID, req.Decision)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "direct_hire_response_failed", err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(directHire)
+	respondSuccess(w, http.StatusOK, "direct hire response saved successfully", directHire)
 }

@@ -28,13 +28,13 @@ func JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "authorization header required", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "authorization_required", "authorization header required")
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "invalid authorization format", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "invalid_authorization_format", "invalid authorization format")
 			return
 		}
 
@@ -44,20 +44,20 @@ func JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "invalid_token", "invalid or expired token")
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			http.Error(w, "invalid token claims", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "invalid_token_claims", "invalid token claims")
 			return
 		}
 
 		userID, ok1 := claims["user_id"].(string)
 		userRole, ok2 := claims["role"].(string)
 		if !ok1 || !ok2 {
-			http.Error(w, "invalid token claims fields", http.StatusUnauthorized)
+			respondError(w, http.StatusUnauthorized, "invalid_token_claims", "invalid token claims fields")
 			return
 		}
 

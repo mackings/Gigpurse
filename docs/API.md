@@ -8,10 +8,33 @@ Authentication uses JWT bearer tokens:
 Authorization: Bearer <token>
 ```
 
-Standard error response uses plain text from `http.Error`, for example:
+All HTTP JSON responses now use the same envelope shape.
 
-```text
-unauthorized: only musicians can apply for jobs
+Success response:
+
+```json
+{
+  "success": true,
+  "status": "success",
+  "status_code": 200,
+  "message": "operation completed successfully",
+  "data": {}
+}
+```
+
+Error response:
+
+```json
+{
+  "success": false,
+  "status": "error",
+  "status_code": 400,
+  "message": "invalid request body",
+  "error": {
+    "code": "invalid_request_body",
+    "message": "invalid request body"
+  }
+}
 ```
 
 Common status codes:
@@ -69,21 +92,21 @@ Required body:
 
 Roles: `client`, `musician`. `admin` is allowed only when `ALLOW_ADMIN_SIGNUP=true`.
 
-Response `201`:
+Response `201`. Signup also sends a 6-digit email verification code. Login is blocked until the email is verified.
 
 ```json
 {
-  "id": "usr_1",
-  "email": "client@example.com",
-  "role": "client",
-  "name": "Demo Client",
-  "bio": "",
-  "location": "",
-  "client_profile": {
-    "company_name": ""
-  },
-  "created_at": "2026-06-19T18:58:33Z",
-  "updated_at": "2026-06-19T18:58:33Z"
+  "success": true,
+  "status": "success",
+  "status_code": 201,
+  "message": "signup successful. verify your email before login",
+  "data": {
+    "id": "usr_1",
+    "email": "client@example.com",
+    "email_verified": false,
+    "role": "client",
+    "name": "Demo Client"
+  }
 }
 ```
 
@@ -108,17 +131,90 @@ Response `200`:
 
 ```json
 {
-  "token": "<jwt>",
-  "user": {
-    "id": "usr_1",
-    "email": "client@example.com",
-    "role": "client",
-    "name": "Demo Client"
+  "success": true,
+  "status": "success",
+  "status_code": 200,
+  "message": "login successful",
+  "data": {
+    "token": "<jwt>",
+    "user": {
+      "id": "usr_1",
+      "email": "client@example.com",
+      "role": "client",
+      "name": "Demo Client"
+    }
   }
 }
 ```
 
 Status codes: `200`, `400`, `401`, `405`.
+
+### `POST /auth/email-verification/resend`
+
+Sends or resends the 6-digit email verification code.
+
+Auth: not required
+
+Required body:
+
+```json
+{
+  "email": "client@example.com"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "status": "success",
+  "status_code": 200,
+  "message": "if the email exists and is unverified, a verification message has been sent"
+}
+```
+
+Status codes: `200`, `400`, `405`.
+
+### `POST /auth/email-verification/confirm`
+
+Verifies a user email using the 6-digit code sent after signup.
+
+Auth: not required
+
+Required body:
+
+```json
+{
+  "email": "client@example.com",
+  "code": "123456"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "status": "success",
+  "status_code": 200,
+  "message": "email verified successfully"
+}
+```
+
+Status codes: `200`, `400`, `405`.
+
+Email delivery requires SMTP env vars:
+
+```text
+SMTP_HOST
+SMTP_PORT
+SMTP_USERNAME
+SMTP_PASSWORD
+SMTP_FROM
+```
+
+If SMTP is not configured, the backend logs the email content to the server outbox instead of delivering it.
 
 ### `POST /auth/password-reset/request`
 

@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
+	"net/smtp"
 	"os"
+	"strings"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -18,8 +21,9 @@ import (
 )
 
 type userUsecase struct {
-	userRepo       domain.UserRepository
-	resetTokenRepo domain.PasswordResetRepository
+	userRepo        domain.UserRepository
+	resetTokenRepo  domain.PasswordResetRepository
+	emailVerifyRepo domain.EmailVerificationRepository
 }
 
 func NewUserUsecase(repo domain.UserRepository, resetRepos ...domain.PasswordResetRepository) domain.UserUsecase {
@@ -27,9 +31,24 @@ func NewUserUsecase(repo domain.UserRepository, resetRepos ...domain.PasswordRes
 	if len(resetRepos) > 0 {
 		resetRepo = resetRepos[0]
 	}
+	var emailVerifyRepo domain.EmailVerificationRepository
+	if len(resetRepos) > 1 {
+		if repo, ok := any(resetRepos[1]).(domain.EmailVerificationRepository); ok {
+			emailVerifyRepo = repo
+		}
+	}
 	return &userUsecase{
-		userRepo:       repo,
-		resetTokenRepo: resetRepo,
+		userRepo:        repo,
+		resetTokenRepo:  resetRepo,
+		emailVerifyRepo: emailVerifyRepo,
+	}
+}
+
+func NewUserUsecaseWithVerification(repo domain.UserRepository, resetRepo domain.PasswordResetRepository, emailVerifyRepo domain.EmailVerificationRepository) domain.UserUsecase {
+	return &userUsecase{
+		userRepo:        repo,
+		resetTokenRepo:  resetRepo,
+		emailVerifyRepo: emailVerifyRepo,
 	}
 }
 
@@ -70,12 +89,13 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name st
 	// or leave it empty so MongoDB can populate it. However, since the ID field is a string,
 	// we can generate a unique string or handle it in repo. Let's do it in repo.
 	newUser := &domain.User{
-		Email:        email,
-		PasswordHash: string(hashed),
-		Role:         role,
-		Name:         name,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		Email:         email,
+		EmailVerified: false,
+		PasswordHash:  string(hashed),
+		Role:          role,
+		Name:          name,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	if role == "musician" {
@@ -90,6 +110,10 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name st
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
+	if u.emailVerifyRepo != nil {
+		_ = u.sendEmailVerification(ctx, newUser)
+	}
+
 	return newUser, nil
 }
 
@@ -101,6 +125,9 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (string
 	user, err := u.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return "", nil, errors.New("invalid email or password")
+	}
+	if !user.EmailVerified {
+		return "", nil, errors.New("email is not verified")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -121,6 +148,77 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (string
 	}
 
 	return tokenString, user, nil
+}
+
+func (u *userUsecase) ResendEmailVerification(ctx context.Context, email string) error {
+	if email == "" {
+		return errors.New("email is required")
+	}
+	if u.emailVerifyRepo == nil {
+		return errors.New("email verification is not configured")
+	}
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil
+	}
+	if user.EmailVerified {
+		return nil
+	}
+	return u.sendEmailVerification(ctx, user)
+}
+
+func (u *userUsecase) VerifyEmail(ctx context.Context, email, code string) error {
+	if email == "" || code == "" {
+		return errors.New("email and code are required")
+	}
+	if u.emailVerifyRepo == nil {
+		return errors.New("email verification is not configured")
+	}
+	verifyToken, err := u.emailVerifyRepo.GetByTokenHash(ctx, hashToken(emailVerificationHashInput(email, code)))
+	if err != nil {
+		return errors.New("invalid or expired email verification code")
+	}
+	if !verifyToken.UsedAt.IsZero() || time.Now().After(verifyToken.ExpiresAt) {
+		return errors.New("invalid or expired email verification code")
+	}
+	user, err := u.userRepo.GetByID(ctx, verifyToken.UserID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+	if !strings.EqualFold(user.Email, email) {
+		return errors.New("invalid or expired email verification code")
+	}
+	user.EmailVerified = true
+	user.UpdatedAt = time.Now()
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to verify email: %w", err)
+	}
+	return u.emailVerifyRepo.MarkUsed(ctx, verifyToken.ID, time.Now())
+}
+
+func (u *userUsecase) sendEmailVerification(ctx context.Context, user *domain.User) error {
+	code, err := secureDigits(6)
+	if err != nil {
+		return fmt.Errorf("failed to generate email verification code: %w", err)
+	}
+	now := time.Now()
+	verifyToken := &domain.EmailVerificationToken{
+		UserID:    user.ID,
+		TokenHash: hashToken(emailVerificationHashInput(user.Email, code)),
+		ExpiresAt: now.Add(15 * time.Minute),
+		CreatedAt: now,
+	}
+	if err := u.emailVerifyRepo.Create(ctx, verifyToken); err != nil {
+		return err
+	}
+	subject := "Verify your Gigpurse email"
+	body := fmt.Sprintf("Your Gigpurse verification code is %s. It expires in 15 minutes.", code)
+	if err := sendEmail(user.Email, subject, body); err != nil {
+		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Code: %s | Error: %v", user.Email, subject, code, err)
+		return err
+	}
+	log.Printf("[EMAIL OUTBOX] To %s: Subject: %s | Code: %s", user.Email, subject, code)
+	return nil
 }
 
 func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) error {
@@ -152,7 +250,13 @@ func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) er
 		return fmt.Errorf("failed to create password reset token: %w", err)
 	}
 
-	log.Printf("[EMAIL OUTBOX] To %s: Subject: Reset your Gigpurse password | Token: %s", email, token)
+	subject := "Reset your Gigpurse password"
+	body := fmt.Sprintf("Use this password reset token: %s. It expires in 30 minutes.", token)
+	if err := sendEmail(email, subject, body); err != nil {
+		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Token: %s | Error: %v", email, subject, token, err)
+		return err
+	}
+	log.Printf("[EMAIL OUTBOX] To %s: Subject: %s | Token: %s", email, subject, token)
 	return nil
 }
 
@@ -246,7 +350,48 @@ func secureToken() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+func secureDigits(length int) (string, error) {
+	if length <= 0 {
+		return "", errors.New("length must be positive")
+	}
+	max := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(length)), nil)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%0*d", length, n), nil
+}
+
+func emailVerificationHashInput(email, code string) string {
+	return strings.ToLower(strings.TrimSpace(email)) + ":" + strings.TrimSpace(code)
+}
+
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func sendEmail(to, subject, body string) error {
+	host := os.Getenv("SMTP_HOST")
+	port := os.Getenv("SMTP_PORT")
+	username := os.Getenv("SMTP_USERNAME")
+	password := os.Getenv("SMTP_PASSWORD")
+	from := os.Getenv("SMTP_FROM")
+	if host == "" || port == "" || username == "" || password == "" || from == "" {
+		log.Printf("[EMAIL OUTBOX - SMTP NOT CONFIGURED] To %s: Subject: %s | Body: %s", to, subject, body)
+		return nil
+	}
+
+	msg := strings.Join([]string{
+		"From: " + from,
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=\"UTF-8\"",
+		"",
+		body,
+	}, "\r\n")
+
+	auth := smtp.PlainAuth("", username, password, host)
+	return smtp.SendMail(host+":"+port, auth, from, []string{to}, []byte(msg))
 }

@@ -66,6 +66,7 @@ func main() {
 	_ = db.Collection("direct_hire_requests").Drop(ctx)
 	_ = db.Collection("disputes").Drop(ctx)
 	_ = db.Collection("password_reset_tokens").Drop(ctx)
+	_ = db.Collection("email_verification_tokens").Drop(ctx)
 	log.Println("Simulator: Cleaned up 'gigpurse_simulation_db' collections.")
 
 	// 2. Start Backend Server on simulator port
@@ -83,10 +84,11 @@ func main() {
 	reviewRepo := mongodb.NewReviewRepository(db)
 	notifRepo := mongodb.NewNotificationRepository(db)
 	resetRepo := mongodb.NewPasswordResetRepository(db)
+	emailVerifyRepo := mongodb.NewEmailVerificationRepository(db)
 	disputeRepo := mongodb.NewDisputeRepository(db)
 	walletRepo := memory.NewWalletRepository()
 
-	userUsecase := usecase.NewUserUsecase(userRepo, resetRepo)
+	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
 	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
