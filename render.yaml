@@ -29,6 +29,6 @@ services:
       - key: MAILJET_API_SECRET
         sync: false
       - key: MAILJET_FROM_EMAIL
-        sync: false
+        value: Info@decodeanalytical.com
       - key: MAILJET_FROM_NAME
         value: Gigpurse
