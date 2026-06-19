@@ -1,14 +1,18 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strings"
@@ -380,6 +384,9 @@ func hashToken(token string) string {
 }
 
 func sendEmail(to, subject, body string) error {
+	if mailjetConfigured() {
+		return sendMailjetEmail(to, subject, body)
+	}
 	if !smtpConfigured() {
 		log.Printf("[EMAIL OUTBOX - SMTP NOT CONFIGURED] To %s: Subject: %s | Body: %s", to, subject, body)
 		return nil
@@ -404,10 +411,67 @@ func sendEmail(to, subject, body string) error {
 	return smtp.SendMail(host+":"+port, auth, from, []string{to}, []byte(msg))
 }
 
+func sendMailjetEmail(to, subject, body string) error {
+	apiKey := os.Getenv("MAILJET_API_KEY")
+	apiSecret := os.Getenv("MAILJET_API_SECRET")
+	fromEmail := os.Getenv("MAILJET_FROM_EMAIL")
+	fromName := os.Getenv("MAILJET_FROM_NAME")
+	if fromName == "" {
+		fromName = "Gigpurse"
+	}
+
+	payload := map[string]interface{}{
+		"Messages": []map[string]interface{}{
+			{
+				"From": map[string]string{
+					"Email": fromEmail,
+					"Name":  fromName,
+				},
+				"To": []map[string]string{
+					{"Email": to},
+				},
+				"Subject":  subject,
+				"TextPart": body,
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://api.mailjet.com/v3.1/send", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(apiKey, apiSecret)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("mailjet send failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	return nil
+}
+
 func smtpConfigured() bool {
 	return os.Getenv("SMTP_HOST") != "" &&
 		os.Getenv("SMTP_PORT") != "" &&
 		os.Getenv("SMTP_USERNAME") != "" &&
 		os.Getenv("SMTP_PASSWORD") != "" &&
 		os.Getenv("SMTP_FROM") != ""
+}
+
+func mailjetConfigured() bool {
+	return os.Getenv("MAILJET_API_KEY") != "" &&
+		os.Getenv("MAILJET_API_SECRET") != "" &&
+		os.Getenv("MAILJET_FROM_EMAIL") != ""
 }
