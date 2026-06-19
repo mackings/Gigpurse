@@ -1,0 +1,252 @@
+package usecase
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"gigpurse/internal/domain"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type userUsecase struct {
+	userRepo       domain.UserRepository
+	resetTokenRepo domain.PasswordResetRepository
+}
+
+func NewUserUsecase(repo domain.UserRepository, resetRepos ...domain.PasswordResetRepository) domain.UserUsecase {
+	var resetRepo domain.PasswordResetRepository
+	if len(resetRepos) > 0 {
+		resetRepo = resetRepos[0]
+	}
+	return &userUsecase{
+		userRepo:       repo,
+		resetTokenRepo: resetRepo,
+	}
+}
+
+func getJWTSecret() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "gigpurse-fallback-secret-key-12345"
+	}
+	return []byte(secret)
+}
+
+func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name string) (*domain.User, error) {
+	if email == "" || password == "" || role == "" || name == "" {
+		return nil, errors.New("missing required signup fields")
+	}
+
+	if role != "client" && role != "musician" && role != "admin" {
+		return nil, errors.New("role must be 'client', 'musician', or 'admin'")
+	}
+	if role == "admin" && os.Getenv("ALLOW_ADMIN_SIGNUP") != "true" {
+		return nil, errors.New("admin signup is disabled")
+	}
+
+	// Check if email already exists
+	existing, err := u.userRepo.GetByEmail(ctx, email)
+	if err == nil && existing != nil {
+		return nil, errors.New("email already registered")
+	}
+
+	// Hash password
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Generate a unique ID (normally handled by DB, but we will generate one here or in repo)
+	// For MongoDB, we can let MongoDB generate it, but we can generate a temporary ID if we want,
+	// or leave it empty so MongoDB can populate it. However, since the ID field is a string,
+	// we can generate a unique string or handle it in repo. Let's do it in repo.
+	newUser := &domain.User{
+		Email:        email,
+		PasswordHash: string(hashed),
+		Role:         role,
+		Name:         name,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+
+	if role == "musician" {
+		newUser.MusicianProfile = &domain.MusicianProfile{
+			Portfolio: []domain.PortfolioItem{},
+		}
+	} else if role == "client" {
+		newUser.ClientProfile = &domain.ClientProfile{}
+	}
+
+	if err := u.userRepo.Create(ctx, newUser); err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	return newUser, nil
+}
+
+func (u *userUsecase) Login(ctx context.Context, email, password string) (string, *domain.User, error) {
+	if email == "" || password == "" {
+		return "", nil, errors.New("email and password are required")
+	}
+
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return "", nil, errors.New("invalid email or password")
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	if err != nil {
+		return "", nil, errors.New("invalid email or password")
+	}
+
+	// Generate JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"role":    user.Role,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+	})
+
+	tokenString, err := token.SignedString(getJWTSecret())
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return tokenString, user, nil
+}
+
+func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) error {
+	if email == "" {
+		return errors.New("email is required")
+	}
+	if u.resetTokenRepo == nil {
+		return errors.New("password reset is not configured")
+	}
+
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		// Keep the endpoint non-enumerating while still succeeding for callers.
+		return nil
+	}
+
+	token, err := secureToken()
+	if err != nil {
+		return fmt.Errorf("failed to generate password reset token: %w", err)
+	}
+	now := time.Now()
+	resetToken := &domain.PasswordResetToken{
+		UserID:    user.ID,
+		TokenHash: hashToken(token),
+		ExpiresAt: now.Add(30 * time.Minute),
+		CreatedAt: now,
+	}
+	if err := u.resetTokenRepo.Create(ctx, resetToken); err != nil {
+		return fmt.Errorf("failed to create password reset token: %w", err)
+	}
+
+	log.Printf("[EMAIL OUTBOX] To %s: Subject: Reset your Gigpurse password | Token: %s", email, token)
+	return nil
+}
+
+func (u *userUsecase) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if token == "" || newPassword == "" {
+		return errors.New("token and new password are required")
+	}
+	if u.resetTokenRepo == nil {
+		return errors.New("password reset is not configured")
+	}
+
+	resetToken, err := u.resetTokenRepo.GetByTokenHash(ctx, hashToken(token))
+	if err != nil {
+		return errors.New("invalid or expired password reset token")
+	}
+	if !resetToken.UsedAt.IsZero() || time.Now().After(resetToken.ExpiresAt) {
+		return errors.New("invalid or expired password reset token")
+	}
+
+	user, err := u.userRepo.GetByID(ctx, resetToken.UserID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	user.PasswordHash = string(hashed)
+	user.UpdatedAt = time.Now()
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return u.resetTokenRepo.MarkUsed(ctx, resetToken.ID, time.Now())
+}
+
+func (u *userUsecase) GetProfile(ctx context.Context, id string) (*domain.User, error) {
+	user, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	return user, nil
+}
+
+func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, location string, musProfile *domain.MusicianProfile, cliProfile *domain.ClientProfile) (*domain.User, error) {
+	user, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	if name != "" {
+		user.Name = name
+	}
+	user.Bio = bio
+	user.Location = location
+	user.UpdatedAt = time.Now()
+
+	if user.Role == "musician" && musProfile != nil {
+		if user.MusicianProfile == nil {
+			user.MusicianProfile = &domain.MusicianProfile{}
+		}
+		user.MusicianProfile.StageName = musProfile.StageName
+		user.MusicianProfile.Instrument = musProfile.Instrument
+		user.MusicianProfile.Genre = musProfile.Genre
+		user.MusicianProfile.ExperienceYears = musProfile.ExperienceYears
+		user.MusicianProfile.Portfolio = musProfile.Portfolio
+	} else if user.Role == "client" && cliProfile != nil {
+		if user.ClientProfile == nil {
+			user.ClientProfile = &domain.ClientProfile{}
+		}
+		user.ClientProfile.CompanyName = cliProfile.CompanyName
+	}
+
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return user, nil
+}
+
+func (u *userUsecase) BrowseMusicians(ctx context.Context, filter domain.MusicianFilter) ([]*domain.User, error) {
+	return u.userRepo.ListMusicians(ctx, filter)
+}
+
+func secureToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
