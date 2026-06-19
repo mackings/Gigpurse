@@ -84,11 +84,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Add a root handler for health check / Render deployment checking
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
+	mux.HandleFunc("/{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"online", "service":"gigpurse-backend"}`))
