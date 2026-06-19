@@ -221,7 +221,7 @@ func (u *userUsecase) sendEmailVerification(ctx context.Context, user *domain.Us
 		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Code: %s | Error: %v", user.Email, subject, code, err)
 		return err
 	}
-	if smtpConfigured() {
+	if emailProviderConfigured() {
 		log.Printf("[EMAIL SENT] To %s: Subject: %s", user.Email, subject)
 	} else {
 		log.Printf("[EMAIL OUTBOX] To %s: Subject: %s | Code: %s", user.Email, subject, code)
@@ -264,7 +264,7 @@ func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) er
 		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Token: %s | Error: %v", email, subject, token, err)
 		return err
 	}
-	if smtpConfigured() {
+	if emailProviderConfigured() {
 		log.Printf("[EMAIL SENT] To %s: Subject: %s", email, subject)
 	} else {
 		log.Printf("[EMAIL OUTBOX] To %s: Subject: %s | Token: %s", email, subject, token)
@@ -474,4 +474,8 @@ func mailjetConfigured() bool {
 	return os.Getenv("MAILJET_API_KEY") != "" &&
 		os.Getenv("MAILJET_API_SECRET") != "" &&
 		os.Getenv("MAILJET_FROM_EMAIL") != ""
+}
+
+func emailProviderConfigured() bool {
+	return mailjetConfigured() || smtpConfigured()
 }
