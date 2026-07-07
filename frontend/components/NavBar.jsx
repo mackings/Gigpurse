@@ -1,0 +1,271 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { useRealtime } from "@/lib/RealtimeProvider";
+import { logout as apiLogout } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/ThemeToggle";
+import NotificationBell from "@/components/notifications/NotificationBell";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Disc3,
+  Menu,
+  X,
+  User,
+  LogOut,
+  LayoutDashboard,
+  Search,
+  MessageCircle,
+  Wallet,
+  Briefcase,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
+
+export default function NavBar() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, isLoading, isAuthenticated, refetch } = useCurrentUser();
+  const { unreadMessageCount } = useRealtime();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const dashboardUrl = user?.role === "musician" ? "/dashboard/talent" : "/dashboard/client";
+  // Moderators only have access to /admin/disputes; admins get the full dashboard.
+  const canSeeAdminLink = user?.role === "admin" || user?.role === "moderator";
+  const adminHref = user?.role === "moderator" ? "/admin/disputes" : "/admin";
+  const adminLabel = user?.role === "moderator" ? "Disputes queue" : "Admin dashboard";
+
+  async function handleLogout() {
+    await apiLogout();
+    queryClient.clear();
+    refetch();
+    router.push("/");
+  }
+
+  return (
+    <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-md border-b border-border">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center justify-between h-16">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Disc3 className="w-4 h-4 text-primary-foreground" strokeWidth={2.25} />
+            </div>
+            <span className="text-lg font-bold text-foreground tracking-tight">GigPurse</span>
+          </Link>
+
+          <div className="hidden md:flex items-center gap-1">
+            <Link
+              href="/browse"
+              className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent font-medium transition-colors"
+            >
+              Browse Musicians
+            </Link>
+
+            {!isLoading && (
+              <>
+                {isAuthenticated ? (
+                  <div className="flex items-center gap-1 ml-2">
+                    <Link href={dashboardUrl}>
+                      <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
+                        <LayoutDashboard className="w-4 h-4" />
+                        Dashboard
+                      </Button>
+                    </Link>
+
+                    <Link href="/messages">
+                      <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
+                        <MessageCircle className="w-4 h-4" />
+                        {unreadMessageCount > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                            {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                          </span>
+                        )}
+                      </Button>
+                    </Link>
+
+                    <Link href="/wallet">
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                        <Wallet className="w-4 h-4" />
+                      </Button>
+                    </Link>
+
+                    {user?.role === "musician" && (
+                      <Link href="/jobs">
+                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                          <Briefcase className="w-4 h-4" />
+                        </Button>
+                      </Link>
+                    )}
+
+                    <NotificationBell className="text-muted-foreground hover:text-foreground" />
+                    <ThemeToggle className="text-muted-foreground hover:text-foreground" />
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="ml-1 rounded-full">
+                          <User className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <div className="px-2 py-1.5">
+                          <p className="text-sm font-medium">{user?.name}</p>
+                          <p className="text-xs text-muted-foreground">{user?.email}</p>
+                          <p className="text-xs text-primary capitalize mt-0.5 font-medium">{user?.role}</p>
+                        </div>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                          <Link href="/disputes">
+                            <ShieldAlert className="w-4 h-4 mr-2" />
+                            Disputes
+                          </Link>
+                        </DropdownMenuItem>
+                        {canSeeAdminLink && (
+                          <DropdownMenuItem asChild>
+                            <Link href={adminHref}>
+                              <ShieldCheck className="w-4 h-4 mr-2" />
+                              {adminLabel}
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                          <LogOut className="w-4 h-4 mr-2" />
+                          Logout
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 ml-2">
+                    <ThemeToggle className="text-muted-foreground hover:text-foreground" />
+                    <Link href="/login">
+                      <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
+                        Sign in
+                      </Button>
+                    </Link>
+                    <Link href="/role-selection">
+                      <Button>Create account</Button>
+                    </Link>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 md:hidden">
+            {isAuthenticated && <NotificationBell className="text-muted-foreground" />}
+            <ThemeToggle className="text-muted-foreground" />
+            <button className="p-2 text-foreground" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {isMenuOpen && (
+        <div className="md:hidden border-t border-border bg-background">
+          <div className="px-4 py-4 space-y-1">
+            <Link
+              href="/browse"
+              className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Search className="w-4 h-4" />
+              Browse Musicians
+            </Link>
+
+            {isAuthenticated ? (
+              <>
+                <Link
+                  href={dashboardUrl}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  Dashboard
+                </Link>
+                <Link
+                  href="/messages"
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Messages
+                  {unreadMessageCount > 0 && (
+                    <span className="ml-auto w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                      {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                    </span>
+                  )}
+                </Link>
+                <Link
+                  href="/wallet"
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Wallet className="w-4 h-4" />
+                  Wallet
+                </Link>
+                {user?.role === "musician" && (
+                  <Link
+                    href="/jobs"
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Briefcase className="w-4 h-4" />
+                    Find Gigs
+                  </Link>
+                )}
+                <Link
+                  href="/disputes"
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Disputes
+                </Link>
+                {canSeeAdminLink && (
+                  <Link
+                    href={adminHref}
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    {adminLabel}
+                  </Link>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-destructive hover:bg-accent w-full text-left"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <div className="space-y-2 pt-2">
+                <Link href="/login" className="block">
+                  <Button variant="outline" className="w-full">
+                    Sign in
+                  </Button>
+                </Link>
+                <Link href="/role-selection" className="block">
+                  <Button className="w-full">Create account</Button>
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </nav>
+  );
+}

@@ -1,0 +1,1424 @@
+{
+  "info": {
+    "name": "Gigpurse Backend API",
+    "description": "Role-structured Gigpurse API collection. Select the environment, run signup, copy the six-digit code from email/server logs into the *_email_code variables, verify email, then login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://gigpurse-server.onrender.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "Public APIs",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/",
+            "description": "Service health check."
+          }
+        },
+        {
+          "name": "Browse Musicians",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/musicians?genre=Afrobeats&instrument=Guitar&location=Lagos&min_exp=3&sort_by=experience",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Jobs",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs?status=open&genre=Afrobeats&sort_by=budget&max_applications=5",
+            "description": ""
+          }
+        },
+        {
+          "name": "Get Job By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs?id={{job_id}}",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Reviews",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/reviews?user_id={{musician_id}}",
+            "description": ""
+          }
+        },
+        {
+          "name": "Average Rating",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/reviews/average?user_id={{musician_id}}",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Client",
+      "item": [
+        {
+          "name": "Signup Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('client_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"client@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"client\",\n  \"name\": \"Demo Client\"\n}"
+            },
+            "url": "{{base_url}}/auth/signup",
+            "description": "Creates client and sends a 6-digit email verification code."
+          }
+        },
+        {
+          "name": "Resend Client Email Code",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"client@example.com\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/resend",
+            "description": ""
+          }
+        },
+        {
+          "name": "Verify Client Email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"client@example.com\",\n  \"code\": \"{{client_email_code}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/confirm",
+            "description": ""
+          }
+        },
+        {
+          "name": "Login Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) { pm.environment.set('client_token', json.data.token); pm.environment.set('token', json.data.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"client@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{base_url}}/auth/login",
+            "description": ""
+          }
+        },
+        {
+          "name": "Request Client Password Reset",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"client@example.com\"\n}"
+            },
+            "url": "{{base_url}}/auth/password-reset/request",
+            "description": ""
+          }
+        },
+        {
+          "name": "Confirm Client Password Reset",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"paste-token-from-email-or-server-log\",\n  \"new_password\": \"password123\"\n}"
+            },
+            "url": "{{base_url}}/auth/password-reset/confirm",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Musician",
+      "item": [
+        {
+          "name": "Signup Musician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('musician_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"musician@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"musician\",\n  \"name\": \"Demo Musician\"\n}"
+            },
+            "url": "{{base_url}}/auth/signup",
+            "description": ""
+          }
+        },
+        {
+          "name": "Resend Musician Email Code",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"musician@example.com\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/resend",
+            "description": ""
+          }
+        },
+        {
+          "name": "Verify Musician Email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"musician@example.com\",\n  \"code\": \"{{musician_email_code}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/confirm",
+            "description": ""
+          }
+        },
+        {
+          "name": "Login Musician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) pm.environment.set('musician_token', json.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"musician@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{base_url}}/auth/login",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Admin",
+      "item": [
+        {
+          "name": "Signup Admin (dev only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('admin_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"admin\",\n  \"name\": \"Demo Admin\"\n}"
+            },
+            "url": "{{base_url}}/auth/signup",
+            "description": "Requires ALLOW_ADMIN_SIGNUP=true. Disabled in production by default."
+          }
+        },
+        {
+          "name": "Verify Admin Email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"code\": \"{{admin_email_code}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/confirm",
+            "description": ""
+          }
+        },
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) pm.environment.set('admin_token', json.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": "{{base_url}}/auth/login",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Client APIs",
+      "item": [
+        {
+          "name": "Get Client Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/profile",
+            "description": ""
+          }
+        },
+        {
+          "name": "Update Client Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Client\",\n  \"bio\": \"Looking for reliable session musicians\",\n  \"location\": \"Lagos\",\n  \"client_profile\": {\n    \"company_name\": \"Gigpurse Events\"\n  }\n}"
+            },
+            "url": "{{base_url}}/users/profile",
+            "description": ""
+          }
+        },
+        {
+          "name": "Post Job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('job_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Afrobeats guitar session\",\n  \"description\": \"Need guitar for a studio session\",\n  \"instrument\": \"Guitar\",\n  \"genre\": \"Afrobeats\",\n  \"location\": \"Lagos\",\n  \"budget\": 500\n}"
+            },
+            "url": "{{base_url}}/jobs",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Applications For My Job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs/applications?job_id={{job_id}}",
+            "description": ""
+          }
+        },
+        {
+          "name": "Accept Application",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application_id\": \"{{application_id}}\"\n}"
+            },
+            "url": "{{base_url}}/jobs/applications/accept",
+            "description": ""
+          }
+        },
+        {
+          "name": "Create Direct Hire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('direct_hire_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"musician_id\": \"{{musician_id}}\",\n  \"title\": \"Private acoustic set\",\n  \"description\": \"Direct hire for a private event\",\n  \"price\": 300\n}"
+            },
+            "url": "{{base_url}}/direct-hires",
+            "description": ""
+          }
+        },
+        {
+          "name": "Complete Contract",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract_id\": \"{{contract_id}}\"\n}"
+            },
+            "url": "{{base_url}}/contracts/complete",
+            "description": ""
+          }
+        },
+        {
+          "name": "Submit Client Review",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract_id\": \"{{contract_id}}\",\n  \"rating\": 5,\n  \"comment\": \"Excellent work\"\n}"
+            },
+            "url": "{{base_url}}/reviews",
+            "description": ""
+          }
+        },
+        {
+          "name": "Open Dispute",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('dispute_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract_id\": \"{{contract_id}}\",\n  \"reason\": \"Need admin review\"\n}"
+            },
+            "url": "{{base_url}}/disputes",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Musician APIs",
+      "item": [
+        {
+          "name": "Get Musician Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/users/profile",
+            "description": ""
+          }
+        },
+        {
+          "name": "Update Musician Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Musician\",\n  \"bio\": \"Guitarist and producer\",\n  \"location\": \"Lagos\",\n  \"musician_profile\": {\n    \"stage_name\": \"Demo Strings\",\n    \"instruments\": [\"Guitar\"],\n    \"genres\": [\"Afrobeats\"],\n    \"experience_years\": 7,\n    \"price_min\": 200,\n    \"price_max\": 600,\n    \"portfolio\": [\n      {\n        \"title\": \"Live Session\",\n        \"description\": \"Recorded guitar session\",\n        \"url\": \"https://example.com/session.mp4\",\n        \"media_type\": \"video\"\n      }\n    ]\n  }\n}"
+            },
+            "url": "{{base_url}}/users/profile",
+            "description": ""
+          }
+        },
+        {
+          "name": "Recommended Jobs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs/recommended?limit=5",
+            "description": ""
+          }
+        },
+        {
+          "name": "Apply For Job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data.id) pm.environment.set('application_id', json.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_id\": \"{{job_id}}\",\n  \"proposal\": \"I can deliver a clean session.\",\n  \"price_bid\": 450\n}"
+            },
+            "url": "{{base_url}}/jobs/apply",
+            "description": ""
+          }
+        },
+        {
+          "name": "List My Applications",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs/applications",
+            "description": ""
+          }
+        },
+        {
+          "name": "My Jobs By Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/jobs/mine?status=active",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Direct Hires",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/direct-hires?status=pending",
+            "description": ""
+          }
+        },
+        {
+          "name": "Respond To Direct Hire",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_id\": \"{{direct_hire_id}}\",\n  \"decision\": \"accepted\"\n}"
+            },
+            "url": "{{base_url}}/direct-hires/respond",
+            "description": ""
+          }
+        },
+        {
+          "name": "Talent Dashboard",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/talent/dashboard",
+            "description": ""
+          }
+        },
+        {
+          "name": "Submit Musician Review",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract_id\": \"{{contract_id}}\",\n  \"rating\": 5,\n  \"comment\": \"Great client\"\n}"
+            },
+            "url": "{{base_url}}/reviews",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Shared Authenticated APIs",
+      "item": [
+        {
+          "name": "Send Chat Message",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recv_id\": \"{{musician_id}}\",\n  \"content\": \"Can we talk on WhatsApp or pay by Paypal?\"\n}"
+            },
+            "url": "{{base_url}}/chats",
+            "description": ""
+          }
+        },
+        {
+          "name": "Chat History",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/chats/history?user_id={{musician_id}}",
+            "description": ""
+          }
+        },
+        {
+          "name": "Recent Chats",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/chats/recent",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Contracts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (Array.isArray(json.data) && json.data.length) pm.environment.set('contract_id', json.data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/contracts",
+            "description": ""
+          }
+        },
+        {
+          "name": "Get Contract By ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/contracts?id={{contract_id}}",
+            "description": ""
+          }
+        },
+        {
+          "name": "List Notifications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (Array.isArray(json.data) && json.data.length) pm.environment.set('notification_id', json.data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/notifications",
+            "description": ""
+          }
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{musician_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notification_id\": \"{{notification_id}}\"\n}"
+            },
+            "url": "{{base_url}}/notifications/read",
+            "description": ""
+          }
+        },
+        {
+          "name": "List My Disputes",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{client_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/disputes",
+            "description": ""
+          }
+        },
+        {
+          "name": "WebSocket Chat URL",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/chats/ws?token={{client_token}}",
+            "description": "Use Postman WebSocket client with wss://gigpurse-server.onrender.com/chats/ws?token={{client_token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin APIs",
+      "item": [
+        {
+          "name": "Admin Analytics",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/admin/analytics",
+            "description": ""
+          }
+        },
+        {
+          "name": "Admin Users",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/admin/users",
+            "description": ""
+          }
+        },
+        {
+          "name": "Admin Jobs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/admin/jobs",
+            "description": ""
+          }
+        },
+        {
+          "name": "Admin Disputes",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/admin/disputes?status=open",
+            "description": ""
+          }
+        },
+        {
+          "name": "Resolve Dispute",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dispute_id\": \"{{dispute_id}}\",\n  \"resolution\": \"Resolved after review\"\n}"
+            },
+            "url": "{{base_url}}/admin/disputes/resolve",
+            "description": ""
+          }
+        },
+        {
+          "name": "Delete Job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_id\": \"{{job_id}}\"\n}"
+            },
+            "url": "{{base_url}}/admin/jobs",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prototype Wallet APIs",
+      "item": [
+        {
+          "name": "Create Wallet",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{client_id}}\"\n}"
+            },
+            "url": "{{base_url}}/wallet",
+            "description": ""
+          }
+        },
+        {
+          "name": "Deposit Wallet",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{client_id}}\",\n  \"amount\": 100\n}"
+            },
+            "url": "{{base_url}}/wallet/deposit",
+            "description": ""
+          }
+        },
+        {
+          "name": "Get Wallet Balance",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/wallet?user_id={{client_id}}",
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Email Delivery Test",
+      "item": [
+        {
+          "name": "Signup Test Email",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"password123\",\n  \"role\": \"client\",\n  \"name\": \"Email Test User\"\n}"
+            },
+            "url": "{{base_url}}/auth/signup",
+            "description": "Use this to test delivery to hacida1660@dyleris.com after SMTP_* env vars are configured on Render."
+          }
+        },
+        {
+          "name": "Resend Test Email Code",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/email-verification/resend",
+            "description": ""
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,47 +1,79 @@
-# Gigpurse Backend
+# Gigpurse
 
-A Go backend built with **Clean Architecture** principles.
-
-## Project Structure
+A gig marketplace connecting clients with musicians. This repo is a monorepo with two
+independent projects:
 
 ```
 Gigpurse/
+├── backend/    # Go REST API (Clean Architecture, MongoDB, JWT auth)
+└── frontend/   # Next.js web app
+```
+
+The API is the source of truth for behavior — see [`backend/docs/API.md`](backend/docs/API.md)
+for the full endpoint reference.
+
+## Running locally
+
+**Backend** (needs a local or remote MongoDB instance):
+
+```bash
+cd backend
+export MONGODB_URI="mongodb://localhost:27017"
+export JWT_SECRET="dev-secret-change-me"
+go run ./cmd/gigpurse
+```
+
+The API listens on `:8080` by default (override with `PORT`).
+
+**Frontend** (needs the backend running first):
+
+```bash
+cd frontend
+export GIGPURSE_API_URL="http://localhost:8080"
+npm install
+npm run dev
+```
+
+The app listens on `:3000` by default.
+
+## Backend
+
+Built with **Clean Architecture** principles:
+
+```
+backend/
 ├── cmd/
-│   └── gigpurse/
-│       └── main.go       # Application entry point and dependency injection
+│   ├── gigpurse/         # Application entry point and dependency injection
+│   └── simulator/        # Standalone simulation client
 ├── internal/
 │   ├── domain/           # Core enterprise business rules (Entities & Interfaces)
 │   ├── usecase/          # Application business rules (orchestrates domain entities)
-│   ├── repository/       # Data storage implementations (memory, databases)
+│   ├── repository/       # Data storage implementations (mongodb, in-memory)
 │   └── delivery/         # Transport layer (HTTP handlers, routes)
-├── go.mod                # Module definitions
-└── README.md             # This file
+├── docs/                 # API.md + Postman collection
+├── go.mod
+└── render.yaml           # Render.com deploy config
 ```
 
-## Layers Explained
+1. **Domain** (`internal/domain`): Core business objects and contract interfaces,
+   independent of external libraries, databases, and frameworks.
+2. **Usecase** (`internal/usecase`): Application-specific business logic orchestrating
+   domain entities.
+3. **Repository** (`internal/repository`): Data access implementations — MongoDB for
+   everything except the prototype wallet, which is in-memory.
+4. **Delivery** (`internal/delivery`): HTTP handlers and routes using the standard
+   library, with a unified JSON response envelope.
 
-1. **Domain (`internal/domain`)**: Core business objects and contract interfaces. This layer is completely independent of external libraries, databases, and frameworks.
-2. **Usecase (`internal/usecase`)**: Contains application-specific business logic. It orchestrates the flow of data to and from the domain entities.
-3. **Repository (`internal/repository`)**: Data access layer implementations. Currently contains an in-memory store, which can easily be replaced by SQL/NoSQL databases without changing the business logic.
-4. **Delivery (`internal/delivery`)**: Exposes the application logic to the outer world. Currently implemented with HTTP endpoints using the standard library.
+Run tests: `cd backend && go test ./...`
 
-## Running the Server
+## Frontend
 
-Start the server by running:
+A Next.js (App Router) app that talks to the Go API through a small BFF layer: Route
+Handlers under `frontend/app/api/` exchange credentials for a JWT server-side and store
+it in an httpOnly cookie, then proxy authenticated requests to the backend. See
+`frontend/README.md` (once scaffolded) for details.
 
-```bash
-go run cmd/gigpurse/main.go
-```
+## Deploying
 
-The server runs on port `:8080`.
-
-### Endpoints
-
-* **Create Wallet**
-  * `POST /wallet`
-  * Body: `{"user_id": "user_id_here"}`
-* **Get Balance**
-  * `GET /wallet?user_id=user_id_here`
-* **Deposit**
-  * `POST /wallet/deposit`
-  * Body: `{"user_id": "user_id_here", "amount": 100.50}`
+The backend deploys to Render via `backend/render.yaml`. Frontend deployment
+configuration is not yet set up.
