@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Wallet as WalletIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/utils";
 
 export default function WalletCard({ balance, escrowBalance, onDeposit }) {
   const [open, setOpen] = useState(false);
@@ -36,8 +37,10 @@ export default function WalletCard({ balance, escrowBalance, onDeposit }) {
         <WalletIcon className="w-5 h-5" />
         <span className="text-sm font-medium">Available balance</span>
       </div>
-      <div className="text-4xl font-bold mb-1">{balance?.toFixed?.(2) ?? "0.00"}</div>
-      {escrowBalance > 0 && <p className="text-sm opacity-80 mb-5">{escrowBalance.toFixed(2)} held in escrow</p>}
+      <div className="text-4xl font-bold mb-1">{formatMoney(balance ?? 0, { decimals: 2 })}</div>
+      {escrowBalance > 0 && (
+        <p className="text-sm opacity-80 mb-5">{formatMoney(escrowBalance, { decimals: 2 })} held in escrow</p>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button variant="secondary" className="gap-2 mt-4">

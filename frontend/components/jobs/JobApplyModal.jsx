@@ -63,7 +63,7 @@ export default function JobApplyModal({ job, trigger, onApplied }) {
             />
           </div>
           <div>
-            <Label htmlFor="price_bid">Your price bid</Label>
+            <Label htmlFor="price_bid">Your price bid (₦)</Label>
             <Input
               id="price_bid"
               type="number"

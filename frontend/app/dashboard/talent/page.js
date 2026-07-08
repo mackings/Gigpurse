@@ -5,10 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import StatCard from "@/components/dashboard/StatCard";
+import ContractRow from "@/components/dashboard/ContractRow";
 import BookingRequestsList from "@/components/booking/BookingRequestsList";
-import { Loader2, Briefcase, Star, Clock, CheckCircle2, ChevronRight } from "lucide-react";
+import IconBadge from "@/components/ui/icon-badge";
+import { Loader2, Briefcase, Star, Clock, CheckCircle2, Music2 } from "lucide-react";
 
 export default function TalentDashboard() {
   const { user } = useCurrentUser();
@@ -76,19 +77,7 @@ export default function TalentDashboard() {
             <h2 className="font-semibold text-foreground mb-4">Your contracts</h2>
             <div className="space-y-3">
               {data?.contracts?.length ? (
-                data.contracts.map((contract) => (
-                  <Link
-                    key={contract.id}
-                    href={`/contracts/${contract.id}`}
-                    className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
-                  >
-                    <div>
-                      <p className="font-medium text-foreground">{contract.title || "Contract"}</p>
-                      <p className="text-sm text-muted-foreground">{contract.price} · <span className="capitalize">{contract.status}</span></p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </Link>
-                ))
+                data.contracts.map((contract) => <ContractRow key={contract.id} contract={contract} />)
               ) : (
                 <p className="text-sm text-muted-foreground">No contracts yet.</p>
               )}
@@ -100,11 +89,22 @@ export default function TalentDashboard() {
             <div className="space-y-3">
               {data?.recommended_jobs?.length ? (
                 data.recommended_jobs.map((job) => (
-                  <Link key={job.id} href="/jobs" className="block bg-card rounded-xl border border-border p-4 hover:border-primary/40 transition-colors">
-                    <p className="font-medium text-foreground">{job.title}</p>
-                    <div className="flex gap-2 mt-1">
-                      <Badge variant="secondary">{job.genre}</Badge>
-                      <Badge variant="outline">{job.instrument}</Badge>
+                  <Link
+                    key={job.id}
+                    href="/jobs"
+                    className="group flex items-center gap-3 bg-card rounded-xl border border-border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5"
+                  >
+                    <IconBadge icon={Music2} color="bg-violet-500" size="sm" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{job.title}</p>
+                      <div className="flex gap-1.5 mt-1">
+                        {job.genre && (
+                          <span className="px-2 py-0.5 bg-accent text-accent-foreground text-xs rounded-full font-medium">{job.genre}</span>
+                        )}
+                        {job.instrument && (
+                          <span className="px-2 py-0.5 bg-muted text-muted-foreground text-xs rounded-full">{job.instrument}</span>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 ))

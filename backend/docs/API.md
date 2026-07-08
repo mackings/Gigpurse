@@ -1161,21 +1161,38 @@ Status codes: `200`, `400`, `401`, `403`, `405`, `500`.
 
 ### `POST /media/upload`
 
-Uploads a single image, audio, or video file and returns its public URL.
+Uploads one or more images, audio, or video files and returns their public
+URLs.
 
 Auth: required.
 
-Request: `multipart/form-data` with a single field named `file`. Max size 25MB.
-Accepted content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`,
-`audio/mpeg`, `audio/wav`, `audio/ogg`, `video/mp4`, `video/webm`,
-`video/quicktime`.
+Request: `multipart/form-data`. Repeat the field name `files` once per file
+(standard browser behavior when a single `<input type="file" multiple>`
+is submitted) — up to 10 files per request, 25MB each. A single field named
+`file` also still works for backward compatibility. Accepted content types:
+`image/jpeg`, `image/png`, `image/webp`, `image/gif`, `audio/mpeg`,
+`audio/wav`, `audio/ogg`, `video/mp4`, `video/webm`, `video/quicktime`.
 
-Response `201`:
+Response `201`, uploading multiple files:
+
+```json
+{
+  "files": [
+    { "url": "https://api.example.com/uploads/9f2a1c...b3.png", "media_type": "image", "filename": "stage.png" },
+    { "url": "https://api.example.com/uploads/71ab04...e2.mp4", "media_type": "video", "filename": "live-set.mp4" }
+  ]
+}
+```
+
+Response `201`, uploading exactly one file — same as above, plus flat
+`url`/`media_type` fields at the top level for backward compatibility with
+single-file callers:
 
 ```json
 {
   "url": "https://api.example.com/uploads/9f2a1c...b3.png",
-  "media_type": "image"
+  "media_type": "image",
+  "files": [{ "url": "https://api.example.com/uploads/9f2a1c...b3.png", "media_type": "image", "filename": "stage.png" }]
 }
 ```
 
@@ -1189,6 +1206,39 @@ will not survive a redeploy — swap in durable object storage before relying
 on this in production.
 
 Status codes: `201`, `400`, `401`, `405`, `413` (file too large), `500`.
+
+### `GET /link-preview`
+
+Unfurls a URL into a title/thumbnail/embeddable player, for showing a rich
+preview card when a talent adds an external link (YouTube, Vimeo,
+SoundCloud, Spotify, TikTok, or any other site with Open Graph tags) to
+their portfolio instead of a bare link.
+
+Auth: required.
+
+Query: `url=<the link to preview>` (must be `http`/`https`; requests to
+localhost/private/link-local addresses are rejected).
+
+Response `200`:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "title": "Rick Astley - Never Gonna Give You Up",
+  "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+  "embed_url": "https://www.youtube.com/embed/dQw4w9WgXcQ?feature=oembed",
+  "provider": "youtube",
+  "media_type": "video"
+}
+```
+
+`provider` is `youtube`, `vimeo`, `soundcloud`, `spotify`, `tiktok`, or
+`link` (the generic Open Graph fallback — `embed_url` is omitted for
+`link`, since there's nothing to embed, only a clickable card).
+`media_type` is `video`, `audio`, or `link`.
+
+Status codes: `200`, `400`, `401`, `405`, `502` (couldn't fetch/parse the
+URL).
 
 ## Web Push
 

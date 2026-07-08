@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import ClientJobCard from "@/components/jobs/ClientJobCard";
 import BookingRequestsList from "@/components/booking/BookingRequestsList";
 import StatCard from "@/components/dashboard/StatCard";
-import { Loader2, Briefcase, Handshake, Star, ChevronRight } from "lucide-react";
+import ContractRow from "@/components/dashboard/ContractRow";
+import { Loader2, Briefcase, Handshake, Star } from "lucide-react";
 
 export default function ClientDashboard() {
   const { user } = useCurrentUser();
@@ -88,17 +89,7 @@ export default function ClientDashboard() {
             ) : activeContracts.length ? (
               <div className="space-y-3 mb-8">
                 {activeContracts.map((contract) => (
-                  <Link
-                    key={contract.id}
-                    href={`/contracts/${contract.id}`}
-                    className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
-                  >
-                    <div>
-                      <p className="font-medium text-foreground">{contract.title || "Contract"}</p>
-                      <p className="text-sm text-muted-foreground">{contract.price}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </Link>
+                  <ContractRow key={contract.id} contract={contract} />
                 ))}
               </div>
             ) : (
@@ -109,17 +100,7 @@ export default function ClientDashboard() {
             {completedContracts.length ? (
               <div className="space-y-3">
                 {completedContracts.map((contract) => (
-                  <Link
-                    key={contract.id}
-                    href={`/contracts/${contract.id}`}
-                    className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 hover:border-primary/40 transition-colors"
-                  >
-                    <div>
-                      <p className="font-medium text-foreground">{contract.title || "Contract"}</p>
-                      <p className="text-sm text-muted-foreground">{contract.price}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </Link>
+                  <ContractRow key={contract.id} contract={contract} />
                 ))}
               </div>
             ) : (

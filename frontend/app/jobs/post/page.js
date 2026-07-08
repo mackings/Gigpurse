@@ -106,7 +106,7 @@ export default function PostJob() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="budget">Budget</Label>
+                  <Label htmlFor="budget">Budget (₦)</Label>
                   <Input
                     id="budget"
                     type="number"

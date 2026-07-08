@@ -7,17 +7,13 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUserInfo } from "@/hooks/use-user-info";
 import { useDirectHires, useDirectHire } from "@/hooks/use-direct-hire";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import StatusBadge from "@/components/ui/status-badge";
+import IconBadge from "@/components/ui/icon-badge";
 import CounterOfferModal from "@/components/booking/CounterOfferModal";
 import BookingModal from "@/components/booking/BookingModal";
-import { ChevronDown, ChevronUp, Check, X, RefreshCw, MapPin, Calendar, CalendarPlus } from "lucide-react";
+import { formatMoney } from "@/lib/utils";
+import { ChevronDown, ChevronUp, Check, X, RefreshCw, MapPin, Calendar, CalendarPlus, Handshake } from "lucide-react";
 import { toast } from "sonner";
-
-const statusStyles = {
-  pending: "secondary",
-  accepted: "outline",
-  declined: "destructive",
-};
 
 function formatEventDate(iso) {
   if (!iso) return null;
@@ -85,42 +81,43 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
       >
         <span className="flex items-center gap-2">
           Booking request
-          <Badge variant={statusStyles[request.status] || "outline"} className="capitalize">
-            {request.status}
-          </Badge>
+          <StatusBadge status={request.status} />
         </span>
         {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
       {expanded && (
         <div className="px-4 pb-4 space-y-3">
-          <div className="bg-card rounded-xl border border-border p-4">
-            <p className="font-medium text-foreground">{request.title}</p>
-            <p className="text-sm text-muted-foreground mt-1">{request.description}</p>
-            <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
-              {request.location && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />
-                  {request.location}
-                </span>
+          <div className="bg-card rounded-xl border border-border p-4 flex items-start gap-3">
+            <IconBadge icon={Handshake} color="bg-primary" size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-foreground">{request.title}</p>
+              <p className="text-sm text-muted-foreground mt-1">{request.description}</p>
+              <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+                {request.location && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" />
+                    {request.location}
+                  </span>
+                )}
+                {request.event_date && (
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5" />
+                    {formatEventDate(request.event_date)}
+                  </span>
+                )}
+              </div>
+              <p className="text-lg font-semibold text-foreground mt-2">{formatMoney(request.price)}</p>
+              {request.status === "pending" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isProposer ? "Waiting for their response." : "They made this offer — accept, decline, or counter."}
+                </p>
               )}
-              {request.event_date && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  {formatEventDate(request.event_date)}
-                </span>
+              {request.status === "accepted" && request.contract_id && (
+                <Link href={`/contracts/${request.contract_id}`} className="text-xs text-primary hover:underline mt-1 inline-block">
+                  View contract →
+                </Link>
               )}
             </div>
-            <p className="text-lg font-semibold text-foreground mt-2">{request.price}</p>
-            {request.status === "pending" && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {isProposer ? "Waiting for their response." : "They made this offer — accept, decline, or counter."}
-              </p>
-            )}
-            {request.status === "accepted" && request.contract_id && (
-              <Link href={`/contracts/${request.contract_id}`} className="text-xs text-primary hover:underline mt-1 inline-block">
-                View contract →
-              </Link>
-            )}
           </div>
 
           {canRespond && (
@@ -151,7 +148,7 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
               <p className="text-xs font-medium text-muted-foreground">Offer history</p>
               {request.history.map((entry, idx) => (
                 <p key={idx} className="text-xs text-muted-foreground">
-                  {entry.proposed_by === user.id ? "You" : "They"} offered {entry.price}
+                  {entry.proposed_by === user.id ? "You" : "They"} offered {formatMoney(entry.price)}
                 </p>
               ))}
             </div>

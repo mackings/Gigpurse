@@ -21,9 +21,12 @@ export const apiPost = (path, body) => request(path, { method: "POST", body });
 export const apiPut = (path, body) => request(path, { method: "PUT", body });
 export const apiDelete = (path, body) => request(path, { method: "DELETE", body });
 
-export async function apiUpload(path, file) {
+// Accepts a single File or an array of Files — either way, returns
+// { url, media_type, files: [...] } (single) or { files: [...] } (batch).
+export async function apiUpload(path, files) {
   const formData = new FormData();
-  formData.append("file", file);
+  const list = Array.isArray(files) ? files : [files];
+  list.forEach((file) => formData.append("files", file));
   const res = await fetch(`/api/proxy${path}`, {
     method: "POST",
     body: formData,

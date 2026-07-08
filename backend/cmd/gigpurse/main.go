@@ -109,6 +109,7 @@ func main() {
 	milestoneHandler := delivery.NewMilestoneHandler(milestoneUsecase)
 	mediaHandler := delivery.NewMediaHandler(uploadDir, publicURL)
 	pushHandler := delivery.NewPushHandler(pushSubRepo, vapidPublicKey)
+	linkPreviewHandler := delivery.NewLinkPreviewHandler()
 
 	// 5. Register HTTP Routes
 	mux := http.NewServeMux()
@@ -133,6 +134,7 @@ func main() {
 	milestoneHandler.RegisterRoutes(mux)
 	mediaHandler.RegisterRoutes(mux)
 	pushHandler.RegisterRoutes(mux)
+	linkPreviewHandler.RegisterRoutes(mux)
 
 	// Serve uploaded media files
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))

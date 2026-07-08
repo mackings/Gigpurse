@@ -1,17 +1,27 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Lock, CheckCircle2, Check, X, RefreshCw } from "lucide-react";
+import StatusBadge from "@/components/ui/status-badge";
+import IconBadge from "@/components/ui/icon-badge";
+import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/utils";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
 
-const statusStyles = {
-  proposed: "secondary",
-  accepted: "outline",
-  rejected: "destructive",
-  funded: "outline",
-  released: "secondary",
+const STATUS_ICON = {
+  proposed: Clock,
+  accepted: Flag,
+  funded: Lock,
+  released: CheckCircle2,
+  rejected: X,
+};
+
+const STATUS_COLOR = {
+  proposed: "bg-amber-500",
+  accepted: "bg-primary",
+  funded: "bg-violet-500",
+  released: "bg-emerald-500",
+  rejected: "bg-rose-500",
 };
 
 export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onCounter, onFund, onRelease }) {
@@ -32,20 +42,25 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
     <div className="space-y-3">
       {milestones.map((m) => {
         const isProposer = m.proposed_by === currentUserId;
+        const StatusIcon = STATUS_ICON[m.status] || Flag;
         return (
-          <div key={m.id} className="p-4 rounded-xl border border-border bg-card flex items-center justify-between gap-4 flex-wrap">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-foreground truncate">{m.title}</p>
-                <Badge variant={statusStyles[m.status] || "outline"} className="capitalize shrink-0">
-                  {m.status}
-                </Badge>
+          <div
+            key={m.id}
+            className="group p-4 rounded-xl border border-border bg-card flex items-center justify-between gap-4 flex-wrap transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30"
+          >
+            <div className="flex items-start gap-3 min-w-0">
+              <IconBadge icon={StatusIcon} color={STATUS_COLOR[m.status] || "bg-muted-foreground"} size="sm" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-medium text-foreground truncate">{m.title}</p>
+                  <StatusBadge status={m.status} />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {formatMoney(m.amount)}
+                  {m.due_date && ` · due ${new Date(m.due_date).toLocaleDateString()}`}
+                  {m.status === "proposed" && (isProposer ? " · awaiting their response" : " · they proposed this")}
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {m.amount}
-                {m.due_date && ` · due ${new Date(m.due_date).toLocaleDateString()}`}
-                {m.status === "proposed" && (isProposer ? " · awaiting their response" : " · they proposed this")}
-              </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">

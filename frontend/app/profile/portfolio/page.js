@@ -1,76 +1,57 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, Plus, Trash2, ArrowUp, ArrowDown, ExternalLink, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { apiGet, apiPut, apiUpload } from "@/lib/api";
-
-const emptyItem = { title: "", description: "", url: "", media_type: "video" };
+import { apiGet, apiPut } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
+import PortfolioComposer from "@/components/portfolio/PortfolioComposer";
+import PortfolioItemCard from "@/components/portfolio/PortfolioItemCard";
+import PortfolioLightbox from "@/components/portfolio/PortfolioLightbox";
+import ShareLinkButton from "@/components/ShareLinkButton";
 
 export default function TalentPortfolio() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [profile, setProfile] = useState(null);
   const [items, setItems] = useState([]);
-  const [draft, setDraft] = useState(emptyItem);
-
-  async function handleFileSelect(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setIsUploading(true);
-    try {
-      const uploaded = await apiUpload("/media/upload", file);
-      setDraft((prev) => ({
-        ...prev,
-        url: uploaded.url,
-        media_type: uploaded.media_type,
-        title: prev.title || file.name.replace(/\.[^/.]+$/, ""),
-      }));
-      toast.success("File uploaded. Fill in a title and add it below.");
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setIsUploading(false);
-    }
-  }
+  const [previewItem, setPreviewItem] = useState(null);
+  const [profileURL, setProfileURL] = useState("");
 
   useEffect(() => {
     apiGet("/users/profile")
       .then((user) => {
         setProfile(user);
         setItems(user.musician_profile?.portfolio || []);
+        if (typeof window !== "undefined") {
+          setProfileURL(`${window.location.origin}/talent/${user.id}`);
+        }
       })
       .finally(() => setIsLoading(false));
   }, []);
 
-  function addItem() {
-    if (!draft.title || !draft.url) {
-      toast.error("Title and URL are required.");
-      return;
-    }
-    setItems((prev) => [...prev, { ...draft, order: prev.length, is_featured: false }]);
-    setDraft(emptyItem);
+  function addItems(newItems) {
+    setItems((prev) => [...prev, ...newItems]);
   }
 
-  function removeItem(idx) {
-    setItems((prev) => prev.filter((_, i) => i !== idx));
+  function updateItem(index, next) {
+    setItems((prev) => prev.map((it, i) => (i === index ? next : it)));
   }
 
-  function move(idx, dir) {
-    setItems((prev) => {
-      const next = [...prev];
-      const target = idx + dir;
-      if (target < 0 || target >= next.length) return prev;
-      [next[idx], next[target]] = [next[target], next[idx]];
-      return next.map((item, i) => ({ ...item, order: i }));
-    });
+  function removeItem(index) {
+    setItems((prev) => prev.filter((_, i) => i !== index).map((it, i) => ({ ...it, order: i })));
+  }
+
+  function moveItem(index, dir) {
+    return () => {
+      setItems((prev) => {
+        const next = [...prev];
+        const target = index + dir;
+        if (target < 0 || target >= next.length) return prev;
+        [next[index], next[target]] = [next[target], next[index]];
+        return next.map((it, i) => ({ ...it, order: i }));
+      });
+    };
   }
 
   async function save() {
@@ -98,91 +79,48 @@ export default function TalentPortfolio() {
     );
   }
 
+  const featuredCount = items.filter((i) => i.is_featured).length;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold text-foreground tracking-tight">Your Portfolio</h2>
-          <p className="text-muted-foreground text-sm">Showcase your best work to potential clients.</p>
+          <p className="text-muted-foreground text-sm">
+            Show clients your best work — photos, videos, tracks, anything you&apos;re proud of.
+            {featuredCount > 0 && ` ${featuredCount} featured.`}
+          </p>
         </div>
-        <Button onClick={save} disabled={isSaving}>
-          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save changes"}
-        </Button>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Add a portfolio item</CardTitle>
-          <CardDescription>Link to a video, audio track, or image showcasing your work.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Title</Label>
-            <Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} className="mt-1.5" />
-          </div>
-          <div>
-            <Label>Description</Label>
-            <Textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-1.5" />
-          </div>
-          <div>
-            <Label>URL</Label>
-            <Input
-              placeholder="https://youtube.com/watch?v=..."
-              value={draft.url}
-              onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-              className="mt-1.5"
-            />
-            <div className="flex items-center gap-3 mt-2">
-              <span className="text-xs text-muted-foreground">or upload a file directly</span>
-              <label className="inline-flex">
-                <input
-                  type="file"
-                  accept="image/*,audio/*,video/*"
-                  onChange={handleFileSelect}
-                  disabled={isUploading}
-                  className="hidden"
-                />
-                <Button type="button" size="sm" variant="outline" disabled={isUploading} className="gap-1.5" asChild>
-                  <span>
-                    {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    Upload file
-                  </span>
-                </Button>
-              </label>
-            </div>
-          </div>
-          <Button variant="outline" onClick={addItem} className="gap-2">
-            <Plus className="w-4 h-4" />
-            Add item
+        <div className="flex items-center gap-2">
+          {profileURL && <ShareLinkButton url={profileURL} label="Share profile" />}
+          <Button onClick={save} disabled={isSaving}>
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save changes"}
           </Button>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-3">
-        {items.map((item, idx) => (
-          <div key={idx} className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="font-medium text-foreground truncate">{item.title}</p>
-              <a href={item.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-                <ExternalLink className="w-3 h-3" />
-                {item.url}
-              </a>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button size="icon" variant="ghost" onClick={() => move(idx, -1)}>
-                <ArrowUp className="w-4 h-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => move(idx, 1)}>
-                <ArrowDown className="w-4 h-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => removeItem(idx)} className="text-destructive hover:text-destructive">
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
-        {items.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No portfolio items yet.</p>}
+        </div>
       </div>
+
+      <PortfolioComposer onAdd={addItems} nextOrder={items.length} />
+
+      {items.length > 0 ? (
+        <div className="space-y-3">
+          {items.map((item, idx) => (
+            <PortfolioItemCard
+              key={idx}
+              item={item}
+              onChange={(next) => updateItem(idx, next)}
+              onRemove={() => removeItem(idx)}
+              onMove={(dir) => moveItem(idx, dir)}
+              onPreview={setPreviewItem}
+              canMoveUp={idx > 0}
+              canMoveDown={idx < items.length - 1}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground text-center py-12">No portfolio items yet — add your first one above.</p>
+      )}
+
+      <PortfolioLightbox item={previewItem} open={!!previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
     </div>
   );
 }

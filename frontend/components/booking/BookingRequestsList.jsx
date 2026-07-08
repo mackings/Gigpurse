@@ -6,7 +6,9 @@ import { apiGet } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MessageCircle } from "lucide-react";
+import IconBadge from "@/components/ui/icon-badge";
+import { formatMoney } from "@/lib/utils";
+import { Loader2, MessageCircle, CalendarClock, MapPin } from "lucide-react";
 
 export default function BookingRequestsList() {
   const { user } = useCurrentUser();
@@ -33,19 +35,31 @@ export default function BookingRequestsList() {
         const counterpartId = user?.id === req.client_id ? req.musician_id : req.client_id;
         const waitingOnThem = req.proposed_by === user?.id;
         return (
-          <div key={req.id} className="bg-card rounded-xl border border-border p-4">
+          <div
+            key={req.id}
+            className="group bg-card rounded-xl border border-border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5"
+          >
             <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium text-foreground">{req.title}</p>
-                  {waitingOnThem && (
-                    <Badge variant="outline" className="text-xs">
-                      Waiting on them
-                    </Badge>
+              <div className="flex items-start gap-3 min-w-0">
+                <IconBadge icon={CalendarClock} color={waitingOnThem ? "bg-amber-500" : "bg-primary"} size="sm" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-foreground">{req.title}</p>
+                    {waitingOnThem && (
+                      <Badge variant="outline" className="text-xs">
+                        Waiting on them
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-0.5">{req.description}</p>
+                  {req.location && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 shrink-0" />
+                      {req.location}
+                    </p>
                   )}
+                  <p className="text-sm font-semibold text-foreground mt-1">{formatMoney(req.price)}</p>
                 </div>
-                <p className="text-sm text-muted-foreground mt-0.5">{req.description}</p>
-                <p className="text-sm font-semibold text-foreground mt-1">{req.price}</p>
               </div>
               <Link href={`/messages?with=${counterpartId}&booking=${req.id}`} className="shrink-0">
                 <Button size="sm" className="gap-1.5">

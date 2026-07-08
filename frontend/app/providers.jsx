@@ -6,6 +6,7 @@ import { queryClientInstance } from "@/lib/query-client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import InstallPrompt from "@/components/InstallPrompt";
 import { RealtimeProvider } from "@/lib/RealtimeProvider";
 
 export function Providers({ children }) {
@@ -17,6 +18,7 @@ export function Providers({ children }) {
             {children}
             <Toaster position="top-center" />
             <ServiceWorkerRegister />
+            <InstallPrompt />
           </TooltipProvider>
         </RealtimeProvider>
       </QueryClientProvider>

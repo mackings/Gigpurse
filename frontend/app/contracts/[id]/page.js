@@ -7,11 +7,12 @@ import { apiGet, apiPost } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useMilestones } from "@/hooks/use-milestones";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import StatusBadge from "@/components/ui/status-badge";
 import MilestoneList from "@/components/milestones/MilestoneList";
 import CreateMilestonesModal from "@/components/milestones/CreateMilestonesModal";
 import DisputeModal from "@/components/disputes/DisputeModal";
 import ReviewFormModal from "@/components/reviews/ReviewFormModal";
+import { formatMoney } from "@/lib/utils";
 import { ArrowLeft, Loader2, MessageCircle, Plus, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,14 +69,14 @@ export default function ContractDetailPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold text-foreground">{contract.title || "Contract"}</h1>
-                <Badge variant="secondary" className="capitalize">{contract.status}</Badge>
+                <StatusBadge status={contract.status} />
               </div>
               <p className="text-muted-foreground text-sm mt-1">
                 {contract.description || (contract.source === "direct_hire" ? "Direct hire" : "Job-sourced contract")}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold text-foreground">{contract.price}</p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{formatMoney(contract.price)}</p>
               <p className="text-xs text-muted-foreground">Total contract value</p>
             </div>
           </div>

@@ -58,7 +58,7 @@ export default function MilestoneCounterModal({ trigger, current, onCounter }) {
             />
           </div>
           <div>
-            <Label htmlFor="ms-counter-amount">Amount</Label>
+            <Label htmlFor="ms-counter-amount">Amount (₦)</Label>
             <Input
               id="ms-counter-amount"
               type="number"

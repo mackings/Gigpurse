@@ -49,7 +49,7 @@ export default function CounterOfferModal({ trigger, current, onCounter }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="counter-price">Price</Label>
+            <Label htmlFor="counter-price">Price (₦)</Label>
             <Input
               id="counter-price"
               type="number"

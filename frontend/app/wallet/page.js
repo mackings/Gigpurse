@@ -6,6 +6,7 @@ import WalletCard from "@/components/wallet/WalletCard";
 import WithdrawModal from "@/components/wallet/WithdrawModal";
 import TransactionList from "@/components/wallet/TransactionList";
 import { Button } from "@/components/ui/button";
+import { formatMoney } from "@/lib/utils";
 import { Loader2, ArrowUpRight } from "lucide-react";
 
 export default function WalletPage() {
@@ -46,18 +47,21 @@ export default function WalletPage() {
           themselves are real and shared across your sessions.
         </div>
 
-<div className="grid sm:grid-cols-3 gap-4">
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <p className="text-sm text-muted-foreground">Total earned</p>
-            <p className="text-2xl font-bold text-foreground">{(wallet?.total_earned || 0).toFixed(2)}</p>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <div className="group relative overflow-hidden bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-emerald-500/20 hover:-translate-y-0.5">
+            <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-emerald-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
+            <p className="relative text-sm text-muted-foreground">Total earned</p>
+            <p className="relative text-2xl font-bold text-foreground tabular-nums">{formatMoney(wallet?.total_earned || 0, { decimals: 2 })}</p>
           </div>
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <p className="text-sm text-muted-foreground">Total spent</p>
-            <p className="text-2xl font-bold text-foreground">{(wallet?.total_spent || 0).toFixed(2)}</p>
+          <div className="group relative overflow-hidden bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-rose-500/20 hover:-translate-y-0.5">
+            <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-rose-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
+            <p className="relative text-sm text-muted-foreground">Total spent</p>
+            <p className="relative text-2xl font-bold text-foreground tabular-nums">{formatMoney(wallet?.total_spent || 0, { decimals: 2 })}</p>
           </div>
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <p className="text-sm text-muted-foreground">In escrow</p>
-            <p className="text-2xl font-bold text-foreground">{(wallet?.escrow_balance || 0).toFixed(2)}</p>
+          <div className="group relative overflow-hidden bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-violet-500/20 hover:-translate-y-0.5">
+            <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-violet-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
+            <p className="relative text-sm text-muted-foreground">In escrow</p>
+            <p className="relative text-2xl font-bold text-foreground tabular-nums">{formatMoney(wallet?.escrow_balance || 0, { decimals: 2 })}</p>
           </div>
         </div>
 

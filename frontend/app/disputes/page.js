@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+import StatusBadge from "@/components/ui/status-badge";
+import IconBadge from "@/components/ui/icon-badge";
 import { Loader2, ShieldAlert } from "lucide-react";
 
-const statusVariant = { open: "secondary", resolved: "outline", closed: "outline" };
+const STATUS_COLOR = { open: "bg-rose-500", resolved: "bg-emerald-500", closed: "bg-muted-foreground" };
 
 export default function DisputesPage() {
   const { data: disputes, isLoading } = useQuery({
@@ -34,19 +35,20 @@ export default function DisputesPage() {
               <Link
                 key={d.id}
                 href={`/contracts/${d.contract_id}`}
-                className="block bg-card rounded-xl border border-border p-4 hover:border-primary/40 transition-colors"
+                className="group block bg-card rounded-xl border border-border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-rose-500/30 hover:-translate-y-0.5"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">{d.reason}</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Opened {new Date(d.created_at).toLocaleDateString()}
-                    </p>
-                    {d.resolution && <p className="text-sm text-muted-foreground mt-1">Resolution: {d.resolution}</p>}
+                  <div className="flex items-start gap-3 min-w-0">
+                    <IconBadge icon={ShieldAlert} color={STATUS_COLOR[d.status] || "bg-muted-foreground"} size="sm" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{d.reason}</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Opened {new Date(d.created_at).toLocaleDateString()}
+                      </p>
+                      {d.resolution && <p className="text-sm text-muted-foreground mt-1">Resolution: {d.resolution}</p>}
+                    </div>
                   </div>
-                  <Badge variant={statusVariant[d.status] || "outline"} className="capitalize shrink-0">
-                    {d.status}
-                  </Badge>
+                  <StatusBadge status={d.status} />
                 </div>
               </Link>
             ))}

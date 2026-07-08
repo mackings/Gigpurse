@@ -2,8 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+
+const ROLE_COLOR = {
+  admin: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  client: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  musician: "bg-primary/10 text-primary",
+};
 
 export default function AdminUsers() {
   const { data: users, isLoading } = useQuery({
@@ -33,13 +38,21 @@ export default function AdminUsers() {
         </thead>
         <tbody>
           {users?.map((u) => (
-            <tr key={u.id} className="border-b border-border last:border-0">
-              <td className="px-4 py-3 text-foreground">{u.name}</td>
+            <tr key={u.id} className="border-b border-border last:border-0 transition-colors hover:bg-muted/40">
+              <td className="px-4 py-3 text-foreground font-medium">{u.name}</td>
               <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
               <td className="px-4 py-3">
-                <Badge variant="secondary" className="capitalize">{u.role}</Badge>
+                <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium capitalize ${ROLE_COLOR[u.role] || "bg-muted text-muted-foreground"}`}>
+                  {u.role}
+                </span>
               </td>
-              <td className="px-4 py-3 text-muted-foreground">{u.email_verified ? "Yes" : "No"}</td>
+              <td className="px-4 py-3 text-muted-foreground">
+                {u.email_verified ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-muted-foreground/50" />
+                )}
+              </td>
               <td className="px-4 py-3 text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</td>
             </tr>
           ))}

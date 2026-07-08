@@ -102,7 +102,7 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
             </div>
           </div>
           <div>
-            <Label htmlFor="price">Offered price</Label>
+            <Label htmlFor="price">Offered price (₦)</Label>
             <Input
               id="price"
               type="number"
