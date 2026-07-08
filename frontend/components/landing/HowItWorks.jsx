@@ -3,9 +3,9 @@
 import { motion } from "framer-motion";
 
 const clientSteps = [
-  { number: "01", title: "Browse musicians", description: "Search through our curated list of verified musicians by genre, instrument, or location." },
+  { number: "01", title: "Browse Talent", description: "Search through our curated list of verified Talent by genre, instrument, or location." },
   { number: "02", title: "Request booking", description: "Send a booking request with your event details, date, and budget." },
-  { number: "03", title: "Chat & confirm", description: "Discuss details with the musician and finalize your booking." },
+  { number: "03", title: "Chat & confirm", description: "Discuss details with the Talent and finalize your booking." },
   { number: "04", title: "Enjoy & review", description: "Have an amazing event and leave a review for the community." },
 ];
 
@@ -62,7 +62,7 @@ export default function HowItWorks() {
 
         <div className="grid lg:grid-cols-2 gap-16">
           <StepList steps={clientSteps} badgeLabel="For clients" />
-          <StepList steps={talentSteps} badgeLabel="For musicians" />
+          <StepList steps={talentSteps} badgeLabel="For Talent" />
         </div>
       </div>
     </section>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -54,9 +55,8 @@ export default function ResetPasswordPage() {
             </div>
             <div>
               <Label htmlFor="new_password">New password</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
-                type="password"
                 required
                 minLength={8}
                 value={form.new_password}

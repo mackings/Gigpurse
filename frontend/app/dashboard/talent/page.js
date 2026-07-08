@@ -36,7 +36,10 @@ export default function TalentDashboard() {
             <p className="text-muted-foreground">Here&apos;s what&apos;s happening with your gigs.</p>
           </div>
           <div className="flex gap-3">
-            <Link href="/jobs/mine">
+            <Link href="/profile/portfolio">
+              <Button variant="outline">Portfolio</Button>
+            </Link>
+            <Link href="/profile/jobs">
               <Button variant="outline">My jobs</Button>
             </Link>
             <Link href="/jobs">

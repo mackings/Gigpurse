@@ -93,7 +93,7 @@ export default function ContractDetailPage() {
             {contract.status === "completed" && (
               <ReviewFormModal
                 contractId={contract.id}
-                subjectLabel={role === "client" ? "the musician" : "the client"}
+                subjectLabel={role === "client" ? "the Talent" : "the client"}
                 trigger={<Button size="sm" variant="outline">Leave a review</Button>}
               />
             )}

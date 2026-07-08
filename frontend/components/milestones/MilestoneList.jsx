@@ -78,7 +78,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                 </Button>
               )}
               {role === "client" && m.status === "funded" && (
-                <Button size="sm" onClick={() => run(onRelease, m.id, "Payment released to the musician.")} className="gap-1.5">
+                <Button size="sm" onClick={() => run(onRelease, m.id, "Payment released to the Talent.")} className="gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Release payment
                 </Button>

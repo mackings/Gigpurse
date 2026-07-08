@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
@@ -40,7 +41,8 @@ export default function SignupForm() {
         <CardHeader>
           <CardTitle className="text-2xl">Create your account</CardTitle>
           <CardDescription>
-            Signing up as a <span className="font-medium capitalize text-foreground">{role}</span>.{" "}
+            Signing up as a{" "}
+            <span className="font-medium capitalize text-foreground">{role === "musician" ? "Talent" : role}</span>.{" "}
             <Link href={`/role-selection`} className="text-primary hover:underline">
               Change
             </Link>
@@ -71,9 +73,8 @@ export default function SignupForm() {
             </div>
             <div>
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 required
                 minLength={8}
                 value={form.password}

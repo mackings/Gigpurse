@@ -29,7 +29,7 @@ export default function BrowseTalents() {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2 tracking-tight">Browse Musicians</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2 tracking-tight">Browse Talent</h1>
           <p className="text-muted-foreground">Find the perfect talent for your next event.</p>
         </div>
 
@@ -76,7 +76,7 @@ export default function BrowseTalents() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-24 text-muted-foreground">No musicians match your search yet.</div>
+          <div className="text-center py-24 text-muted-foreground">No Talent match your search yet.</div>
         )}
       </div>
     </div>

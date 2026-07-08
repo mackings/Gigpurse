@@ -11,7 +11,7 @@ const outfit = Outfit({
 
 export const metadata = {
   title: "GigPurse",
-  description: "Connecting talented musicians with clients for unforgettable events.",
+  description: "Connecting Talent with clients for unforgettable events.",
   icons: {
     icon: [
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },

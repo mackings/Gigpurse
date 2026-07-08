@@ -18,7 +18,7 @@ export default function Hero() {
           >
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-accent rounded-full text-accent-foreground text-sm font-medium mb-6">
               <Disc3 className="w-3.5 h-3.5" />
-              <span>The #1 musician marketplace</span>
+              <span>The #1 talent marketplace</span>
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-[1.1] mb-6 tracking-tight">
@@ -27,19 +27,19 @@ export default function Hero() {
 
             <p className="text-lg text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0">
               Connect with exceptional singers, instrumentalists, bands, and producers. Book verified
-              musicians for weddings, concerts, church events, and more.
+              talent for weddings, concerts, church events, and more.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
               <Link href="/browse">
                 <Button size="lg" className="w-full sm:w-auto px-7 text-base rounded-xl">
-                  Hire a musician
+                  Hire Talent
                   <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
               <Link href="/role-selection">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto px-7 text-base rounded-xl">
-                  Become a talent
+                  Become a Talent
                 </Button>
               </Link>
             </div>
@@ -47,7 +47,7 @@ export default function Hero() {
             <div className="flex items-center justify-center lg:justify-start gap-8 mt-14 pt-8 border-t border-border">
               <div>
                 <div className="text-2xl font-bold text-foreground">500+</div>
-                <div className="text-sm text-muted-foreground">Musicians</div>
+                <div className="text-sm text-muted-foreground">Talent</div>
               </div>
               <div className="w-px h-10 bg-border" />
               <div>
@@ -72,7 +72,7 @@ export default function Hero() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=700&fit=crop"
-                alt="Musician performing"
+                alt="Talent performing"
                 className="w-full h-[520px] object-cover"
               />
             </div>

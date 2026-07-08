@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	delivery "gigpurse/internal/delivery/http"
@@ -136,7 +137,14 @@ func main() {
 	// Serve uploaded media files
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
-	// 6. Start server
+	// 6. Keep-alive: Render's free plan spins a web service down after ~15
+	// minutes with no inbound traffic. Self-pinging (and pinging the
+	// frontend) well under that window keeps both alive with zero external
+	// dependencies. KEEPALIVE_URLS is a comma-separated list; unset/empty
+	// disables this entirely (e.g. for local dev).
+	startKeepAlive(os.Getenv("KEEPALIVE_URLS"), 10*time.Minute)
+
+	// 7. Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -147,4 +155,35 @@ func main() {
 	if err := http.ListenAndServe(serverAddr, mux); err != nil {
 		log.Fatalf("failed to start server: %v", err)
 	}
+}
+
+// startKeepAlive periodically GETs each URL in a comma-separated list. It
+// deliberately does not log successful pings — only real failures — so it
+// doesn't spam the logs every few minutes forever.
+func startKeepAlive(rawURLs string, interval time.Duration) {
+	var urls []string
+	for _, u := range strings.Split(rawURLs, ",") {
+		if u = strings.TrimSpace(u); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			for _, u := range urls {
+				resp, err := client.Get(u)
+				if err != nil {
+					log.Printf("keep-alive ping to %s failed: %v", u, err)
+					continue
+				}
+				resp.Body.Close()
+			}
+		}
+	}()
 }

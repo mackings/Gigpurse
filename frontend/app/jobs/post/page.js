@@ -43,7 +43,7 @@ export default function PostJob() {
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Post a gig</CardTitle>
-            <CardDescription>Tell musicians what you need for your event.</CardDescription>
+            <CardDescription>Tell Talent what you need for your event.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">

@@ -45,7 +45,7 @@ export const config = {
     "/wallet",
     "/disputes",
     "/contracts/:path*",
-    "/profile",
+    "/profile/:path*",
     "/admin/:path*",
   ],
 };

@@ -42,7 +42,7 @@ export default function TalentProfile() {
   }
 
   if (!musician) {
-    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">Musician not found.</div>;
+    return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">Talent not found.</div>;
   }
 
   const mp = musician.musician_profile || {};

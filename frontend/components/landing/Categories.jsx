@@ -8,7 +8,7 @@ const categories = [
   { icon: Mic2, name: "Vocalists", description: "Solo singers, choirs, backup vocals", count: "120+", image: "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=400&h=300&fit=crop", type: "vocalist" },
   { icon: Guitar, name: "Instrumentalists", description: "Pianists, guitarists, drummers & more", count: "200+", image: "https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=400&h=300&fit=crop", type: "instrumentalist" },
   { icon: Users, name: "Bands", description: "Full bands for any occasion", count: "50+", image: "https://images.unsplash.com/photo-1598387993441-a364f854c3e1?w=400&h=300&fit=crop", type: "band" },
-  { icon: Church, name: "Church Musicians", description: "Worship leaders & church bands", count: "80+", image: "https://images.unsplash.com/photo-1509824227185-9c5a01ceba0d?w=400&h=300&fit=crop", type: "church_musician" },
+  { icon: Church, name: "Church Talent", description: "Worship leaders & church bands", count: "80+", image: "https://images.unsplash.com/photo-1509824227185-9c5a01ceba0d?w=400&h=300&fit=crop", type: "church_musician" },
   { icon: Music2, name: "Producers", description: "Music producers & composers", count: "40+", image: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=400&h=300&fit=crop", type: "producer" },
   { icon: Headphones, name: "DJs", description: "Professional DJs for events", count: "60+", image: "https://images.unsplash.com/photo-1571266028243-e4733b0f0bb0?w=400&h=300&fit=crop", type: "dj" },
 ];
@@ -25,7 +25,7 @@ export default function Categories() {
         >
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4 tracking-tight">Explore categories</h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Find the perfect musician for your needs from our diverse categories.
+            Find the perfect Talent for your needs from our diverse categories.
           </p>
         </motion.div>
 

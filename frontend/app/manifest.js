@@ -2,7 +2,7 @@ export default function manifest() {
   return {
     name: "GigPurse",
     short_name: "GigPurse",
-    description: "Connecting talented musicians with clients for unforgettable events.",
+    description: "Connecting Talent with clients for unforgettable events.",
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",

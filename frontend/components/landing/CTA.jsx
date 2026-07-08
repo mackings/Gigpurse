@@ -25,14 +25,14 @@ export default function CTA() {
           </h2>
 
           <p className="text-lg text-background/70 mb-10 max-w-2xl mx-auto">
-            Whether you need a musician for your event or you&apos;re ready to showcase your talent, our
+            Whether you need to hire Talent for your event or you&apos;re ready to showcase your own talent, our
             platform connects you with the right people.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/browse">
               <Button size="lg" className="w-full sm:w-auto px-7 text-base rounded-xl">
-                Hire a musician
+                Hire Talent
                 <ArrowRight className="ml-2 w-4 h-4" />
               </Button>
             </Link>
@@ -42,7 +42,7 @@ export default function CTA() {
                 variant="outline"
                 className="w-full sm:w-auto px-7 text-base rounded-xl border-background/20 text-background bg-transparent hover:bg-background/10 hover:text-background"
               >
-                Join as talent
+                Join as Talent
               </Button>
             </Link>
           </div>

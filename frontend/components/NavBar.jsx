@@ -22,12 +22,16 @@ import {
   Menu,
   X,
   User,
+  UserCog,
   LogOut,
   LayoutDashboard,
   Search,
   MessageCircle,
   Wallet,
   Briefcase,
+  FolderOpen,
+  ClipboardList,
+  CalendarCheck,
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
@@ -39,7 +43,11 @@ export default function NavBar() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const dashboardUrl = user?.role === "musician" ? "/dashboard/talent" : "/dashboard/client";
+  const isTalent = user?.role === "musician";
+  const dashboardUrl = isTalent ? "/dashboard/talent" : "/dashboard/client";
+  // Talent edit their extended profile through the onboarding wizard;
+  // clients get the simpler single-page form at /profile itself.
+  const profileHref = isTalent ? "/onboarding" : "/profile";
   // Moderators only have access to /admin/disputes; admins get the full dashboard.
   const canSeeAdminLink = user?.role === "admin" || user?.role === "moderator";
   const adminHref = user?.role === "moderator" ? "/admin/disputes" : "/admin";
@@ -68,7 +76,7 @@ export default function NavBar() {
               href="/browse"
               className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent font-medium transition-colors"
             >
-              Browse Musicians
+              Browse Talent
             </Link>
 
             {!isLoading && (
@@ -99,7 +107,7 @@ export default function NavBar() {
                       </Button>
                     </Link>
 
-                    {user?.role === "musician" && (
+                    {isTalent && (
                       <Link href="/jobs">
                         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
                           <Briefcase className="w-4 h-4" />
@@ -120,8 +128,37 @@ export default function NavBar() {
                         <div className="px-2 py-1.5">
                           <p className="text-sm font-medium">{user?.name}</p>
                           <p className="text-xs text-muted-foreground">{user?.email}</p>
-                          <p className="text-xs text-primary capitalize mt-0.5 font-medium">{user?.role}</p>
+                          <p className="text-xs text-primary capitalize mt-0.5 font-medium">{isTalent ? "Talent" : user?.role}</p>
                         </div>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                          <Link href={profileHref}>
+                            <UserCog className="w-4 h-4 mr-2" />
+                            Profile
+                          </Link>
+                        </DropdownMenuItem>
+                        {isTalent && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/profile/portfolio">
+                              <FolderOpen className="w-4 h-4 mr-2" />
+                              Portfolio
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {isTalent && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/profile/jobs">
+                              <ClipboardList className="w-4 h-4 mr-2" />
+                              My Jobs
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem asChild>
+                          <Link href="/profile/bookings">
+                            <CalendarCheck className="w-4 h-4 mr-2" />
+                            Bookings
+                          </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                           <Link href="/disputes">
@@ -181,7 +218,7 @@ export default function NavBar() {
               onClick={() => setIsMenuOpen(false)}
             >
               <Search className="w-4 h-4" />
-              Browse Musicians
+              Browse Talent
             </Link>
 
             {isAuthenticated ? (
@@ -215,7 +252,7 @@ export default function NavBar() {
                   <Wallet className="w-4 h-4" />
                   Wallet
                 </Link>
-                {user?.role === "musician" && (
+                {isTalent && (
                   <Link
                     href="/jobs"
                     className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -225,6 +262,42 @@ export default function NavBar() {
                     Find Gigs
                   </Link>
                 )}
+                <Link
+                  href={profileHref}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <UserCog className="w-4 h-4" />
+                  Profile
+                </Link>
+                {isTalent && (
+                  <Link
+                    href="/profile/portfolio"
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Portfolio
+                  </Link>
+                )}
+                {isTalent && (
+                  <Link
+                    href="/profile/jobs"
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <ClipboardList className="w-4 h-4" />
+                    My Jobs
+                  </Link>
+                )}
+                <Link
+                  href="/profile/bookings"
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <CalendarCheck className="w-4 h-4" />
+                  Bookings
+                </Link>
                 <Link
                   href="/disputes"
                   className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"

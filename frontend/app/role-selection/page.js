@@ -10,14 +10,14 @@ const roles = [
   {
     id: "client",
     icon: Briefcase,
-    title: "I want to hire musicians",
-    description: "Find and book talented musicians for your events, weddings, parties, and more.",
+    title: "I want to hire Talent",
+    description: "Find and book talented performers for your events, weddings, parties, and more.",
   },
   {
     id: "musician",
     icon: Mic2,
-    title: "I am a musician",
-    description: "Showcase your talent, get discovered, and book gigs with clients looking for musicians.",
+    title: "I am a Talent",
+    description: "Showcase your skills, get discovered, and book gigs with clients looking for Talent.",
   },
 ];
 

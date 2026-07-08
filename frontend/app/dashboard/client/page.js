@@ -48,7 +48,7 @@ export default function ClientDashboard() {
               <Button variant="outline">Edit profile</Button>
             </Link>
             <Link href="/browse">
-              <Button variant="outline">Browse musicians</Button>
+              <Button variant="outline">Browse Talent</Button>
             </Link>
             <Link href="/jobs/post">
               <Button>Post a gig</Button>

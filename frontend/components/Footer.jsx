@@ -13,7 +13,7 @@ export default function Footer() {
               </div>
               <span className="text-lg font-bold text-foreground tracking-tight">GigPurse</span>
             </div>
-            <p className="text-sm max-w-xs">Connecting talented musicians with clients for unforgettable events.</p>
+            <p className="text-sm max-w-xs">Connecting Talent with clients for unforgettable events.</p>
           </div>
 
           <div>
@@ -21,7 +21,7 @@ export default function Footer() {
             <ul className="space-y-2.5 text-sm">
               <li>
                 <Link href="/browse" className="hover:text-primary transition-colors">
-                  Browse Musicians
+                  Browse Talent
                 </Link>
               </li>
               <li>
@@ -33,7 +33,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-foreground mb-4 text-sm">For Musicians</h4>
+            <h4 className="font-semibold text-foreground mb-4 text-sm">For Talent</h4>
             <ul className="space-y-2.5 text-sm">
               <li>
                 <Link href="/role-selection" className="hover:text-primary transition-colors">
