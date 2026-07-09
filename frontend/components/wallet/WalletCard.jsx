@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -53,7 +53,7 @@ export default function WalletCard({ balance, escrowBalance, onDeposit }) {
             <DialogTitle>Add funds</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleDeposit} className="space-y-4">
-            <Input type="number" min="0" required placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <CurrencyInput required placeholder="Amount (₦)" value={amount} onChange={setAmount} />
             <DialogFooter>
               <Button type="submit">Add funds</Button>
             </DialogFooter>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -43,8 +44,8 @@ export default function WithdrawModal({ trigger, onWithdraw }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="withdraw-amount">Amount</Label>
-            <Input id="withdraw-amount" type="number" min="0" required value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1.5" />
+            <Label htmlFor="withdraw-amount">Amount (₦)</Label>
+            <CurrencyInput id="withdraw-amount" required value={amount} onChange={setAmount} className="mt-1.5" />
           </div>
           <div>
             <Label htmlFor="bank-account">Bank account number</Label>

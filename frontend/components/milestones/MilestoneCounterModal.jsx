@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -59,15 +60,7 @@ export default function MilestoneCounterModal({ trigger, current, onCounter }) {
           </div>
           <div>
             <Label htmlFor="ms-counter-amount">Amount (₦)</Label>
-            <Input
-              id="ms-counter-amount"
-              type="number"
-              required
-              min="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-1.5"
-            />
+            <CurrencyInput id="ms-counter-amount" required value={amount} onChange={setAmount} className="mt-1.5" />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>

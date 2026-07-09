@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import CurrencyInput from "@/components/ui/currency-input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -107,13 +108,11 @@ export default function PostJob() {
                 </div>
                 <div>
                   <Label htmlFor="budget">Budget (₦)</Label>
-                  <Input
+                  <CurrencyInput
                     id="budget"
-                    type="number"
                     required
-                    min="0"
                     value={form.budget}
-                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    onChange={(v) => setForm({ ...form, budget: v })}
                     className="mt-1.5"
                   />
                 </div>

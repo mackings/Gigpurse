@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -103,13 +104,11 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
           </div>
           <div>
             <Label htmlFor="price">Offered price (₦)</Label>
-            <Input
+            <CurrencyInput
               id="price"
-              type="number"
               required
-              min="0"
               value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              onChange={(v) => setForm({ ...form, price: v })}
               className="mt-1.5"
             />
           </div>

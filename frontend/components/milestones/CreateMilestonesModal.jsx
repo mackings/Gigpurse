@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -79,7 +80,7 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
                 </div>
                 <Input placeholder="Title (e.g. Rehearsal complete)" value={row.title} onChange={(e) => updateRow(idx, { title: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" min="0" placeholder="Amount (₦)" value={row.amount} onChange={(e) => updateRow(idx, { amount: e.target.value })} />
+                  <CurrencyInput placeholder="Amount (₦)" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
                   <Input type="date" value={row.due_date} onChange={(e) => updateRow(idx, { due_date: e.target.value })} />
                 </div>
               </div>

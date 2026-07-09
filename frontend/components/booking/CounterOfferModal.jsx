@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import CurrencyInput from "@/components/ui/currency-input";
 import {
   Dialog,
   DialogContent,
@@ -50,15 +51,7 @@ export default function CounterOfferModal({ trigger, current, onCounter }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="counter-price">Price (₦)</Label>
-            <Input
-              id="counter-price"
-              type="number"
-              required
-              min="0"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className="mt-1.5"
-            />
+            <CurrencyInput id="counter-price" required value={price} onChange={setPrice} className="mt-1.5" />
           </div>
           <div>
             <Label htmlFor="counter-location">Location (optional change)</Label>
