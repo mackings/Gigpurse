@@ -356,7 +356,7 @@ func newTestApp() *testApp {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"test-online"}`))
 	})
-	delivery.NewUserHandler(userUsecase).RegisterRoutes(mux)
+	delivery.NewUserHandler(userUsecase, contractRepo).RegisterRoutes(mux)
 	delivery.NewJobHandler(jobUsecase).RegisterRoutes(mux)
 	delivery.NewChatHandler(chatUsecase, delivery.NewHub()).RegisterRoutes(mux)
 	delivery.NewContractHandler(contractUsecase).RegisterRoutes(mux)

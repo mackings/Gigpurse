@@ -102,7 +102,7 @@ func main() {
 	walletUsecase := usecase.NewWalletUsecase(walletRepo)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo)
 
-	userHandler := delivery.NewUserHandler(userUsecase)
+	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)
 	jobHandler := delivery.NewJobHandler(jobUsecase)
 	chatHandler := delivery.NewChatHandler(chatUsecase, hub)
 	contractHandler := delivery.NewContractHandler(contractUsecase)

@@ -96,7 +96,7 @@ func main() {
 	publicURL := os.Getenv("PUBLIC_BASE_URL")
 
 	// 4. Initialize Handlers
-	userHandler := delivery.NewUserHandler(userUsecase)
+	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)
 	jobHandler := delivery.NewJobHandler(jobUsecase)
 	chatHandler := delivery.NewChatHandler(chatUsecase, hub)
 	contractHandler := delivery.NewContractHandler(contractUsecase)

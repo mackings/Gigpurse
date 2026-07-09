@@ -9,12 +9,14 @@ import (
 )
 
 type UserHandler struct {
-	userUsecase domain.UserUsecase
+	userUsecase  domain.UserUsecase
+	contractRepo domain.ContractRepository
 }
 
-func NewUserHandler(uu domain.UserUsecase) *UserHandler {
+func NewUserHandler(uu domain.UserUsecase, contractRepo domain.ContractRepository) *UserHandler {
 	return &UserHandler{
-		userUsecase: uu,
+		userUsecase:  uu,
+		contractRepo: contractRepo,
 	}
 }
 
@@ -264,6 +266,18 @@ func (h *UserHandler) GetMusicianByID(w http.ResponseWriter, r *http.Request) {
 	if err != nil || user.Role != "musician" {
 		respondError(w, http.StatusNotFound, "musician_not_found", "musician not found")
 		return
+	}
+
+	// Public trust stats (completed gig count + total earned), shown on the
+	// profile the same way marketplaces like Upwork surface "$X earned" —
+	// best-effort only, a contract lookup failure shouldn't 404 the profile.
+	if contracts, err := h.contractRepo.ListForUser(r.Context(), id, "musician"); err == nil {
+		for _, c := range contracts {
+			if c.Status == "completed" {
+				user.CompletedContracts++
+				user.TotalEarned += c.Price
+			}
+		}
 	}
 
 	respondSuccess(w, http.StatusOK, "musician retrieved successfully", user)

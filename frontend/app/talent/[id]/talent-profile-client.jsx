@@ -12,8 +12,9 @@ import BookingModal from "@/components/booking/BookingModal";
 import ShareLinkButton from "@/components/ShareLinkButton";
 import MediaThumb from "@/components/portfolio/MediaThumb";
 import PortfolioLightbox from "@/components/portfolio/PortfolioLightbox";
+import IconBadge from "@/components/ui/icon-badge";
 import { formatMoney } from "@/lib/utils";
-import { Loader2, MapPin, MessageCircle, Music, Star } from "lucide-react";
+import { Loader2, MapPin, MessageCircle, Music, Star, Briefcase, Wallet, UserRound } from "lucide-react";
 
 export default function TalentProfileClient({ id }) {
   const { user, isAuthenticated } = useCurrentUser();
@@ -88,8 +89,6 @@ export default function TalentProfileClient({ id }) {
                 {profileURL && <ShareLinkButton url={profileURL} className="shrink-0" />}
               </div>
 
-              {musician.bio && <p className="text-foreground mt-6">{musician.bio}</p>}
-
               <div className="flex flex-wrap gap-2 mt-6">
                 {(mp.genres || []).map((g) => (
                   <Badge key={g} variant="secondary">
@@ -104,6 +103,22 @@ export default function TalentProfileClient({ id }) {
                 ))}
               </div>
             </div>
+
+            {(musician.bio || isOwnProfile) && (
+              <div className="bg-card rounded-2xl shadow-sm border border-border p-6">
+                <h2 className="font-semibold text-foreground mb-3 flex items-center gap-1.5">
+                  <UserRound className="w-4 h-4 text-primary" />
+                  About
+                </h2>
+                {musician.bio ? (
+                  <p className="text-foreground whitespace-pre-line">{musician.bio}</p>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    No bio yet — add one from your profile settings so clients know more about you.
+                  </p>
+                )}
+              </div>
+            )}
 
             {mp.intro_video_url && (
               <div className="bg-card rounded-2xl shadow-sm border border-border p-6">
@@ -155,6 +170,28 @@ export default function TalentProfileClient({ id }) {
 
           <div>
             <div className="bg-card rounded-2xl shadow-sm border border-border p-6 sticky top-24 space-y-4">
+              {musician.completed_contracts > 0 && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Track record</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <IconBadge icon={Briefcase} color="bg-primary" size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-foreground leading-tight">{musician.completed_contracts}</p>
+                        <p className="text-xs text-muted-foreground leading-tight">completed</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <IconBadge icon={Wallet} color="bg-emerald-500" size="sm" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-foreground leading-tight truncate">{formatMoney(musician.total_earned)}</p>
+                        <p className="text-xs text-muted-foreground leading-tight">earned</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {(mp.price_min || mp.price_max) && (
                 <div>
                   <p className="text-sm text-muted-foreground">Typical price range</p>

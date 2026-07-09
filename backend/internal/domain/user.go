@@ -21,8 +21,10 @@ type User struct {
 
 	// Computed at query time only (never persisted — bson:"-" keeps them out
 	// of Create/Update writes even if a caller round-trips a listed User).
-	AverageRating float64 `json:"average_rating,omitempty" bson:"-"`
-	TotalReviews  int     `json:"total_reviews,omitempty" bson:"-"`
+	AverageRating      float64 `json:"average_rating,omitempty" bson:"-"`
+	TotalReviews       int     `json:"total_reviews,omitempty" bson:"-"`
+	CompletedContracts int     `json:"completed_contracts,omitempty" bson:"-"`
+	TotalEarned        float64 `json:"total_earned,omitempty" bson:"-"`
 }
 
 type MusicianProfile struct {

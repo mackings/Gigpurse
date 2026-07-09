@@ -414,8 +414,11 @@ Returns a single musician's public profile by ID.
 
 Auth: not required by backend.
 
-Response `200`: a single `User` (same shape as `GET /musicians` list entries). Returns
-`404` if the ID doesn't exist or doesn't belong to a musician.
+Response `200`: a single `User` (same shape as `GET /musicians` list entries), plus two
+public trust-signal fields computed at request time: `completed_contracts` (count of this
+musician's contracts with `status: "completed"`) and `total_earned` (sum of those
+contracts' `price`) — shown on the public profile the way marketplaces like Upwork surface
+"$X earned". Returns `404` if the ID doesn't exist or doesn't belong to a musician.
 
 Status codes: `200`, `404`.
 
