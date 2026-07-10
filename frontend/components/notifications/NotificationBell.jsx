@@ -14,14 +14,26 @@ import { useNotifications } from "@/hooks/use-notifications";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { toast } from "sonner";
 
+function unit(n, label) {
+  return `${n} ${label}${n === 1 ? "" : "s"} ago`;
+}
+
 function timeAgo(dateStr) {
-  const diffMs = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  const date = new Date(dateStr);
+  const diffMs = Date.now() - date.getTime();
+  // Guards against bad/missing timestamps (e.g. an unset date) rendering as
+  // "NaN sec ago" or a many-thousand-day count — fall back to a real date.
+  if (!Number.isFinite(diffMs) || diffMs < 0) return date.toLocaleDateString();
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 10) return "just now";
+  if (secs < 60) return unit(secs, "sec");
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return unit(mins, "min");
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return unit(hours, "hour");
+  const days = Math.floor(hours / 24);
+  if (days < 7) return unit(days, "day");
+  return date.toLocaleDateString();
 }
 
 export default function NotificationBell({ className }) {

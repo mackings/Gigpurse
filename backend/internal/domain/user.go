@@ -16,6 +16,7 @@ type User struct {
 	Location        string           `json:"location" bson:"location"`
 	MusicianProfile *MusicianProfile `json:"musician_profile,omitempty" bson:"musician_profile,omitempty"`
 	ClientProfile   *ClientProfile   `json:"client_profile,omitempty" bson:"client_profile,omitempty"`
+	TermsAcceptedAt time.Time        `json:"terms_accepted_at,omitempty" bson:"terms_accepted_at,omitempty"`
 	CreatedAt       time.Time        `json:"created_at" bson:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at" bson:"updated_at"`
 
@@ -38,6 +39,7 @@ type MusicianProfile struct {
 	SocialLinks     *SocialLinks    `json:"social_links,omitempty" bson:"social_links,omitempty"`
 	IntroVideoURL   string          `json:"intro_video_url,omitempty" bson:"intro_video_url,omitempty"`
 	Portfolio       []PortfolioItem `json:"portfolio,omitempty" bson:"portfolio,omitempty"`
+	SavedJobIDs     []string        `json:"saved_job_ids,omitempty" bson:"saved_job_ids,omitempty"`
 }
 
 type SocialLinks struct {
@@ -84,7 +86,7 @@ type UserRepository interface {
 }
 
 type UserUsecase interface {
-	SignUp(ctx context.Context, email, password, role, name string) (*User, error)
+	SignUp(ctx context.Context, email, password, role, name string, acceptedTerms bool) (*User, error)
 	Login(ctx context.Context, email, password string) (string, *User, error) // Returns JWT token and User
 	ResendEmailVerification(ctx context.Context, email string) error
 	VerifyEmail(ctx context.Context, email, code string) error

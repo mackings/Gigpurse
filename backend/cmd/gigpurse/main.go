@@ -30,7 +30,11 @@ func main() {
 	}
 
 	log.Printf("Connecting to MongoDB (URI length: %d)...", len(mongoURI))
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// The replica set's three shards are geographically distant from this
+	// process in practice, and TLS handshake + replica-set discovery across
+	// all of them can take ~12-13s — comfortably past a 10s deadline, which
+	// caused frequent, purely-timing-related connection failures on startup.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	clientOpts := options.Client().ApplyURI(mongoURI)

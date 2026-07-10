@@ -45,7 +45,7 @@ func main() {
 	if mongoURI == "" {
 		mongoURI = "mongodb://localhost:27017"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	clientOpts := options.Client().ApplyURI(mongoURI)
@@ -605,11 +605,12 @@ func deleteAdminJob(tc *TestClient, jobID string) {
 // --- Existing Base Helpers (No changes) ---
 
 func signup(tc *TestClient, email, password, role, name string) domain.User {
-	body := map[string]string{
-		"email":    email,
-		"password": password,
-		"role":     role,
-		"name":     name,
+	body := map[string]any{
+		"email":          email,
+		"password":       password,
+		"role":           role,
+		"name":           name,
+		"accepted_terms": true,
 	}
 	b, _ := json.Marshal(body)
 	resp, err := tc.client.Post(serverAddr+"/auth/signup", "application/json", bytes.NewBuffer(b))

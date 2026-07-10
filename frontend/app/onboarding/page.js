@@ -104,7 +104,7 @@ export default function TalentOnboarding() {
         },
       });
       toast.success("Profile saved!");
-      router.push("/dashboard/talent");
+      router.push("/jobs");
     } catch (err) {
       toast.error(err.message);
     } finally {

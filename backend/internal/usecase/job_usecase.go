@@ -95,7 +95,7 @@ func (u *jobUsecase) ListJobs(ctx context.Context, filter domain.JobFilter) ([]*
 	return jobs, nil
 }
 
-func (u *jobUsecase) RecommendedJobs(ctx context.Context, musicianID string, limit int) ([]*domain.Job, error) {
+func (u *jobUsecase) RecommendedJobs(ctx context.Context, musicianID string, limit int, extra domain.JobFilter) ([]*domain.Job, error) {
 	musician, err := u.userRepo.GetByID(ctx, musicianID)
 	if err != nil {
 		return nil, fmt.Errorf("musician validation failed: %w", err)
@@ -104,16 +104,19 @@ func (u *jobUsecase) RecommendedJobs(ctx context.Context, musicianID string, lim
 		return nil, errors.New("only musicians can receive job recommendations")
 	}
 
-	filter := domain.JobFilter{Status: "open"}
-	if musician.MusicianProfile != nil {
-		if len(musician.MusicianProfile.Genres) > 0 {
-			filter.Genre = musician.MusicianProfile.Genres[0]
-		}
-		if len(musician.MusicianProfile.Instruments) > 0 {
-			filter.Instrument = musician.MusicianProfile.Instruments[0]
-		}
+	filter := extra
+	filter.Status = "open"
+	// Personalization only fills in gaps the caller didn't already narrow
+	// down — an explicit search/filter from the job board always wins.
+	if filter.Genre == "" && musician.MusicianProfile != nil && len(musician.MusicianProfile.Genres) > 0 {
+		filter.Genre = musician.MusicianProfile.Genres[0]
 	}
-	filter.Location = musician.Location
+	if filter.Instrument == "" && musician.MusicianProfile != nil && len(musician.MusicianProfile.Instruments) > 0 {
+		filter.Instrument = musician.MusicianProfile.Instruments[0]
+	}
+	if filter.Location == "" {
+		filter.Location = musician.Location
+	}
 	filter.SortBy = "relevance"
 	filter.MusicianID = musicianID
 
@@ -122,7 +125,8 @@ func (u *jobUsecase) RecommendedJobs(ctx context.Context, musicianID string, lim
 		return nil, err
 	}
 	if len(jobs) == 0 {
-		jobs, err = u.ListJobs(ctx, domain.JobFilter{Status: "open", SortBy: "newest"})
+		fallback := domain.JobFilter{Status: "open", SortBy: "newest", Query: extra.Query}
+		jobs, err = u.ListJobs(ctx, fallback)
 		if err != nil {
 			return nil, err
 		}
@@ -353,6 +357,64 @@ func containsFold(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func (u *jobUsecase) SaveJob(ctx context.Context, musicianID, jobID string) error {
+	if _, err := u.jobRepo.GetByID(ctx, jobID); err != nil {
+		return errors.New("job not found")
+	}
+	musician, err := u.userRepo.GetByID(ctx, musicianID)
+	if err != nil {
+		return err
+	}
+	if musician.Role != "musician" {
+		return errors.New("only musicians can save jobs")
+	}
+	if musician.MusicianProfile == nil {
+		musician.MusicianProfile = &domain.MusicianProfile{}
+	}
+	if containsFold(musician.MusicianProfile.SavedJobIDs, jobID) {
+		return nil
+	}
+	musician.MusicianProfile.SavedJobIDs = append(musician.MusicianProfile.SavedJobIDs, jobID)
+	return u.userRepo.Update(ctx, musician)
+}
+
+func (u *jobUsecase) UnsaveJob(ctx context.Context, musicianID, jobID string) error {
+	musician, err := u.userRepo.GetByID(ctx, musicianID)
+	if err != nil {
+		return err
+	}
+	if musician.MusicianProfile == nil {
+		return nil
+	}
+	kept := musician.MusicianProfile.SavedJobIDs[:0]
+	for _, id := range musician.MusicianProfile.SavedJobIDs {
+		if id != jobID {
+			kept = append(kept, id)
+		}
+	}
+	musician.MusicianProfile.SavedJobIDs = kept
+	return u.userRepo.Update(ctx, musician)
+}
+
+func (u *jobUsecase) ListSavedJobs(ctx context.Context, musicianID string) ([]*domain.Job, error) {
+	musician, err := u.userRepo.GetByID(ctx, musicianID)
+	if err != nil {
+		return nil, err
+	}
+	if musician.MusicianProfile == nil || len(musician.MusicianProfile.SavedJobIDs) == 0 {
+		return []*domain.Job{}, nil
+	}
+	jobs := make([]*domain.Job, 0, len(musician.MusicianProfile.SavedJobIDs))
+	for _, id := range musician.MusicianProfile.SavedJobIDs {
+		job, err := u.jobRepo.GetByID(ctx, id)
+		if err != nil {
+			continue // job was deleted since being saved — skip it silently
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
 }
 
 func (u *jobUsecase) notifyAndEmail(ctx context.Context, userID, title, message, link string) {

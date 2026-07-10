@@ -41,10 +41,11 @@ func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Role     string `json:"role"`
-		Name     string `json:"name"`
+		Email         string `json:"email"`
+		Password      string `json:"password"`
+		Role          string `json:"role"`
+		Name          string `json:"name"`
+		AcceptedTerms bool   `json:"accepted_terms"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -52,7 +53,7 @@ func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userUsecase.SignUp(r.Context(), req.Email, req.Password, req.Role, req.Name)
+	user, err := h.userUsecase.SignUp(r.Context(), req.Email, req.Password, req.Role, req.Name, req.AcceptedTerms)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "signup_failed", err.Error())
 		return
@@ -253,10 +254,13 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondSuccess(w, http.StatusOK, "user retrieved successfully", map[string]string{
-		"id":   user.ID,
-		"name": user.Name,
-		"role": user.Role,
+	respondSuccess(w, http.StatusOK, "user retrieved successfully", map[string]any{
+		"id":             user.ID,
+		"name":           user.Name,
+		"role":           user.Role,
+		"location":       user.Location,
+		"created_at":     user.CreatedAt,
+		"client_profile": user.ClientProfile,
 	})
 }
 

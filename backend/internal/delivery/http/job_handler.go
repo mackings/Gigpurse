@@ -25,6 +25,9 @@ func (h *JobHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/jobs/apply", JWTMiddleware(h.ApplyForJob))
 	mux.HandleFunc("/jobs/applications", JWTMiddleware(h.HandleApplications))
 	mux.HandleFunc("/jobs/applications/accept", JWTMiddleware(h.AcceptApplication))
+	mux.HandleFunc("/jobs/save", JWTMiddleware(h.SaveJob))
+	mux.HandleFunc("/jobs/unsave", JWTMiddleware(h.UnsaveJob))
+	mux.HandleFunc("/jobs/saved", JWTMiddleware(h.ListSavedJobs))
 }
 
 func (h *JobHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +59,7 @@ func (h *JobHandler) ListOrGetJob(w http.ResponseWriter, r *http.Request) {
 	maxApps, _ := strconv.Atoi(q.Get("max_applications"))
 
 	filter := domain.JobFilter{
+		Query:           q.Get("query"),
 		Status:          q.Get("status"),
 		Genre:           q.Get("genre"),
 		Instrument:      q.Get("instrument"),
@@ -87,8 +91,19 @@ func (h *JobHandler) RecommendedJobs(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can view recommendations")
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	jobs, err := h.jobUsecase.RecommendedJobs(r.Context(), userID, limit)
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	minB, _ := strconv.ParseFloat(q.Get("min_budget"), 64)
+	maxB, _ := strconv.ParseFloat(q.Get("max_budget"), 64)
+	extra := domain.JobFilter{
+		Query:      q.Get("query"),
+		Genre:      q.Get("genre"),
+		Instrument: q.Get("instrument"),
+		Location:   q.Get("location"),
+		MinBudget:  minB,
+		MaxBudget:  maxB,
+	}
+	jobs, err := h.jobUsecase.RecommendedJobs(r.Context(), userID, limit, extra)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "recommendations_failed", err.Error())
 		return
@@ -259,4 +274,70 @@ func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 	respondSuccess(w, http.StatusOK, "application accepted successfully", map[string]string{
 		"message": "application accepted successfully, job is now active",
 	})
+}
+
+func (h *JobHandler) SaveJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "musician" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can save jobs")
+		return
+	}
+	var req struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.jobUsecase.SaveJob(r.Context(), userID, req.JobID); err != nil {
+		respondError(w, http.StatusBadRequest, "save_job_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "job saved successfully", map[string]string{"job_id": req.JobID})
+}
+
+func (h *JobHandler) UnsaveJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "musician" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can unsave jobs")
+		return
+	}
+	var req struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.jobUsecase.UnsaveJob(r.Context(), userID, req.JobID); err != nil {
+		respondError(w, http.StatusBadRequest, "unsave_job_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "job unsaved successfully", map[string]string{"job_id": req.JobID})
+}
+
+func (h *JobHandler) ListSavedJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "musician" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only musicians can view saved jobs")
+		return
+	}
+	jobs, err := h.jobUsecase.ListSavedJobs(r.Context(), userID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "saved_jobs_list_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "saved jobs retrieved successfully", jobs)
 }

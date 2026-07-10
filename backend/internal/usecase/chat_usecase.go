@@ -62,10 +62,11 @@ func (u *chatUsecase) SendMessage(ctx context.Context, senderID, recvID, content
 		preview = preview[:80] + "…"
 	}
 	notif := &domain.Notification{
-		UserID:  recvID,
-		Title:   "New message from " + sender.Name,
-		Message: preview,
-		Link:    "/messages?with=" + senderID,
+		UserID:    recvID,
+		Title:     "New message from " + sender.Name,
+		Message:   preview,
+		Link:      "/messages?with=" + senderID,
+		CreatedAt: time.Now(),
 	}
 	_ = u.notifRepo.Create(ctx, notif)
 

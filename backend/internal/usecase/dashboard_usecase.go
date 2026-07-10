@@ -56,7 +56,7 @@ func (u *dashboardUsecase) GetTalentDashboard(ctx context.Context, musicianID st
 	if err != nil {
 		return nil, err
 	}
-	recommended, err := u.jobUsecase.RecommendedJobs(ctx, musicianID, 10)
+	recommended, err := u.jobUsecase.RecommendedJobs(ctx, musicianID, 10, domain.JobFilter{})
 	if err != nil {
 		return nil, err
 	}

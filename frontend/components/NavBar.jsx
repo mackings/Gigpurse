@@ -44,7 +44,9 @@ export default function NavBar() {
   const queryClient = useQueryClient();
 
   const isTalent = user?.role === "musician";
-  const dashboardUrl = isTalent ? "/dashboard/talent" : "/dashboard/client";
+  // Talent land on the job board, not the stats dashboard — it's their
+  // entry point for browsing, saving, and applying to gigs.
+  const dashboardUrl = isTalent ? "/jobs" : "/dashboard/client";
   // Talent edit their extended profile through the onboarding wizard;
   // clients get the simpler single-page form at /profile itself.
   const profileHref = isTalent ? "/onboarding" : "/profile";
@@ -85,8 +87,8 @@ export default function NavBar() {
                   <div className="flex items-center gap-1 ml-2">
                     <Link href={dashboardUrl}>
                       <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
-                        <LayoutDashboard className="w-4 h-4" />
-                        Dashboard
+                        {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
+                        {isTalent ? "Find Gigs" : "Dashboard"}
                       </Button>
                     </Link>
 
@@ -108,9 +110,14 @@ export default function NavBar() {
                     </Link>
 
                     {isTalent && (
-                      <Link href="/jobs">
-                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-                          <Briefcase className="w-4 h-4" />
+                      <Link href="/dashboard/talent">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="My stats"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <LayoutDashboard className="w-4 h-4" />
                         </Button>
                       </Link>
                     )}
@@ -228,8 +235,8 @@ export default function NavBar() {
                   className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  <LayoutDashboard className="w-4 h-4" />
-                  Dashboard
+                  {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
+                  {isTalent ? "Find Gigs" : "Dashboard"}
                 </Link>
                 <Link
                   href="/messages"
@@ -254,12 +261,12 @@ export default function NavBar() {
                 </Link>
                 {isTalent && (
                   <Link
-                    href="/jobs"
+                    href="/dashboard/talent"
                     className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    <Briefcase className="w-4 h-4" />
-                    Find Gigs
+                    <LayoutDashboard className="w-4 h-4" />
+                    My stats
                   </Link>
                 )}
                 <Link

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import MilestoneList from "@/components/milestones/MilestoneList";
 import CreateMilestonesModal from "@/components/milestones/CreateMilestonesModal";
 import BookingRequestPanel from "@/components/booking/BookingRequestPanel";
+import FirstMessageDialog from "@/components/chat/FirstMessageDialog";
 import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Plus, Send } from "lucide-react";
 
 function MilestonePanel({ contractId }) {
@@ -76,6 +77,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
   const otherUser = useUserInfo(otherUserId);
   const otherUserLabel = otherUser?.name || (otherUserId ? `User ${otherUserId.slice(-6)}` : "");
   const [draft, setDraft] = useState("");
+  const [showSafetyDialog, setShowSafetyDialog] = useState(false);
   const bottomRef = useRef(null);
 
   // The RealtimeProvider's shared socket appends live messages straight into
@@ -95,12 +97,23 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages?.length]);
 
-  function handleSend(e) {
-    e.preventDefault();
-    if (!draft.trim()) return;
+  function actuallySend() {
     if (sendChatMessage(otherUserId, draft)) {
       setDraft("");
     }
+  }
+
+  function handleSend(e) {
+    e.preventDefault();
+    if (!draft.trim() || isLoading) return;
+    // "First message to this contact" is just "no chat history exists yet" —
+    // once one message goes out, history is non-empty and this never fires
+    // again. Guard against both [] and a null/undefined response.
+    if (!messages || messages.length === 0) {
+      setShowSafetyDialog(true);
+      return;
+    }
+    actuallySend();
   }
 
   if (!otherUserId) {
@@ -176,10 +189,17 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
 
       <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border flex gap-2 bg-background">
         <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a message..." className="rounded-full" />
-        <Button type="submit" size="icon" className="shrink-0 rounded-full">
+        <Button type="submit" size="icon" className="shrink-0 rounded-full" disabled={isLoading}>
           <Send className="w-4 h-4" />
         </Button>
       </form>
+
+      <FirstMessageDialog
+        open={showSafetyDialog}
+        onOpenChange={setShowSafetyDialog}
+        onConfirm={actuallySend}
+        recipientName={otherUserLabel}
+      />
     </div>
   );
 }

@@ -29,7 +29,9 @@ export default function LoginForm() {
     try {
       const { user } = await login(form);
       queryClient.setQueryData(["profile", "me"], user);
-      const dashboard = user.role === "musician" ? "/dashboard/talent" : "/dashboard/client";
+      // Talent land on the job board — their entry point for browsing,
+      // saving, and applying to gigs — rather than the stats dashboard.
+      const dashboard = user.role === "musician" ? "/jobs" : "/dashboard/client";
       router.push(next || dashboard);
     } catch (err) {
       toast.error(err.message);

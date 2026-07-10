@@ -45,7 +45,10 @@ func (r *chatRepository) GetChatHistory(ctx context.Context, user1, user2 string
 	}
 	defer cursor.Close(ctx)
 
-	var messages []*domain.ChatMessage
+	// Initialized (not nil) so an empty result serializes as `[]`, not
+	// `null` — frontend code checks messages.length, which silently breaks
+	// against null (e.g. the "is this a brand-new conversation?" check).
+	messages := []*domain.ChatMessage{}
 	for cursor.Next(ctx) {
 		var msg domain.ChatMessage
 		if err := cursor.Decode(&msg); err != nil {
@@ -91,7 +94,10 @@ func (r *chatRepository) GetRecentChats(ctx context.Context, userID string) ([]*
 	}
 	defer cursor.Close(ctx)
 
-	var messages []*domain.ChatMessage
+	// Initialized (not nil) so an empty result serializes as `[]`, not
+	// `null` — frontend code checks messages.length, which silently breaks
+	// against null (e.g. the "is this a brand-new conversation?" check).
+	messages := []*domain.ChatMessage{}
 	for cursor.Next(ctx) {
 		var msg domain.ChatMessage
 		if err := cursor.Decode(&msg); err != nil {

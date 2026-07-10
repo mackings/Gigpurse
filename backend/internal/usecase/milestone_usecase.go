@@ -50,6 +50,7 @@ func (u *milestoneUsecase) notify(ctx context.Context, userID, title, message, c
 		Title:      title,
 		Message:    message,
 		ContractID: contractID,
+		CreatedAt:  time.Now(),
 	})
 }
 

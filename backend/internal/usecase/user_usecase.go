@@ -64,9 +64,12 @@ func getJWTSecret() []byte {
 	return []byte(secret)
 }
 
-func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name string) (*domain.User, error) {
+func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name string, acceptedTerms bool) (*domain.User, error) {
 	if email == "" || password == "" || role == "" || name == "" {
 		return nil, errors.New("missing required signup fields")
+	}
+	if !acceptedTerms {
+		return nil, errors.New("you must accept the Terms and Conditions to sign up")
 	}
 
 	if role != "client" && role != "musician" && role != "admin" && role != "moderator" {
@@ -96,12 +99,13 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name st
 	// or leave it empty so MongoDB can populate it. However, since the ID field is a string,
 	// we can generate a unique string or handle it in repo. Let's do it in repo.
 	newUser := &domain.User{
-		Email:         email,
-		EmailVerified: false,
-		PasswordHash:  string(hashed),
-		Role:          role,
-		Name:          name,
-		CreatedAt:     time.Now(),
+		Email:           email,
+		EmailVerified:   false,
+		PasswordHash:    string(hashed),
+		Role:            role,
+		Name:            name,
+		TermsAcceptedAt: time.Now(),
+		CreatedAt:       time.Now(),
 		UpdatedAt:     time.Now(),
 	}
 

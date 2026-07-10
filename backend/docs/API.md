@@ -89,9 +89,13 @@ Required body:
   "email": "client@example.com",
   "password": "password123",
   "role": "client",
-  "name": "Demo Client"
+  "name": "Demo Client",
+  "accepted_terms": true
 }
 ```
+
+`accepted_terms` must be `true` — signup is rejected otherwise. The acceptance
+timestamp is stored on the user as `terms_accepted_at`.
 
 Roles: `client`, `musician`. `admin` is allowed only when `ALLOW_ADMIN_SIGNUP=true`;
 `moderator` (scoped access — disputes only, see Disputes And Customer Service)
@@ -425,9 +429,10 @@ Status codes: `200`, `404`.
 ### `GET /users/{id}`
 
 Returns a minimal, non-sensitive projection of any user by ID, regardless of
-role — `{"id", "name", "role"}` only. Used to resolve display names (e.g. a
-chat partner, who may be a client or a musician) without exposing full
-profile data.
+role — `{"id", "name", "role", "location", "created_at", "client_profile"}`.
+Used to resolve display names (e.g. a chat partner) and to render the "About
+the client" panel on a job's detail page, without exposing full profile data
+(no email, no musician-specific fields).
 
 Auth: required.
 
@@ -483,6 +488,7 @@ Query parameters:
 | Name | Description |
 | --- | --- |
 | `id` | If present, returns one job. |
+| `query` | Free-text search — case-insensitive substring match against title or description. |
 | `status` | `open`, `active`, `completed`, `disputed`. |
 | `genre` | Genre filter. |
 | `instrument` | Instrument filter. |
@@ -511,15 +517,42 @@ Status codes: `200`, `404`, `405`, `500`.
 
 ### `GET /jobs/recommended`
 
-Returns personalized open gig recommendations for a musician.
+Returns personalized open gig recommendations for a musician — defaults to
+the musician's own genres/instruments/location, but any of `query`, `genre`,
+`instrument`, `location`, `min_budget`, `max_budget` passed explicitly
+narrows the personalized result instead (used by the "Best matches" tab's
+search bar and filters).
 
 Auth: required, role `musician`.
 
-Query parameters: `limit` defaults to `10`, max practical limit is `20`.
+Query parameters: `limit` (defaults to `10`, max practical limit `20`), plus
+the same `query`/`genre`/`instrument`/`location`/`min_budget`/`max_budget`
+params as `GET /jobs`.
 
 Response `200`: array of `Job`.
 
 Status codes: `200`, `400`, `401`, `403`, `405`.
+
+### `POST /jobs/save` / `POST /jobs/unsave`
+
+Saves or removes a job from the musician's saved-jobs list, for later
+review — a saved job isn't filtered by status, so one that's since been
+filled by another musician still shows up (as "Closed" in the UI) rather
+than silently disappearing.
+
+Auth: required, role `musician`.
+
+Body: `{"job_id": "..."}`.
+
+Status codes: `200`, `400`, `401`, `403`.
+
+### `GET /jobs/saved`
+
+Returns the musician's saved jobs (full `Job` objects, any status).
+
+Auth: required, role `musician`.
+
+Status codes: `200`, `401`, `403`, `500`.
 
 ### `GET /jobs/mine`
 

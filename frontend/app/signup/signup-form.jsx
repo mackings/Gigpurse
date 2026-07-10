@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -19,13 +20,18 @@ export default function SignupForm() {
   const role = searchParams.get("role") === "musician" ? "musician" : "client";
 
   const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!acceptedTerms) {
+      toast.error("You must agree to the Terms and Conditions to sign up.");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await signup({ ...form, role });
+      await signup({ ...form, role, accepted_terms: acceptedTerms });
       toast.success("Account created. Check your email for a verification code.");
       router.push(`/verify-email?email=${encodeURIComponent(form.email)}`);
     } catch (err) {
@@ -82,7 +88,21 @@ export default function SignupForm() {
                 className="mt-1.5"
               />
             </div>
-            <Button type="submit" disabled={isSubmitting} className="w-full">
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="accepted-terms"
+                checked={acceptedTerms}
+                onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                className="mt-0.5"
+              />
+              <Label htmlFor="accepted-terms" className="text-sm font-normal text-muted-foreground leading-snug">
+                I agree to GigPurse&apos;s{" "}
+                <Link href="/terms" target="_blank" className="text-primary hover:underline">
+                  Terms and Conditions
+                </Link>
+              </Label>
+            </div>
+            <Button type="submit" disabled={isSubmitting || !acceptedTerms} className="w-full">
               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign Up"}
             </Button>
           </form>

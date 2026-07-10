@@ -66,6 +66,12 @@ func (r *jobRepository) List(ctx context.Context, filter domain.JobFilter) ([]*d
 	if filter.ClientID != "" {
 		query["client_id"] = filter.ClientID
 	}
+	if filter.Query != "" {
+		query["$or"] = []bson.M{
+			{"title": bson.M{"$regex": filter.Query, "$options": "i"}},
+			{"description": bson.M{"$regex": filter.Query, "$options": "i"}},
+		}
+	}
 
 	budgetQuery := bson.M{}
 	hasBudgetFilter := false
@@ -87,7 +93,7 @@ func (r *jobRepository) List(ctx context.Context, filter domain.JobFilter) ([]*d
 	}
 	defer cursor.Close(ctx)
 
-	var jobs []*domain.Job
+	jobs := []*domain.Job{}
 	for cursor.Next(ctx) {
 		var job domain.Job
 		if err := cursor.Decode(&job); err != nil {

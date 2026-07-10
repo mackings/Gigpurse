@@ -379,7 +379,7 @@ type apiClient struct {
 
 func (c *apiClient) signup(email, password, role, name string) domain.User {
 	var user domain.User
-	c.post("/auth/signup", "", map[string]any{"email": email, "password": password, "role": role, "name": name}, http.StatusCreated, &user)
+	c.post("/auth/signup", "", map[string]any{"email": email, "password": password, "role": role, "name": name, "accepted_terms": true}, http.StatusCreated, &user)
 	return user
 }
 

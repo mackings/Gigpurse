@@ -31,6 +31,7 @@ type JobApplication struct {
 }
 
 type JobFilter struct {
+	Query           string  `json:"query"` // free-text search across title + description
 	Status          string  `json:"status"`
 	Genre           string  `json:"genre"`
 	Instrument      string  `json:"instrument"`
@@ -61,11 +62,15 @@ type JobUsecase interface {
 	PostJob(ctx context.Context, clientID, title, description, instrument, genre, location string, budget float64) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]*Job, error)
-	RecommendedJobs(ctx context.Context, musicianID string, limit int) ([]*Job, error)
+	RecommendedJobs(ctx context.Context, musicianID string, limit int, extra JobFilter) ([]*Job, error)
 
 	ApplyForJob(ctx context.Context, musicianID, jobID, proposal string, priceBid float64) (*JobApplication, error)
 	ListJobApplications(ctx context.Context, jobID string) ([]*JobApplication, error)
 	ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*JobApplication, error)
 	ListMusicianJobsByStatus(ctx context.Context, musicianID, status string) ([]*Job, error)
 	AcceptApplication(ctx context.Context, clientID, applicationID string) error
+
+	SaveJob(ctx context.Context, musicianID, jobID string) error
+	UnsaveJob(ctx context.Context, musicianID, jobID string) error
+	ListSavedJobs(ctx context.Context, musicianID string) ([]*Job, error)
 }
