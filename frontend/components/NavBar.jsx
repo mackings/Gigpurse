@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useRealtime } from "@/lib/RealtimeProvider";
@@ -41,7 +41,18 @@ export default function NavBar() {
   const { user, isLoading, isAuthenticated, refetch } = useCurrentUser();
   const { unreadMessageCount } = useRealtime();
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
+
+  // NavBar lives in the shared layout and never remounts between routes, so
+  // isMenuOpen otherwise survives a client-side navigation — e.g. open the
+  // mobile menu, tap "Sign in", log in, land on /jobs with the drawer still
+  // covering the page. Closing on every route change is a hard guarantee,
+  // not dependent on every link inside the drawer remembering to do it.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsMenuOpen(false);
+  }, [pathname]);
 
   const isTalent = user?.role === "musician";
   // Talent land on the job board, not the stats dashboard — it's their
@@ -333,12 +344,12 @@ export default function NavBar() {
               </>
             ) : (
               <div className="space-y-2 pt-2">
-                <Link href="/login" className="block">
+                <Link href="/login" className="block" onClick={() => setIsMenuOpen(false)}>
                   <Button variant="outline" className="w-full">
                     Sign in
                   </Button>
                 </Link>
-                <Link href="/role-selection" className="block">
+                <Link href="/role-selection" className="block" onClick={() => setIsMenuOpen(false)}>
                   <Button className="w-full">Create account</Button>
                 </Link>
               </div>
