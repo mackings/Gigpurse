@@ -157,6 +157,11 @@ func (r *jobRepository) ListApplications(ctx context.Context, jobID string) ([]*
 	return apps, nil
 }
 
+func (r *jobRepository) CountApplications(ctx context.Context, jobID string) (int, error) {
+	count, err := r.appColl.CountDocuments(ctx, bson.M{"job_id": jobID})
+	return int(count), err
+}
+
 func (r *jobRepository) ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*domain.JobApplication, error) {
 	cursor, err := r.appColl.Find(ctx, bson.M{"musician_id": musicianID})
 	if err != nil {

@@ -18,3 +18,34 @@ export function formatMoney(amount, { decimals } = {}) {
       : { maximumFractionDigits: 2 };
   return `₦${n.toLocaleString("en-NG", opts)}`;
 }
+
+// Shared "Posted 3 days ago" phrasing used by every job card/detail view.
+export function postedAgo(dateStr) {
+  if (!dateStr) return null;
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+  const days = Math.floor(diffMs / 86400000);
+  if (days < 1) return "Posted today";
+  if (days === 1) return "Posted yesterday";
+  if (days < 30) return `Posted ${days} days ago`;
+  return `Posted ${new Date(dateStr).toLocaleDateString()}`;
+}
+
+export const JOB_DURATION_LABELS = {
+  less_than_1_week: "Less than 1 week",
+  "1_to_2_weeks": "1 to 2 weeks",
+  "1_to_4_weeks": "1 to 4 weeks",
+  "1_to_3_months": "1 to 3 months",
+  "3_plus_months": "3+ months",
+};
+
+export const JOB_EXPERIENCE_LABELS = {
+  entry: "Entry level",
+  intermediate: "Intermediate",
+  expert: "Expert",
+};
+
+export const JOB_PROJECT_TYPE_LABELS = {
+  one_time: "One-time gig",
+  ongoing: "Ongoing",
+};

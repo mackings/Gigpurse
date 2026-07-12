@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
 import { formatMoney } from "@/lib/utils";
-import { Briefcase, ChevronDown, ChevronUp, Loader2, MapPin, User } from "lucide-react";
+import { Briefcase, ChevronDown, ChevronUp, Loader2, MapPin, User, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_COLOR = {
+  pending_funding: "bg-amber-500",
   open: "bg-sky-500",
   active: "bg-primary",
   completed: "bg-emerald-500",
@@ -20,11 +21,21 @@ const STATUS_COLOR = {
 export default function ClientJobCard({ job }) {
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
+  const needsFunding = job.status === "pending_funding";
 
   const { data: applications, isLoading } = useQuery({
     queryKey: ["job-applications", job.id],
     queryFn: () => apiGet(`/jobs/applications?job_id=${job.id}`),
     enabled: expanded,
+  });
+
+  const fundMutation = useMutation({
+    mutationFn: () => apiPost("/jobs/fund", { job_id: job.id }),
+    onSuccess: () => {
+      toast.success("Escrow funded — your gig is now live.");
+      queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   async function accept(applicationId) {
@@ -49,7 +60,7 @@ export default function ClientJobCard({ job }) {
               {job.title}
             </h3>
             <div className="flex items-center gap-2 flex-wrap mt-1.5">
-              <StatusBadge status={job.status} />
+              <StatusBadge status={job.status} label={needsFunding ? "Awaiting escrow" : undefined} />
               <span className="text-sm text-muted-foreground flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 shrink-0" />
                 {job.location} · {formatMoney(job.budget)}
@@ -57,10 +68,17 @@ export default function ClientJobCard({ job }) {
             </div>
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setExpanded((v) => !v)} className="gap-1 shrink-0">
-          Applications
-          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </Button>
+        {needsFunding ? (
+          <Button size="sm" className="gap-1.5 shrink-0" onClick={() => fundMutation.mutate()} disabled={fundMutation.isPending}>
+            {fundMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+            Fund escrow
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setExpanded((v) => !v)} className="gap-1 shrink-0">
+            Applications
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </Button>
+        )}
       </div>
 
       {expanded && (

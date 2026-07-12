@@ -91,7 +91,7 @@ func main() {
 	milestoneRepo := memory.NewMilestoneRepository()
 
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
@@ -197,6 +197,10 @@ func main() {
 	log.Println("\n--- STEP 5: Testing Client Post Job ---")
 	job := postJob(clientUser, "Rock Gig in NYC", "Need a rock guitarist for a corporate gig.", "Guitar", "Rock", "New York", 400.00)
 	log.Printf("[SUCCESS] Job Created: ID=%s, Title=%s, Status=%s, Budget=$%.2f", job.ID, job.Title, job.Status, job.Budget)
+
+	depositWallet(clientUser, 1000.00)
+	job = fundEscrow(clientUser, job.ID)
+	log.Printf("[SUCCESS] Escrow Funded: Status=%s, EscrowFunded=%v, EscrowAmount=$%.2f", job.Status, job.EscrowFunded, job.EscrowAmount)
 
 	// ------------------------------------------------------------------
 	// STEP 6: BROWSE JOBS
@@ -759,6 +763,45 @@ func postJob(tc *TestClient, title, desc, inst, genre, loc string, budget float6
 		log.Fatalf("post job failed: status=%d, body=%s", resp.StatusCode, string(out))
 	}
 
+	var job domain.Job
+	_ = json.NewDecoder(resp.Body).Decode(&job)
+	return job
+}
+
+func depositWallet(tc *TestClient, amount float64) {
+	body := map[string]interface{}{"amount": amount}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, serverAddr+"/wallet/deposit", bytes.NewBuffer(b))
+	req.Header.Set("Authorization", "Bearer "+tc.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := tc.client.Do(req)
+	if err != nil {
+		log.Fatalf("wallet deposit failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		out, _ := io.ReadAll(resp.Body)
+		log.Fatalf("wallet deposit failed: status=%d, body=%s", resp.StatusCode, string(out))
+	}
+}
+
+// fundEscrow funds a job's escrow from the client's wallet balance — a job
+// stays invisible to talent (status "pending_funding") until this runs.
+func fundEscrow(tc *TestClient, jobID string) domain.Job {
+	body := map[string]interface{}{"job_id": jobID}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, serverAddr+"/jobs/fund", bytes.NewBuffer(b))
+	req.Header.Set("Authorization", "Bearer "+tc.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := tc.client.Do(req)
+	if err != nil {
+		log.Fatalf("fund escrow failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		out, _ := io.ReadAll(resp.Body)
+		log.Fatalf("fund escrow failed: status=%d, body=%s", resp.StatusCode, string(out))
+	}
 	var job domain.Job
 	_ = json.NewDecoder(resp.Body).Decode(&job)
 	return job

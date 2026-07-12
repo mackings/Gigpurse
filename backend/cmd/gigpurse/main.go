@@ -82,7 +82,7 @@ func main() {
 
 	// 3. Initialize Usecases
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)

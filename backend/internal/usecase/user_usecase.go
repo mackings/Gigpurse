@@ -106,7 +106,7 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name st
 		Name:            name,
 		TermsAcceptedAt: time.Now(),
 		CreatedAt:       time.Now(),
-		UpdatedAt:     time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
 	if role == "musician" {

@@ -28,6 +28,7 @@ func (h *JobHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/jobs/save", JWTMiddleware(h.SaveJob))
 	mux.HandleFunc("/jobs/unsave", JWTMiddleware(h.UnsaveJob))
 	mux.HandleFunc("/jobs/saved", JWTMiddleware(h.ListSavedJobs))
+	mux.HandleFunc("/jobs/fund", JWTMiddleware(h.FundEscrow))
 }
 
 func (h *JobHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
@@ -141,12 +142,16 @@ func (h *JobHandler) PostJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title       string  `json:"title"`
-		Description string  `json:"description"`
-		Instrument  string  `json:"instrument"`
-		Genre       string  `json:"genre"`
-		Location    string  `json:"location"`
-		Budget      float64 `json:"budget"`
+		Title           string   `json:"title"`
+		Description     string   `json:"description"`
+		Instrument      string   `json:"instrument"`
+		Genre           string   `json:"genre"`
+		Location        string   `json:"location"`
+		Budget          float64  `json:"budget"`
+		ExperienceLevel string   `json:"experience_level"`
+		Duration        string   `json:"duration"`
+		ProjectType     string   `json:"project_type"`
+		Skills          []string `json:"skills"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -154,13 +159,49 @@ func (h *JobHandler) PostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := h.jobUsecase.PostJob(r.Context(), userID, req.Title, req.Description, req.Instrument, req.Genre, req.Location, req.Budget)
+	job, err := h.jobUsecase.PostJob(r.Context(), userID, domain.JobPostInput{
+		Title:           req.Title,
+		Description:     req.Description,
+		Instrument:      req.Instrument,
+		Genre:           req.Genre,
+		Location:        req.Location,
+		Budget:          req.Budget,
+		ExperienceLevel: req.ExperienceLevel,
+		Duration:        req.Duration,
+		ProjectType:     req.ProjectType,
+		Skills:          req.Skills,
+	})
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "job_create_failed", err.Error())
 		return
 	}
 
 	respondSuccess(w, http.StatusCreated, "job created successfully", job)
+}
+
+func (h *JobHandler) FundEscrow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can fund escrow")
+		return
+	}
+	var req struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	job, err := h.jobUsecase.FundEscrow(r.Context(), userID, req.JobID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "fund_escrow_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "escrow funded — job is now live", job)
 }
 
 func (h *JobHandler) ApplyForJob(w http.ResponseWriter, r *http.Request) {

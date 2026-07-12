@@ -17,6 +17,8 @@ type jobUsecase struct {
 	userRepo     domain.UserRepository
 	contractRepo domain.ContractRepository
 	notifRepo    domain.NotificationRepository
+	walletRepo   domain.WalletRepository
+	reviewRepo   domain.ReviewRepository
 }
 
 func NewJobUsecase(
@@ -24,17 +26,21 @@ func NewJobUsecase(
 	userRepo domain.UserRepository,
 	contractRepo domain.ContractRepository,
 	notifRepo domain.NotificationRepository,
+	walletRepo domain.WalletRepository,
+	reviewRepo domain.ReviewRepository,
 ) domain.JobUsecase {
 	return &jobUsecase{
 		jobRepo:      jobRepo,
 		userRepo:     userRepo,
 		contractRepo: contractRepo,
 		notifRepo:    notifRepo,
+		walletRepo:   walletRepo,
+		reviewRepo:   reviewRepo,
 	}
 }
 
-func (u *jobUsecase) PostJob(ctx context.Context, clientID, title, description, instrument, genre, location string, budget float64) (*domain.Job, error) {
-	if title == "" || description == "" || budget <= 0 {
+func (u *jobUsecase) PostJob(ctx context.Context, clientID string, input domain.JobPostInput) (*domain.Job, error) {
+	if input.Title == "" || input.Description == "" || input.Budget <= 0 {
 		return nil, errors.New("invalid job details: title, description, and budget are required")
 	}
 
@@ -48,16 +54,22 @@ func (u *jobUsecase) PostJob(ctx context.Context, clientID, title, description, 
 	}
 
 	newJob := &domain.Job{
-		ClientID:    clientID,
-		Title:       title,
-		Description: description,
-		Budget:      budget,
-		Instrument:  instrument,
-		Genre:       genre,
-		Location:    location,
-		Status:      "open",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ClientID:        clientID,
+		Title:           input.Title,
+		Description:     input.Description,
+		Budget:          input.Budget,
+		Instrument:      input.Instrument,
+		Genre:           input.Genre,
+		Location:        input.Location,
+		ExperienceLevel: input.ExperienceLevel,
+		Duration:        input.Duration,
+		ProjectType:     input.ProjectType,
+		Skills:          input.Skills,
+		// Jobs stay invisible to talent until the client funds escrow —
+		// see FundEscrow, which is what flips this to "open".
+		Status:    "pending_funding",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	if err := u.jobRepo.Create(ctx, newJob); err != nil {
@@ -67,8 +79,64 @@ func (u *jobUsecase) PostJob(ctx context.Context, clientID, title, description, 
 	return newJob, nil
 }
 
+// FundEscrow moves the job's budget from the client's wallet balance into
+// escrow and only then makes the job visible/open to applicants — the
+// "Escrow funded" badge shown on job cards is a guarantee, not decoration.
+func (u *jobUsecase) FundEscrow(ctx context.Context, clientID, jobID string) (*domain.Job, error) {
+	job, err := u.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return nil, errors.New("unauthorized: only the job's creator can fund escrow")
+	}
+	if job.Status != "pending_funding" {
+		return nil, errors.New("job is not awaiting escrow funding")
+	}
+
+	wallet, err := u.walletRepo.GetOrCreate(ctx, clientID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load wallet: %w", err)
+	}
+	if wallet.Balance < job.Budget {
+		return nil, fmt.Errorf("insufficient wallet balance: need %.2f, have %.2f — top up your wallet first", job.Budget, wallet.Balance)
+	}
+
+	wallet.Balance -= job.Budget
+	wallet.EscrowBalance += job.Budget
+	if err := u.walletRepo.Save(ctx, wallet); err != nil {
+		return nil, fmt.Errorf("failed to fund escrow: %w", err)
+	}
+	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+		UserID: clientID, Type: "escrow_hold", Amount: job.Budget,
+		Description: fmt.Sprintf("Escrow funded for gig: %s", job.Title),
+	})
+
+	job.EscrowFunded = true
+	job.EscrowAmount = job.Budget
+	job.Status = "open"
+	job.UpdatedAt = time.Now()
+	if err := u.jobRepo.Update(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to activate job: %w", err)
+	}
+
+	return job, nil
+}
+
 func (u *jobUsecase) GetJob(ctx context.Context, id string) (*domain.Job, error) {
-	return u.jobRepo.GetByID(ctx, id)
+	job, err := u.jobRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if count, err := u.jobRepo.CountApplications(ctx, job.ID); err == nil {
+		job.ApplicationCount = count
+	}
+	job.Client = u.buildClientInfo(ctx, job.ClientID)
+	if job.Client != nil {
+		job.ClientRating = job.Client.Rating
+		job.ClientReviewCount = job.Client.ReviewCount
+	}
+	return job, nil
 }
 
 func (u *jobUsecase) ListJobs(ctx context.Context, filter domain.JobFilter) ([]*domain.Job, error) {
@@ -80,11 +148,11 @@ func (u *jobUsecase) ListJobs(ctx context.Context, filter domain.JobFilter) ([]*
 	if filter.MaxApplications > 0 {
 		filtered := jobs[:0]
 		for _, job := range jobs {
-			apps, err := u.jobRepo.ListApplications(ctx, job.ID)
+			count, err := u.jobRepo.CountApplications(ctx, job.ID)
 			if err != nil {
 				return nil, err
 			}
-			if len(apps) <= filter.MaxApplications {
+			if count <= filter.MaxApplications {
 				filtered = append(filtered, job)
 			}
 		}
@@ -92,6 +160,7 @@ func (u *jobUsecase) ListJobs(ctx context.Context, filter domain.JobFilter) ([]*
 	}
 
 	u.sortJobs(ctx, jobs, filter)
+	u.populateJobStats(ctx, jobs)
 	return jobs, nil
 }
 
@@ -302,9 +371,9 @@ func (u *jobUsecase) sortJobs(ctx context.Context, jobs []*domain.Job, filter do
 	case "applications", "popularity":
 		counts := make(map[string]int, len(jobs))
 		for _, job := range jobs {
-			apps, err := u.jobRepo.ListApplications(ctx, job.ID)
+			count, err := u.jobRepo.CountApplications(ctx, job.ID)
 			if err == nil {
-				counts[job.ID] = len(apps)
+				counts[job.ID] = count
 			}
 		}
 		sort.SliceStable(jobs, func(i, j int) bool {
@@ -414,7 +483,105 @@ func (u *jobUsecase) ListSavedJobs(ctx context.Context, musicianID string) ([]*d
 		}
 		jobs = append(jobs, job)
 	}
+	u.populateJobStats(ctx, jobs)
 	return jobs, nil
+}
+
+// populateJobStats attaches read-only, query-time-only stats (proposal
+// count, client rating) to each job in a list — used everywhere a job
+// board card is rendered so it can show real numbers instead of nothing.
+func (u *jobUsecase) populateJobStats(ctx context.Context, jobs []*domain.Job) {
+	for _, job := range jobs {
+		if count, err := u.jobRepo.CountApplications(ctx, job.ID); err == nil {
+			job.ApplicationCount = count
+		}
+		if avg, n, err := u.averageRating(ctx, job.ClientID); err == nil {
+			job.ClientRating = avg
+			job.ClientReviewCount = n
+		}
+	}
+}
+
+func (u *jobUsecase) averageRating(ctx context.Context, userID string) (float64, int, error) {
+	reviews, err := u.reviewRepo.ListByReviewee(ctx, userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(reviews) == 0 {
+		return 0, 0, nil
+	}
+	sum := 0
+	for _, rv := range reviews {
+		sum += rv.Rating
+	}
+	return float64(sum) / float64(len(reviews)), len(reviews), nil
+}
+
+// buildClientInfo assembles the "About the client" panel shown on a job's
+// detail view. Every field is derived from real jobs/contracts/reviews —
+// best-effort throughout, since a stats lookup failure shouldn't 404 the
+// job itself.
+func (u *jobUsecase) buildClientInfo(ctx context.Context, clientID string) *domain.JobClientInfo {
+	client, err := u.userRepo.GetByID(ctx, clientID)
+	if err != nil {
+		return nil
+	}
+
+	info := &domain.JobClientInfo{
+		Name:        client.Name,
+		Location:    client.Location,
+		MemberSince: client.CreatedAt,
+	}
+	if client.ClientProfile != nil {
+		info.CompanyName = client.ClientProfile.CompanyName
+	}
+	if avg, n, err := u.averageRating(ctx, clientID); err == nil {
+		info.Rating = avg
+		info.ReviewCount = n
+	}
+
+	if clientJobs, err := u.jobRepo.List(ctx, domain.JobFilter{ClientID: clientID}); err == nil {
+		info.JobsPosted = len(clientJobs)
+		hired := 0
+		for _, j := range clientJobs {
+			if j.Status == "open" {
+				info.OpenJobs++
+			}
+			if j.MusicianID != "" {
+				hired++
+			}
+		}
+		if info.JobsPosted > 0 {
+			info.HireRate = float64(hired) / float64(info.JobsPosted) * 100
+		}
+	}
+
+	if contracts, err := u.contractRepo.ListForUser(ctx, clientID, "client"); err == nil {
+		sort.SliceStable(contracts, func(i, j int) bool { return contracts[i].CreatedAt.After(contracts[j].CreatedAt) })
+		for _, c := range contracts {
+			if c.Status == "completed" {
+				info.TotalSpent += c.Price
+			}
+		}
+		const recentHiresLimit = 5
+		for i, c := range contracts {
+			if i >= recentHiresLimit {
+				break
+			}
+			name := "Musician"
+			if musician, err := u.userRepo.GetByID(ctx, c.MusicianID); err == nil && musician != nil {
+				name = musician.Name
+			}
+			info.RecentHires = append(info.RecentHires, domain.JobClientHire{
+				MusicianName: name,
+				JobTitle:     c.Title,
+				Status:       c.Status,
+				Date:         c.CreatedAt,
+			})
+		}
+	}
+
+	return info
 }
 
 func (u *jobUsecase) notifyAndEmail(ctx context.Context, userID, title, message, link string) {

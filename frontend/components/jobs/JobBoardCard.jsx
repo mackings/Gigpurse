@@ -4,52 +4,61 @@ import Link from "next/link";
 import IconBadge from "@/components/ui/icon-badge";
 import StatusBadge from "@/components/ui/status-badge";
 import SaveJobButton from "@/components/jobs/SaveJobButton";
-import JobApplyModal from "@/components/jobs/JobApplyModal";
 import { Button } from "@/components/ui/button";
-import { formatMoney } from "@/lib/utils";
-import { Guitar, MapPin, Clock } from "lucide-react";
-
-function postedAgo(dateStr) {
-  if (!dateStr) return null;
-  const diffMs = Date.now() - new Date(dateStr).getTime();
-  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-  const days = Math.floor(diffMs / 86400000);
-  if (days < 1) return "Posted today";
-  if (days === 1) return "Posted yesterday";
-  if (days < 30) return `Posted ${days} days ago`;
-  return `Posted ${new Date(dateStr).toLocaleDateString()}`;
-}
+import { formatMoney, postedAgo } from "@/lib/utils";
+import { Guitar, MapPin, Clock, ShieldCheck, Star, Users } from "lucide-react";
 
 // Shared job row used across every tab of the talent job board (Best
 // matches, Most recent, Saved jobs, Invites-adjacent). Saved jobs aren't
 // filtered by status server-side, so a job that's since been filled shows
 // a "Closed" badge here instead of silently looking identical to an open one.
-export default function JobBoardCard({ job, saved, alreadyApplied, onApplied, showSaveButton = true }) {
+//
+// The whole card (including the "Apply now" button) opens the Upwork-style
+// detail panel via the parent's onOpen, which sets a shareable ?job= URL
+// param — applying happens from inside that panel, not straight off the
+// card. It's still a real <Link>, so ctrl/cmd/middle-click still opens the
+// full job page in a new tab as expected.
+export default function JobBoardCard({ job, saved, alreadyApplied, onOpen, showSaveButton = true }) {
   const isClosed = job.status !== "open";
 
+  function handleClick(e) {
+    if (!onOpen) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
+    onOpen(job.id);
+  }
+
   return (
-    <div className="group bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30">
+    <Link
+      href={`/jobs/${job.id}`}
+      onClick={handleClick}
+      className="group block bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30"
+    >
       <div className="flex items-start gap-4">
         <IconBadge icon={Guitar} color={isClosed ? "bg-muted-foreground" : "bg-primary"} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
-            <Link href={`/jobs/${job.id}`} className="min-w-0">
-              <h3 className="font-semibold text-foreground truncate hover:text-primary transition-colors" title={job.title}>
-                {job.title}
-              </h3>
-            </Link>
+            <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors min-w-0" title={job.title}>
+              {job.title}
+            </h3>
             <div className="flex items-center gap-1 shrink-0">
               {isClosed && <StatusBadge status="closed" label="Closed" />}
               {showSaveButton && <SaveJobButton jobId={job.id} saved={saved} />}
             </div>
           </div>
 
-          {postedAgo(job.created_at) && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-              <Clock className="w-3 h-3" />
-              {postedAgo(job.created_at)}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
+            {postedAgo(job.created_at) && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {postedAgo(job.created_at)}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <Users className="w-3 h-3" />
+              {job.application_count === 1 ? "1 proposal" : `${job.application_count || 0} proposals`}
+            </span>
+          </div>
 
           <p className="text-muted-foreground mt-2 line-clamp-2">{job.description}</p>
 
@@ -65,7 +74,21 @@ export default function JobBoardCard({ job, saved, alreadyApplied, onApplied, sh
             {job.genre && <span>{job.genre}</span>}
           </div>
 
-          <div className="mt-4">
+          <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-border/60">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              {job.escrow_funded && (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Escrow funded
+                </span>
+              )}
+              {job.client_review_count > 0 && (
+                <span className="flex items-center gap-1">
+                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                  {job.client_rating.toFixed(1)}
+                </span>
+              )}
+            </div>
             {isClosed ? (
               <Button disabled variant="outline" size="sm">
                 No longer available
@@ -75,11 +98,13 @@ export default function JobBoardCard({ job, saved, alreadyApplied, onApplied, sh
                 Applied
               </Button>
             ) : (
-              <JobApplyModal job={job} trigger={<Button size="sm">Apply now</Button>} onApplied={onApplied} />
+              <Button size="sm" onClick={handleClick}>
+                Apply now
+              </Button>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

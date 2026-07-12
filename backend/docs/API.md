@@ -442,7 +442,11 @@ Status codes: `200`, `401`, `404`.
 
 ### `POST /jobs`
 
-Creates a job listing.
+Creates a job listing. New jobs start `status: "pending_funding"` — they are
+invisible to talent (excluded from `status=open` listings, recommendations,
+and applications) until the client funds escrow via `POST /jobs/fund`. This
+guarantees that any job talent can see and apply to already has its budget
+held in escrow.
 
 Auth: required, role `client`.
 
@@ -455,9 +459,18 @@ Required body:
   "instrument": "Guitar",
   "genre": "Afrobeats",
   "location": "Lagos",
-  "budget": 500
+  "budget": 500,
+  "experience_level": "intermediate",
+  "duration": "less_than_1_week",
+  "project_type": "one_time",
+  "skills": ["Guitar", "Session recording"]
 }
 ```
+
+`experience_level`, `duration`, `project_type`, and `skills` are all
+optional. `experience_level` is one of `entry`/`intermediate`/`expert`.
+`duration` is one of `less_than_1_week`/`1_to_2_weeks`/`1_to_4_weeks`/
+`1_to_3_months`/`3_plus_months`. `project_type` is `one_time` or `ongoing`.
 
 Response `201`:
 
@@ -471,11 +484,29 @@ Response `201`:
   "instrument": "Guitar",
   "genre": "Afrobeats",
   "location": "Lagos",
-  "status": "open"
+  "status": "pending_funding",
+  "escrow_funded": false
 }
 ```
 
 Status codes: `201`, `400`, `401`, `403`, `405`.
+
+### `POST /jobs/fund`
+
+Funds a `pending_funding` job's escrow from the client's wallet balance
+(`GET /wallet` / `POST /wallet/deposit`) and flips it to `status: "open"`,
+making it visible to talent. Fails with `400` if the wallet balance is
+below the job's budget, or if the job isn't currently `pending_funding`
+(already funded, or not owned by the caller).
+
+Auth: required, role `client`, must be the job's creator.
+
+Body: `{"job_id": "..."}`.
+
+Response `200`: the updated `Job`, with `status: "open"`,
+`escrow_funded: true`, and `escrow_amount` set to the budget that was held.
+
+Status codes: `200`, `400`, `401`, `403`.
 
 ### `GET /jobs`
 
@@ -487,9 +518,9 @@ Query parameters:
 
 | Name | Description |
 | --- | --- |
-| `id` | If present, returns one job. |
+| `id` | If present, returns one job (with the full `client` trust-stats object and `application_count` populated — see below). |
 | `query` | Free-text search — case-insensitive substring match against title or description. |
-| `status` | `open`, `active`, `completed`, `disputed`. |
+| `status` | `pending_funding`, `open`, `active`, `completed`, `disputed`. |
 | `genre` | Genre filter. |
 | `instrument` | Instrument filter. |
 | `location` | Location filter. |
@@ -498,19 +529,39 @@ Query parameters:
 | `sort_by` | `newest`, `budget`, `applications`, `popularity`, `relevance`. |
 | `sort_order` | `asc` or `desc`. |
 | `max_applications` | Only jobs with application count less than or equal to this value. |
-| `client_id` | Only jobs posted by this client. Useful for a client's own job dashboard. |
+| `client_id` | Only jobs posted by this client. Useful for a client's own job dashboard (includes their own `pending_funding` jobs, so they can complete funding). |
 
-Response `200`:
+Every job in a list response carries `application_count` (real proposal
+count) and lightweight `client_rating`/`client_review_count`. A single-job
+fetch (`?id=`) additionally carries a full `client` object:
 
 ```json
-[
-  {
-    "id": "job_1",
-    "status": "open",
-    "title": "Afrobeats guitar session",
-    "budget": 500
+{
+  "id": "job_1",
+  "status": "open",
+  "title": "Afrobeats guitar session",
+  "budget": 500,
+  "escrow_funded": true,
+  "escrow_amount": 500,
+  "application_count": 3,
+  "client_rating": 4.8,
+  "client_review_count": 12,
+  "client": {
+    "name": "Demo Client",
+    "company_name": "Gigpurse Events",
+    "location": "Lagos",
+    "member_since": "2026-01-04T10:00:00Z",
+    "rating": 4.8,
+    "review_count": 12,
+    "jobs_posted": 6,
+    "open_jobs": 2,
+    "hire_rate": 66.7,
+    "total_spent": 2100,
+    "recent_hires": [
+      { "musician_name": "Demo Musician", "job_title": "Wedding guitarist", "status": "completed", "date": "2026-06-01T00:00:00Z" }
+    ]
   }
-]
+}
 ```
 
 Status codes: `200`, `404`, `405`, `500`.

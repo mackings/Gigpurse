@@ -102,13 +102,33 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 
 	var job domain.Job
 	client.post("/jobs", clientToken, map[string]any{
-		"title":       "Afrobeats guitar session",
-		"description": "Need guitar for a studio session",
-		"instrument":  "Guitar",
-		"genre":       "Afrobeats",
-		"location":    "Lagos",
-		"budget":      500,
+		"title":            "Afrobeats guitar session",
+		"description":      "Need guitar for a studio session",
+		"instrument":       "Guitar",
+		"genre":            "Afrobeats",
+		"location":         "Lagos",
+		"budget":           500,
+		"experience_level": "intermediate",
+		"duration":         "less_than_1_week",
+		"project_type":     "one_time",
+		"skills":           []string{"Guitar", "Session recording"},
 	}, http.StatusCreated, &job)
+	if job.Status != "pending_funding" {
+		t.Fatalf("expected new job to start pending_funding, got %q", job.Status)
+	}
+
+	// A job stays invisible to talent until its escrow is funded. Deposit
+	// exactly the job's budget so escrow-funding fully consumes it, leaving
+	// the wallet at 0 — the later fresh-deposit assertion below expects to
+	// start from a zero balance.
+	client.post("/wallet/deposit", clientToken, map[string]any{"amount": 500}, http.StatusOK, nil)
+	var fundedJob domain.Job
+	client.post("/jobs/fund", clientToken, map[string]any{"job_id": job.ID}, http.StatusOK, &fundedJob)
+	if fundedJob.Status != "open" || !fundedJob.EscrowFunded {
+		t.Fatalf("expected job to be open and escrow-funded after funding, got %#v", fundedJob)
+	}
+	job = fundedJob
+
 	client.get("/jobs?id="+job.ID, clientToken, http.StatusOK, nil)
 	client.get("/jobs?status=open&genre=Afrobeats&sort_by=budget&max_applications=5", musicianToken, http.StatusOK, nil)
 	client.get("/jobs/recommended?limit=5", musicianToken, http.StatusOK, nil)
@@ -335,7 +355,7 @@ func newTestApp() *testApp {
 	milestoneRepo := memory.NewMilestoneRepository()
 
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
@@ -701,6 +721,11 @@ func (r *memoryJobRepo) ListApplications(ctx context.Context, jobID string) ([]*
 		}
 	}
 	return apps, nil
+}
+
+func (r *memoryJobRepo) CountApplications(ctx context.Context, jobID string) (int, error) {
+	apps, err := r.ListApplications(ctx, jobID)
+	return len(apps), err
 }
 
 func (r *memoryJobRepo) ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*domain.JobApplication, error) {
