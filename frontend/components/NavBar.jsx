@@ -32,6 +32,7 @@ import {
   FolderOpen,
   ClipboardList,
   CalendarCheck,
+  Handshake,
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
@@ -77,7 +78,7 @@ export default function NavBar() {
     <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-md border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href={isAuthenticated ? dashboardUrl : "/"} className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Disc3 className="w-4 h-4 text-primary-foreground" strokeWidth={2.25} />
             </div>
@@ -120,19 +121,6 @@ export default function NavBar() {
                       </Button>
                     </Link>
 
-                    {isTalent && (
-                      <Link href="/dashboard/talent">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="My stats"
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <LayoutDashboard className="w-4 h-4" />
-                        </Button>
-                      </Link>
-                    )}
-
                     <NotificationBell className="text-muted-foreground hover:text-foreground" />
                     <ThemeToggle className="text-muted-foreground hover:text-foreground" />
 
@@ -168,6 +156,14 @@ export default function NavBar() {
                             <Link href="/profile/jobs">
                               <ClipboardList className="w-4 h-4 mr-2" />
                               My Jobs
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {isTalent && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/profile/contracts">
+                              <Handshake className="w-4 h-4 mr-2" />
+                              Contracts
                             </Link>
                           </DropdownMenuItem>
                         )}
@@ -270,16 +266,6 @@ export default function NavBar() {
                   <Wallet className="w-4 h-4" />
                   Wallet
                 </Link>
-                {isTalent && (
-                  <Link
-                    href="/dashboard/talent"
-                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    <LayoutDashboard className="w-4 h-4" />
-                    My stats
-                  </Link>
-                )}
                 <Link
                   href={profileHref}
                   className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -306,6 +292,16 @@ export default function NavBar() {
                   >
                     <ClipboardList className="w-4 h-4" />
                     My Jobs
+                  </Link>
+                )}
+                {isTalent && (
+                  <Link
+                    href="/profile/contracts"
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Handshake className="w-4 h-4" />
+                    Contracts
                   </Link>
                 )}
                 <Link

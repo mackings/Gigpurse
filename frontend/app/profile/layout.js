@@ -17,6 +17,7 @@ export default function ProfileLayout({ children }) {
         { href: "/onboarding", label: "Profile" },
         { href: "/profile/portfolio", label: "Portfolio" },
         { href: "/profile/jobs", label: "My Jobs" },
+        { href: "/profile/contracts", label: "Contracts" },
         { href: "/profile/bookings", label: "Bookings" },
       ]
     : [

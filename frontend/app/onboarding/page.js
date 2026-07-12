@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowLeft, ArrowRight, Loader2, Disc3, MapPin, DollarSign, Check, Video, Link as LinkIcon } from "lucide-react";
+import { ArrowRight, Loader2, Disc3, MapPin, DollarSign, Check, Video, Link as LinkIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { apiGet, apiPut } from "@/lib/api";
@@ -113,6 +113,7 @@ export default function TalentOnboarding() {
   }
 
   const totalSteps = 4;
+  const stepLabels = ["Personal", "Musical Profile", "Pricing", "Social Links"];
 
   if (isLoading) {
     return (
@@ -127,16 +128,37 @@ export default function TalentOnboarding() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,var(--accent),transparent)] opacity-60" />
       <div className="relative max-w-2xl mx-auto">
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-foreground">Step {step} of {totalSteps}</span>
-            <span className="text-sm text-muted-foreground">{Math.round((step / totalSteps) * 100)}% complete</span>
-          </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-primary rounded-full"
-              animate={{ width: `${(step / totalSteps) * 100}%` }}
-              transition={{ duration: 0.3 }}
-            />
+          {/* Jump to any step directly — this lives inside the Account
+              settings tab bar now, not a standalone signup wizard, so
+              sequential Back/Continue paging no longer fits. Clicking a
+              step is the natural way to revisit and fix an earlier one. */}
+          <div className="flex items-center gap-2">
+            {stepLabels.map((label, idx) => {
+              const n = idx + 1;
+              const isCurrent = step === n;
+              const isDone = step > n;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setStep(n)}
+                  className="flex-1 text-left group"
+                >
+                  <span
+                    className={`block h-1.5 rounded-full transition-colors ${
+                      isCurrent || isDone ? "bg-primary" : "bg-muted group-hover:bg-muted-foreground/30"
+                    }`}
+                  />
+                  <span
+                    className={`mt-1.5 block text-xs font-medium truncate ${
+                      isCurrent ? "text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    {n}. {label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -359,12 +381,7 @@ export default function TalentOnboarding() {
           )}
         </AnimatePresence>
 
-        <div className="flex justify-between mt-8">
-          <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={step === 1} className="gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Button>
-
+        <div className="flex justify-end mt-8">
           {step < totalSteps ? (
             <Button onClick={() => setStep((s) => s + 1)} className="gap-2">
               Continue

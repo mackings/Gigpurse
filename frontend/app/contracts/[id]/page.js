@@ -53,7 +53,7 @@ export default function ContractDetailPage() {
   }
 
   const role = user.id === contract.client_id ? "client" : "musician";
-  const backHref = role === "client" ? "/dashboard/client" : "/dashboard/talent";
+  const backHref = role === "client" ? "/dashboard/client" : "/profile/contracts";
   const counterpartId = role === "client" ? contract.musician_id : contract.client_id;
 
   return (
@@ -61,7 +61,7 @@ export default function ContractDetailPage() {
       <div className="max-w-3xl mx-auto space-y-6">
         <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4" />
-          Back to dashboard
+          {role === "client" ? "Back to dashboard" : "Back to contracts"}
         </Link>
 
         <div className="bg-card rounded-2xl border border-border p-6">
