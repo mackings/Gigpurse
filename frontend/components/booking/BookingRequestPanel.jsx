@@ -36,11 +36,12 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
 
   const { request, accept, decline, counter } = useDirectHire(resolvedId);
 
-  // No pending booking with this partner yet — either party (client or
-  // musician) can kick one off from right here, instead of only clients
-  // being able to propose from a talent profile page.
+  // No pending booking with this partner yet — only a client can kick one
+  // off (from right here, or from a talent profile page); talent can only
+  // respond to a booking a client sends, not originate one.
   if (!resolvedId || !request) {
     if (!otherUserId) return null;
+    if (user?.role !== "client") return null;
     return (
       <div className="border-b border-border bg-muted/30 px-4 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-sm text-muted-foreground truncate">No active booking with {otherUser?.name || "this user"}.</span>

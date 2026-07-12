@@ -91,12 +91,10 @@ func (u *contractUsecase) CompleteContract(ctx context.Context, clientID, contra
 	return nil
 }
 
-// CreateDirectHireRequest lets either a client or a musician start a direct
-// booking with the other party: initiatorID is whoever is proposing (either
-// role), and counterpartID is who they're proposing to. Which of ClientID/
-// MusicianID initiatorID maps to is resolved from the initiator's own role,
-// so the stored request always has the correct client/musician assignment
-// regardless of who started it.
+// CreateDirectHireRequest lets a client start a direct booking with a
+// musician. Only clients initiate — musicians respond via
+// RespondToDirectHireRequest/CounterDirectHireRequest on the request the
+// client sent, they don't originate one themselves.
 func (u *contractUsecase) CreateDirectHireRequest(ctx context.Context, initiatorID, counterpartID string, terms domain.DirectHireTerms) (*domain.DirectHireRequest, error) {
 	if initiatorID == "" || counterpartID == "" || terms.Title == "" || terms.Description == "" || terms.Price <= 0 {
 		return nil, errors.New("counterpart, title, description, and positive price are required")
@@ -112,22 +110,13 @@ func (u *contractUsecase) CreateDirectHireRequest(ctx context.Context, initiator
 	if err != nil {
 		return nil, errors.New("counterpart not found")
 	}
-
-	var clientID, musicianID string
-	switch initiator.Role {
-	case "client":
-		if counterpart.Role != "musician" {
-			return nil, errors.New("direct hire target must be a musician")
-		}
-		clientID, musicianID = initiatorID, counterpartID
-	case "musician":
-		if counterpart.Role != "client" {
-			return nil, errors.New("direct hire target must be a client")
-		}
-		clientID, musicianID = counterpartID, initiatorID
-	default:
-		return nil, errors.New("only clients or musicians can create direct hire requests")
+	if initiator.Role != "client" {
+		return nil, errors.New("only clients can propose a booking; talent can respond to a booking a client sends")
 	}
+	if counterpart.Role != "musician" {
+		return nil, errors.New("direct hire target must be a musician")
+	}
+	clientID, musicianID := initiatorID, counterpartID
 
 	now := time.Now()
 	req := &domain.DirectHireRequest{
