@@ -12,7 +12,7 @@ import IconBadge from "@/components/ui/icon-badge";
 import CounterOfferModal from "@/components/booking/CounterOfferModal";
 import BookingModal from "@/components/booking/BookingModal";
 import { formatMoney } from "@/lib/utils";
-import { ChevronDown, ChevronUp, Check, X, RefreshCw, MapPin, Calendar, CalendarPlus, Handshake } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, X, RefreshCw, MapPin, Calendar, CalendarPlus, Handshake, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 function formatEventDate(iso) {
@@ -25,6 +25,7 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
   const otherUser = useUserInfo(otherUserId);
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(true);
+  const [pendingAction, setPendingAction] = useState(null);
 
   // Resolve which booking to show: an explicit id from the URL (arrived via
   // notification), or the latest pending one between us and this chat
@@ -64,12 +65,15 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
   const isProposer = request.proposed_by === user.id;
   const canRespond = request.status === "pending" && !isProposer;
 
-  async function run(action, successMsg) {
+  async function run(action, name, successMsg) {
+    setPendingAction(name);
     try {
       await action();
       toast.success(successMsg);
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -123,22 +127,33 @@ export default function BookingRequestPanel({ otherUserId, bookingId }) {
 
           {canRespond && (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => run(decline, "Booking declined.")} className="gap-1.5">
-                <X className="w-3.5 h-3.5" />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!!pendingAction}
+                onClick={() => run(decline, "decline", "Booking declined.")}
+                className="gap-1.5"
+              >
+                {pendingAction === "decline" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
                 Decline
               </Button>
               <CounterOfferModal
                 current={request}
                 onCounter={(terms) => counter(terms)}
                 trigger={
-                  <Button size="sm" variant="outline" className="gap-1.5">
+                  <Button size="sm" variant="outline" disabled={!!pendingAction} className="gap-1.5">
                     <RefreshCw className="w-3.5 h-3.5" />
                     Counter-offer
                   </Button>
                 }
               />
-              <Button size="sm" onClick={() => run(accept, "Booking accepted — a contract was created.")} className="gap-1.5">
-                <Check className="w-3.5 h-3.5" />
+              <Button
+                size="sm"
+                disabled={!!pendingAction}
+                onClick={() => run(accept, "accept", "Booking accepted — a contract was created.")}
+                className="gap-1.5"
+              >
+                {pendingAction === "accept" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 Accept
               </Button>
             </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +21,7 @@ export default function ContractDetailPage() {
   const { id } = useParams();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
+  const [isCompleting, setIsCompleting] = useState(false);
 
   const { data: contracts, isLoading } = useQuery({
     queryKey: ["contracts", "detail", id],
@@ -31,12 +33,15 @@ export default function ContractDetailPage() {
   const { milestones, propose, accept, reject, counter, fund, release } = useMilestones(id);
 
   async function handleComplete() {
+    setIsCompleting(true);
     try {
       await apiPost("/contracts/complete", { contract_id: id });
       toast.success("Contract marked completed.");
       queryClient.invalidateQueries({ queryKey: ["contracts", "detail", id] });
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setIsCompleting(false);
     }
   }
 
@@ -89,7 +94,10 @@ export default function ContractDetailPage() {
               </Button>
             </Link>
             {role === "client" && contract.status === "active" && (
-              <Button size="sm" onClick={handleComplete}>Mark complete</Button>
+              <Button size="sm" disabled={isCompleting} onClick={handleComplete} className="gap-1.5">
+                {isCompleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Mark complete
+              </Button>
             )}
             {contract.status === "completed" && (
               <ReviewFormModal

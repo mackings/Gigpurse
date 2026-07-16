@@ -14,7 +14,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const emptyRow = () => ({ title: "", amount: "", due_date: "" });
@@ -22,6 +22,7 @@ const emptyRow = () => ({ title: "", amount: "", due_date: "" });
 export default function CreateMilestonesModal({ trigger, onCreate }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState([emptyRow()]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function updateRow(idx, patch) {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -48,6 +49,7 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
       toast.error("Add at least one milestone with a title and amount.");
       return;
     }
+    setIsSubmitting(true);
     try {
       await onCreate(cleaned);
       setRows([emptyRow()]);
@@ -55,6 +57,8 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
       toast.success("Milestone proposed — waiting on the other party to accept.");
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -91,7 +95,10 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
             Add another milestone
           </Button>
           <DialogFooter>
-            <Button type="submit">Propose milestone{rows.length > 1 ? "s" : ""}</Button>
+            <Button type="submit" disabled={isSubmitting} className="gap-1.5">
+              {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Propose milestone{rows.length > 1 ? "s" : ""}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

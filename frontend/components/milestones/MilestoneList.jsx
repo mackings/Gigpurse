@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
-import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag } from "lucide-react";
+import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
@@ -25,16 +26,25 @@ const STATUS_COLOR = {
 };
 
 export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onCounter, onFund, onRelease }) {
+  // Tracks "<milestoneId>:<action>" for whichever single button is mid-request,
+  // so only that button shows a spinner — its siblings on the same card are
+  // merely disabled (not spinning) to block a double-submit race.
+  const [pendingKey, setPendingKey] = useState(null);
+
   if (!milestones.length) {
     return <p className="text-sm text-muted-foreground">No milestones proposed yet.</p>;
   }
 
-  async function run(action, id, successMsg) {
+  async function run(action, id, actionName, successMsg) {
+    const key = `${id}:${actionName}`;
+    setPendingKey(key);
     try {
       await action(id);
       toast.success(successMsg);
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setPendingKey(null);
     }
   }
 
@@ -43,6 +53,8 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
       {milestones.map((m) => {
         const isProposer = m.proposed_by === currentUserId;
         const StatusIcon = STATUS_ICON[m.status] || Flag;
+        const cardPending = pendingKey?.startsWith(`${m.id}:`);
+        const isPending = (action) => pendingKey === `${m.id}:${action}`;
         return (
           <div
             key={m.id}
@@ -59,6 +71,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   {formatMoney(m.amount)}
                   {m.due_date && ` · due ${new Date(m.due_date).toLocaleDateString()}`}
                   {m.status === "proposed" && (isProposer ? " · awaiting their response" : " · they proposed this")}
+                  {m.status === "accepted" && " · pending funding — not active until the client funds escrow"}
                 </p>
               </div>
             </div>
@@ -66,35 +79,51 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
             <div className="flex items-center gap-2 shrink-0">
               {m.status === "proposed" && !isProposer && (
                 <>
-                  <Button size="sm" variant="outline" onClick={() => run(onReject, m.id, "Milestone rejected.")} className="gap-1.5">
-                    <X className="w-3.5 h-3.5" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={cardPending}
+                    onClick={() => run(onReject, m.id, "reject", "Milestone rejected.")}
+                    className="gap-1.5"
+                  >
+                    {isPending("reject") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
                     Reject
                   </Button>
                   <MilestoneCounterModal
                     current={m}
                     onCounter={(terms) => onCounter(m.id, terms)}
                     trigger={
-                      <Button size="sm" variant="outline" className="gap-1.5">
+                      <Button size="sm" variant="outline" disabled={cardPending} className="gap-1.5">
                         <RefreshCw className="w-3.5 h-3.5" />
                         Counter-offer
                       </Button>
                     }
                   />
-                  <Button size="sm" onClick={() => run(onAccept, m.id, "Milestone accepted.")} className="gap-1.5">
-                    <Check className="w-3.5 h-3.5" />
+                  <Button size="sm" disabled={cardPending} onClick={() => run(onAccept, m.id, "accept", "Milestone accepted.")} className="gap-1.5">
+                    {isPending("accept") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     Accept
                   </Button>
                 </>
               )}
               {role === "client" && m.status === "accepted" && (
-                <Button size="sm" onClick={() => run(onFund, m.id, "Escrow funded for this milestone.")} className="gap-1.5">
-                  <Lock className="w-3.5 h-3.5" />
+                <Button
+                  size="sm"
+                  disabled={cardPending}
+                  onClick={() => run(onFund, m.id, "fund", "Escrow funded for this milestone.")}
+                  className="gap-1.5"
+                >
+                  {isPending("fund") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
                   Fund escrow
                 </Button>
               )}
               {role === "client" && m.status === "funded" && (
-                <Button size="sm" onClick={() => run(onRelease, m.id, "Payment released to the Talent.")} className="gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+                <Button
+                  size="sm"
+                  disabled={cardPending}
+                  onClick={() => run(onRelease, m.id, "release", "Payment released to the Talent.")}
+                  className="gap-1.5"
+                >
+                  {isPending("release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                   Release payment
                 </Button>
               )}
