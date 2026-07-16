@@ -6,6 +6,8 @@ import { apiGet } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useRealtime } from "@/lib/RealtimeProvider";
 import { useUserInfo } from "@/hooks/use-user-info";
+import { useUserStatus } from "@/hooks/use-user-status";
+import PresenceDot from "@/components/ui/presence-dot";
 import { formatMessageTime } from "@/lib/format-time";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Search } from "lucide-react";
@@ -16,6 +18,7 @@ function partnerIdFor(msg, myId) {
 
 function ConversationRow({ partnerId, lastMessage, selected, unread, onSelect }) {
   const partner = useUserInfo(partnerId);
+  const status = useUserStatus(partnerId);
   const label = partner?.name || `User ${partnerId.slice(-6)}`;
 
   return (
@@ -25,8 +28,11 @@ function ConversationRow({ partnerId, lastMessage, selected, unread, onSelect })
         selected ? "bg-accent" : ""
       }`}
     >
-      <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shrink-0">
-        {label.charAt(0).toUpperCase()}
+      <div className="relative shrink-0">
+        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
+          {label.charAt(0).toUpperCase()}
+        </div>
+        <PresenceDot status={status} className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">

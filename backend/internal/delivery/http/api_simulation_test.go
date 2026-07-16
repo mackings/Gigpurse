@@ -353,8 +353,9 @@ func newTestApp() *testApp {
 	disputeRepo := newMemoryDisputeRepo()
 	walletRepo := memory.NewWalletRepository()
 	milestoneRepo := memory.NewMilestoneRepository()
+	hub := delivery.NewHub()
 
-	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
+	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
 	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)

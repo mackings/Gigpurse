@@ -429,14 +429,46 @@ Status codes: `200`, `404`.
 ### `GET /users/{id}`
 
 Returns a minimal, non-sensitive projection of any user by ID, regardless of
-role — `{"id", "name", "role", "location", "created_at", "client_profile"}`.
-Used to resolve display names (e.g. a chat partner) and to render the "About
-the client" panel on a job's detail page, without exposing full profile data
-(no email, no musician-specific fields).
+role — `{"id", "name", "role", "location", "created_at", "client_profile",
+"status"}`. Used to resolve display names (e.g. a chat partner) and to
+render the "About the client" panel on a job's detail page, without
+exposing full profile data (no email, no musician-specific fields).
+
+`status` is the presence status as seen by someone else — one of `"online"`,
+`"offline"`, `"disabled"`. It's never `"hidden"`: a user who has enabled
+`hide_presence` (see below) shows as `"offline"` to everyone but themselves,
+which is the entire point of that setting.
 
 Auth: required.
 
 Status codes: `200`, `401`, `404`.
+
+### `PUT /users/account-status`
+
+Self-service settings toggle — always acts on the authenticated caller,
+never an arbitrary user ID. Both flags default `false` and are fully
+reversible by the account owner; `disabled` is a "pause my account" toggle,
+not a suspension — the owner stays able to log in and re-enable it
+themselves at any time.
+
+Auth: required.
+
+Body:
+
+```json
+{ "hide_presence": true, "disabled": false }
+```
+
+- `hide_presence` — when `true`, the account always shows as `"offline"` to
+  others regardless of actual connection state.
+- `disabled` — when `true`, the account shows as `"disabled"` to others,
+  is excluded from `GET /musicians` results (if the account is a
+  musician), and can't receive new chat messages (`POST /chats` to this
+  user returns `400`).
+
+Response `200`: the updated `User`.
+
+Status codes: `200`, `400`, `401`.
 
 ## Jobs And Applications
 
@@ -697,7 +729,9 @@ Status codes: `200`, `400`, `401`, `403`, `405`, `500`.
 
 ### `POST /chats`
 
-Sends a chat message. External payment/contact terms are censored.
+Sends a chat message. External payment/contact terms are censored. Fails
+with `400` if the recipient has disabled their account
+(`PUT /users/account-status`).
 
 Auth: required.
 

@@ -12,6 +12,8 @@ import { ArrowRight, Loader2, Disc3, MapPin, DollarSign, Check, Video, Link as L
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { apiGet, apiPut } from "@/lib/api";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import AccountStatusSettings from "@/components/account/AccountStatusSettings";
 
 const genresList = [
   "Afrobeats", "Gospel", "R&B", "Jazz", "Classical", "Hip-Hop", "Reggae",
@@ -31,6 +33,7 @@ const emptySocialLinks = {
 
 export default function TalentOnboarding() {
   const router = useRouter();
+  const { user: authUser } = useCurrentUser();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -206,6 +209,7 @@ export default function TalentOnboarding() {
                   </div>
                 </CardContent>
               </Card>
+              {authUser && <div className="mt-6"><AccountStatusSettings user={authUser} /></div>}
             </motion.div>
           )}
 

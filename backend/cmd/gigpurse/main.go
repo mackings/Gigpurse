@@ -81,7 +81,7 @@ func main() {
 	milestoneRepo := mongodb.NewMilestoneRepository(db)
 
 	// 3. Initialize Usecases
-	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo)
+	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
 	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)

@@ -20,12 +20,24 @@ type User struct {
 	CreatedAt       time.Time        `json:"created_at" bson:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at" bson:"updated_at"`
 
+	// Self-service presence/availability settings — both default false (a
+	// user is neither hidden nor disabled until they opt in). "Disabled"
+	// stays loggable-in on purpose: the point is a reversible "pause my
+	// account" toggle, not a suspension, so the owner can always undo it.
+	HidePresence bool `json:"hide_presence" bson:"hide_presence"`
+	Disabled     bool `json:"disabled" bson:"disabled"`
+
 	// Computed at query time only (never persisted — bson:"-" keeps them out
 	// of Create/Update writes even if a caller round-trips a listed User).
 	AverageRating      float64 `json:"average_rating,omitempty" bson:"-"`
 	TotalReviews       int     `json:"total_reviews,omitempty" bson:"-"`
 	CompletedContracts int     `json:"completed_contracts,omitempty" bson:"-"`
 	TotalEarned        float64 `json:"total_earned,omitempty" bson:"-"`
+	// Status is the presence status as seen by another user (never by the
+	// account owner themselves) — one of "online", "offline", "disabled".
+	// "hidden" is intentionally never exposed here: that's the whole point
+	// of the HidePresence toggle, an observer sees "offline" instead.
+	Status string `json:"status,omitempty" bson:"-"`
 }
 
 type MusicianProfile struct {
@@ -95,4 +107,6 @@ type UserUsecase interface {
 	GetProfile(ctx context.Context, id string) (*User, error)
 	UpdateProfile(ctx context.Context, id string, name, bio, location string, musProfile *MusicianProfile, cliProfile *ClientProfile) (*User, error)
 	BrowseMusicians(ctx context.Context, filter MusicianFilter) ([]*User, error)
+	UpdateAccountStatus(ctx context.Context, id string, hidePresence, disabled bool) (*User, error)
+	GetUserStatus(ctx context.Context, id string) (string, error)
 }

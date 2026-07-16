@@ -11,6 +11,7 @@ import { Loader2, MapPin, Check } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, apiPut } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import AccountStatusSettings from "@/components/account/AccountStatusSettings";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -66,60 +67,64 @@ export default function ProfilePage() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Your details</CardTitle>
-        <CardDescription>This information is visible to talent you contact or hire.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <Label htmlFor="name">Full name</Label>
-            <Input
-              id="name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="mt-1.5"
-            />
-          </div>
-          <div>
-            <Label htmlFor="company_name">Company / organization (optional)</Label>
-            <Input
-              id="company_name"
-              placeholder="e.g. Sunset Events Co."
-              value={form.company_name}
-              onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-              className="mt-1.5"
-            />
-          </div>
-          <div>
-            <Label htmlFor="bio">Bio</Label>
-            <Textarea
-              id="bio"
-              placeholder="Tell talent a bit about you or your organization..."
-              value={form.bio}
-              onChange={(e) => setForm({ ...form, bio: e.target.value })}
-              className="mt-1.5 min-h-[120px]"
-            />
-          </div>
-          <div>
-            <Label htmlFor="location">Location</Label>
-            <div className="relative mt-1.5">
-              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Your details</CardTitle>
+          <CardDescription>This information is visible to talent you contact or hire.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <Label htmlFor="name">Full name</Label>
               <Input
-                id="location"
-                placeholder="City, State (e.g., Lagos, Nigeria)"
-                value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
-                className="pl-10"
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="mt-1.5"
               />
             </div>
-          </div>
-          <Button type="submit" disabled={isSubmitting} className="gap-2">
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Save changes <Check className="w-4 h-4" /></>}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+            <div>
+              <Label htmlFor="company_name">Company / organization (optional)</Label>
+              <Input
+                id="company_name"
+                placeholder="e.g. Sunset Events Co."
+                value={form.company_name}
+                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                className="mt-1.5"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bio">Bio</Label>
+              <Textarea
+                id="bio"
+                placeholder="Tell talent a bit about you or your organization..."
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                className="mt-1.5 min-h-[120px]"
+              />
+            </div>
+            <div>
+              <Label htmlFor="location">Location</Label>
+              <div className="relative mt-1.5">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  id="location"
+                  placeholder="City, State (e.g., Lagos, Nigeria)"
+                  value={form.location}
+                  onChange={(e) => setForm({ ...form, location: e.target.value })}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={isSubmitting} className="gap-2">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Save changes <Check className="w-4 h-4" /></>}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <AccountStatusSettings user={authUser} />
+    </div>
   );
 }

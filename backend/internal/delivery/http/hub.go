@@ -58,6 +58,16 @@ func (h *Hub) Deregister(userID string, conn *websocket.Conn) {
 	}
 }
 
+// IsOnline reports whether userID currently has a live websocket connection.
+// Satisfies usecase.PresenceChecker structurally — no import of that
+// package needed here.
+func (h *Hub) IsOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, online := h.clients[userID]
+	return online
+}
+
 // Send pushes a typed frame to userID's live connection, if any. It's a
 // no-op (returns false) when the user isn't currently connected. Safe to
 // call concurrently for the same user from multiple goroutines.

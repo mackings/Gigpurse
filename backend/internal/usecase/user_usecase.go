@@ -24,10 +24,21 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// PresenceChecker is the one thing userUsecase needs from the websocket
+// Hub — defined here (consumer side) rather than imported from the
+// delivery/http package, which would create an import cycle (that package
+// already depends on usecase). main.go wires the concrete *delivery.Hub in,
+// which satisfies this interface structurally without either package
+// needing to import the other.
+type PresenceChecker interface {
+	IsOnline(userID string) bool
+}
+
 type userUsecase struct {
 	userRepo        domain.UserRepository
 	resetTokenRepo  domain.PasswordResetRepository
 	emailVerifyRepo domain.EmailVerificationRepository
+	presence        PresenceChecker
 }
 
 func NewUserUsecase(repo domain.UserRepository, resetRepos ...domain.PasswordResetRepository) domain.UserUsecase {
@@ -48,11 +59,12 @@ func NewUserUsecase(repo domain.UserRepository, resetRepos ...domain.PasswordRes
 	}
 }
 
-func NewUserUsecaseWithVerification(repo domain.UserRepository, resetRepo domain.PasswordResetRepository, emailVerifyRepo domain.EmailVerificationRepository) domain.UserUsecase {
+func NewUserUsecaseWithVerification(repo domain.UserRepository, resetRepo domain.PasswordResetRepository, emailVerifyRepo domain.EmailVerificationRepository, presence PresenceChecker) domain.UserUsecase {
 	return &userUsecase{
 		userRepo:        repo,
 		resetTokenRepo:  resetRepo,
 		emailVerifyRepo: emailVerifyRepo,
+		presence:        presence,
 	}
 }
 
@@ -363,7 +375,58 @@ func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, l
 }
 
 func (u *userUsecase) BrowseMusicians(ctx context.Context, filter domain.MusicianFilter) ([]*domain.User, error) {
-	return u.userRepo.ListMusicians(ctx, filter)
+	musicians, err := u.userRepo.ListMusicians(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	// A disabled account is a self-service "pause my visibility" toggle —
+	// it shouldn't turn up for clients browsing talent while it's paused.
+	visible := musicians[:0]
+	for _, m := range musicians {
+		if !m.Disabled {
+			visible = append(visible, m)
+		}
+	}
+	return visible, nil
+}
+
+// UpdateAccountStatus is the self-service settings toggle: hiding your
+// online/offline presence, or pausing your account entirely. Both default
+// false and are fully reversible by the account owner — this never locks
+// anyone out, it only changes how others perceive/can reach the account.
+func (u *userUsecase) UpdateAccountStatus(ctx context.Context, id string, hidePresence, disabled bool) (*domain.User, error) {
+	user, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	user.HidePresence = hidePresence
+	user.Disabled = disabled
+	user.UpdatedAt = time.Now()
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update account status: %w", err)
+	}
+	return user, nil
+}
+
+// GetUserStatus computes the presence status as seen by someone else
+// looking at this user — never by the owner themselves. "hidden" is
+// intentionally never returned here: an observer sees "offline" instead,
+// which is the entire point of that toggle.
+func (u *userUsecase) GetUserStatus(ctx context.Context, id string) (string, error) {
+	user, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("user not found: %w", err)
+	}
+	if user.Disabled {
+		return "disabled", nil
+	}
+	if user.HidePresence {
+		return "offline", nil
+	}
+	if u.presence != nil && u.presence.IsOnline(id) {
+		return "online", nil
+	}
+	return "offline", nil
 }
 
 func secureToken() (string, error) {

@@ -39,9 +39,12 @@ func (u *chatUsecase) SendMessage(ctx context.Context, senderID, recvID, content
 	}
 
 	// Validate receiver exists
-	_, err = u.userRepo.GetByID(ctx, recvID)
+	receiver, err := u.userRepo.GetByID(ctx, recvID)
 	if err != nil {
 		return nil, fmt.Errorf("receiver validation failed: %w", err)
+	}
+	if receiver.Disabled {
+		return nil, errors.New("this account is currently disabled and won't receive your message")
 	}
 
 	filteredContent := filterContent(content)

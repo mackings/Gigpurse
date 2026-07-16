@@ -6,6 +6,15 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { openRealtimeSocket } from "@/lib/ws";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 const RealtimeContext = createContext({
   connected: false,
@@ -45,6 +54,13 @@ export function RealtimeProvider({ children }) {
   const [connected, setConnected] = useState(false);
   const [unreadByPartner, setUnreadByPartner] = useState({});
   const [pendingSendCount, setPendingSendCount] = useState(0);
+  // The websocket send path (sendChatMessage below) is fire-and-forget —
+  // there's no request/response round trip to hang a try/catch off. The
+  // server pushes a `type: "error"` frame back on rejection (e.g. the
+  // recipient disabled their account) instead, surfaced here as a blocking
+  // dialog rather than a toast, since a silently-dropped message deserves
+  // more than something that can be missed.
+  const [sendError, setSendError] = useState(null);
   const socketRef = useRef(null);
   const userIdRef = useRef(user?.id);
   // Outgoing sends attempted while the socket is down (e.g. the brief
@@ -151,6 +167,8 @@ export function RealtimeProvider({ children }) {
           queryClient.invalidateQueries({ queryKey: ["talent-dashboard"] });
           queryClient.invalidateQueries({ queryKey: ["disputes"] });
           queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        } else if (envelope.type === "error") {
+          setSendError(typeof envelope.data === "string" ? envelope.data : "Something went wrong sending that message.");
         }
       };
     }
@@ -208,6 +226,17 @@ export function RealtimeProvider({ children }) {
       }}
     >
       {children}
+      <AlertDialog open={!!sendError} onOpenChange={(open) => !open && setSendError(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Message not sent</AlertDialogTitle>
+            <AlertDialogDescription>{sendError}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setSendError(null)}>Got it</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </RealtimeContext.Provider>
   );
 }

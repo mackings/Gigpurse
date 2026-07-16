@@ -30,6 +30,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/profile", h.HandleProfile)
 	mux.HandleFunc("PUT /users/profile", h.HandleProfile)
 	mux.HandleFunc("GET /users/{id}", JWTMiddleware(h.GetUserByID))
+	mux.HandleFunc("PUT /users/account-status", JWTMiddleware(h.UpdateAccountStatus))
 	mux.HandleFunc("/musicians", h.BrowseMusicians)
 	mux.HandleFunc("GET /musicians/{id}", h.GetMusicianByID)
 }
@@ -254,6 +255,9 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort: a presence lookup failure shouldn't 404 the whole profile.
+	status, _ := h.userUsecase.GetUserStatus(r.Context(), id)
+
 	respondSuccess(w, http.StatusOK, "user retrieved successfully", map[string]any{
 		"id":             user.ID,
 		"name":           user.Name,
@@ -261,7 +265,37 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		"location":       user.Location,
 		"created_at":     user.CreatedAt,
 		"client_profile": user.ClientProfile,
+		"status":         status,
 	})
+}
+
+// UpdateAccountStatus is the self-service settings toggle behind "Appear
+// offline" and "Temporarily disable my account" — always acts on the
+// authenticated caller, never an arbitrary user id.
+func (h *UserHandler) UpdateAccountStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req struct {
+		HidePresence bool `json:"hide_presence"`
+		Disabled     bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	user, err := h.userUsecase.UpdateAccountStatus(r.Context(), userID, req.HidePresence, req.Disabled)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "account_status_update_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "account status updated successfully", user)
 }
 
 func (h *UserHandler) GetMusicianByID(w http.ResponseWriter, r *http.Request) {
