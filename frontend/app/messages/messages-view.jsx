@@ -25,7 +25,7 @@ export default function MessagesView() {
   // effect/setState needed to keep those in sync, since it's plain
   // computation from query data on every render.
 
-  const [manualSelection, setManualSelection] = useState(undefined);
+  const [manualSelectionId, setManualSelectionId] = useState(undefined);
 
   const { data: linkedContracts } = useQuery({
     queryKey: ["contracts", "detail", contractParam],
@@ -36,17 +36,33 @@ export default function MessagesView() {
   const resolvedWith =
     linkedContract && user ? (user.id === linkedContract.client_id ? linkedContract.musician_id : linkedContract.client_id) : null;
 
-  const hasManualSelection = manualSelection !== undefined;
-  const selectedId = hasManualSelection ? manualSelection?.id ?? null : withParam || resolvedWith || null;
-  const contractId = hasManualSelection ? manualSelection?.contractId ?? null : contractParam || null;
+  const hasManualSelection = manualSelectionId !== undefined;
+  const selectedId = hasManualSelection ? manualSelectionId : withParam || resolvedWith || null;
   const bookingId = hasManualSelection ? null : bookingParam || null;
+
+  // Milestones live on a Contract, not a chat partner, so opening a
+  // conversation the normal way (clicking a row in the list) needs its own
+  // lookup — a plain user-id click has no contract id to go on otherwise,
+  // which used to mean the milestones panel never mounted at all outside a
+  // ?contract= deep link from a notification.
+  const { data: myContracts } = useQuery({
+    queryKey: ["contracts"],
+    queryFn: () => apiGet("/contracts"),
+  });
+  function resolveContractId(counterpartId) {
+    if (!counterpartId || !Array.isArray(myContracts)) return null;
+    const matches = myContracts.filter((c) => c.client_id === counterpartId || c.musician_id === counterpartId);
+    if (!matches.length) return null;
+    return (matches.find((c) => c.status === "active") || matches[0]).id;
+  }
+  const contractId = contractParam || resolveContractId(selectedId);
 
   useEffect(() => {
     clearUnreadMessages();
   }, [clearUnreadMessages]);
 
   function handleSelect(userId) {
-    setManualSelection({ id: userId, contractId: null });
+    setManualSelectionId(userId);
   }
 
   return (
@@ -60,7 +76,7 @@ export default function MessagesView() {
           otherUserId={selectedId}
           contractId={contractId}
           bookingId={bookingId}
-          onBack={() => setManualSelection(null)}
+          onBack={() => setManualSelectionId(null)}
         />
       </div>
     </div>

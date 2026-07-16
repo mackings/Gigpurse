@@ -7,6 +7,8 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useRealtime } from "@/lib/RealtimeProvider";
 import { useMilestones } from "@/hooks/use-milestones";
 import { useUserInfo } from "@/hooks/use-user-info";
+import { useUserStatus } from "@/hooks/use-user-status";
+import PresenceDot from "@/components/ui/presence-dot";
 import { formatMessageTime, formatDayDivider } from "@/lib/format-time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +16,8 @@ import MilestoneList from "@/components/milestones/MilestoneList";
 import CreateMilestonesModal from "@/components/milestones/CreateMilestonesModal";
 import BookingRequestPanel from "@/components/booking/BookingRequestPanel";
 import FirstMessageDialog from "@/components/chat/FirstMessageDialog";
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Plus, Send } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ArrowLeft, ChevronDown, ChevronUp, Info, Loader2, Plus, Send } from "lucide-react";
 
 function MilestonePanel({ contractId }) {
   const { user } = useCurrentUser();
@@ -71,13 +74,29 @@ function MilestonePanel({ contractId }) {
   );
 }
 
+// Booking/milestone updates used to sit stacked directly above the message
+// scroll area — fine when empty, but a long milestone history or offer
+// negotiation would push the whole conversation down and eat the visible
+// chat area. This is shared by the always-on desktop rail and the mobile
+// Sheet so both stay in sync off the same markup.
+function ConversationDetails({ otherUserId, contractId, bookingId }) {
+  return (
+    <>
+      <BookingRequestPanel otherUserId={otherUserId} bookingId={bookingId} />
+      <MilestonePanel contractId={contractId} />
+    </>
+  );
+}
+
 export default function ChatWindow({ otherUserId, contractId, bookingId, onBack }) {
   const { user } = useCurrentUser();
   const { connected, sendChatMessage, pendingSendCount, clearUnreadForPartner } = useRealtime();
   const otherUser = useUserInfo(otherUserId);
   const otherUserLabel = otherUser?.name || (otherUserId ? `User ${otherUserId.slice(-6)}` : "");
+  const otherUserStatus = useUserStatus(otherUserId);
   const [draft, setDraft] = useState("");
   const [showSafetyDialog, setShowSafetyDialog] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const bottomRef = useRef(null);
 
   // The RealtimeProvider's shared socket appends live messages straight into
@@ -127,24 +146,36 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
   let lastDay = null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background">
+    <div className="flex-1 flex h-full min-w-0">
+    <div className="flex-1 flex flex-col h-full bg-background min-w-0">
       <div className="p-3 sm:p-4 border-b border-border flex items-center gap-3 justify-between bg-background">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="icon" className="sm:hidden shrink-0 -ml-1" onClick={onBack}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold shrink-0">
-            {otherUserLabel.charAt(0).toUpperCase()}
+          <div className="relative shrink-0">
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold">
+              {otherUserLabel.charAt(0).toUpperCase()}
+            </div>
+            <PresenceDot status={otherUserStatus} className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
           </div>
           <h2 className="font-semibold text-foreground truncate">{otherUserLabel}</h2>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${connected ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
-          {connected ? "Live" : pendingSendCount > 0 ? `Reconnecting — ${pendingSendCount} message${pendingSendCount > 1 ? "s" : ""} queued` : "Connecting..."}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden gap-1.5"
+            onClick={() => setDetailsOpen(true)}
+          >
+            <Info className="w-3.5 h-3.5" />
+            Booking &amp; escrow
+          </Button>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${connected ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+            {connected ? "Live" : pendingSendCount > 0 ? `Reconnecting — ${pendingSendCount} message${pendingSendCount > 1 ? "s" : ""} queued` : "Connecting..."}
+          </span>
+        </div>
       </div>
-
-      <BookingRequestPanel otherUserId={otherUserId} bookingId={bookingId} />
-      <MilestonePanel contractId={contractId} />
 
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1 bg-muted/10">
         {isLoading ? (
@@ -187,12 +218,18 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
         <div ref={bottomRef} />
       </div>
 
-      <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border flex gap-2 bg-background">
-        <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a message..." className="rounded-full" />
-        <Button type="submit" size="icon" className="shrink-0 rounded-full" disabled={isLoading}>
-          <Send className="w-4 h-4" />
-        </Button>
-      </form>
+      {otherUserStatus === "disabled" ? (
+        <div className="p-3 sm:p-4 border-t border-border text-sm text-center text-muted-foreground bg-muted/30">
+          This account is currently disabled and can&apos;t receive messages.
+        </div>
+      ) : (
+        <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border flex gap-2 bg-background">
+          <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a message..." className="rounded-full" />
+          <Button type="submit" size="icon" className="shrink-0 rounded-full" disabled={isLoading}>
+            <Send className="w-4 h-4" />
+          </Button>
+        </form>
+      )}
 
       <FirstMessageDialog
         open={showSafetyDialog}
@@ -200,6 +237,27 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
         onConfirm={actuallySend}
         recipientName={otherUserLabel}
       />
+    </div>
+
+    {/* Desktop: an always-on right rail so a long milestone/offer history
+        scrolls on its own instead of pushing the chat down. Below lg,
+        there's no room for a third column, so the same content moves into
+        the "Booking & escrow" button's bottom sheet instead. */}
+    <aside className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-border overflow-y-auto bg-background">
+      <ConversationDetails otherUserId={otherUserId} contractId={contractId} bookingId={bookingId} />
+    </aside>
+
+    <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+      <SheetContent className="lg:hidden">
+        <SheetHeader className="sr-only">
+          <SheetTitle>Booking &amp; escrow</SheetTitle>
+          <SheetDescription>Booking request and milestone details for this conversation</SheetDescription>
+        </SheetHeader>
+        <div className="overflow-y-auto">
+          <ConversationDetails otherUserId={otherUserId} contractId={contractId} bookingId={bookingId} />
+        </div>
+      </SheetContent>
+    </Sheet>
     </div>
   );
 }
