@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Mic2, Briefcase, ArrowRight } from "lucide-react";
+import { Mic2, Briefcase, Building2, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
 const roles = [
@@ -41,12 +41,12 @@ export default function RoleSelection() {
           <p className="text-lg text-muted-foreground">Select your role to get started with your personalized experience.</p>
         </motion.div>
 
-        <div className="grid sm:grid-cols-2 gap-5 mb-8">
+        <div className="grid sm:grid-cols-3 gap-5 mb-8">
           {roles.map((role, index) => (
             <motion.div key={role.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.08 }}>
               <button
                 onClick={() => setSelectedRole(role.id)}
-                className={`w-full text-left p-6 rounded-2xl border-2 transition-all duration-200 ${
+                className={`w-full h-full text-left p-6 rounded-2xl border-2 transition-all duration-200 ${
                   selectedRole === role.id
                     ? "bg-accent border-primary shadow-md"
                     : "bg-card border-border hover:border-primary/40 hover:shadow-sm"
@@ -60,6 +60,23 @@ export default function RoleSelection() {
               </button>
             </motion.div>
           ))}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: roles.length * 0.08 }}>
+            <div
+              className="relative w-full h-full text-left p-6 rounded-2xl border-2 border-dashed border-border bg-card/50 opacity-70 cursor-not-allowed"
+              title="Organization accounts are coming soon"
+            >
+              <span className="absolute top-4 right-4 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                Coming soon
+              </span>
+              <div className="w-12 h-12 rounded-xl bg-muted-foreground/40 flex items-center justify-center mb-4">
+                <Building2 className="w-6 h-6 text-background" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground mb-2">I am an organization</h3>
+              <p className="text-muted-foreground text-sm">
+                Set up a recurring hiring plan with top-rated Talent, vetted and selected by GigPurse.
+              </p>
+            </div>
+          </motion.div>
         </div>
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="text-center">

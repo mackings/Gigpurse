@@ -98,7 +98,12 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
                 type="datetime-local"
                 value={form.eventDate}
                 onChange={(e) => setForm({ ...form, eventDate: e.target.value })}
-                className="mt-1.5"
+                // Firefox clips its native datetime-local calendar/clock icon
+                // at the app's default h-8 input height — it needs a taller
+                // box to render the icon (and stay clickable) uncropped.
+                // Chrome renders fine at either height, so this is scoped to
+                // just this input rather than raised globally.
+                className="mt-1.5 h-10 py-1.5"
               />
             </div>
           </div>
