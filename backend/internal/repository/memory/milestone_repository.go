@@ -70,3 +70,11 @@ func (r *milestoneRepository) Update(ctx context.Context, m *domain.Milestone) e
 	r.milestones[m.ID] = m
 	return nil
 }
+
+func (r *milestoneRepository) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.milestones, id)
+	return nil
+}

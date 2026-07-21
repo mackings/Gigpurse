@@ -164,6 +164,25 @@ func (u *milestoneUsecase) Reject(ctx context.Context, contractID, milestoneID, 
 	return milestone, nil
 }
 
+func (u *milestoneUsecase) Withdraw(ctx context.Context, contractID, milestoneID, userID string) error {
+	_, milestone, counterpart, err := u.loadForTransition(ctx, contractID, milestoneID, userID)
+	if err != nil {
+		return err
+	}
+	if milestone.ProposedBy != userID {
+		return errors.New("only the party who proposed this milestone can withdraw it")
+	}
+	if milestone.Status != "proposed" {
+		return errors.New("only a still-pending milestone can be withdrawn")
+	}
+	if err := u.milestoneRepo.Delete(ctx, milestoneID); err != nil {
+		return err
+	}
+	u.notify(ctx, counterpart, "Milestone withdrawn",
+		fmt.Sprintf("The milestone '%s' was withdrawn by the other party.", milestone.Title), contractID)
+	return nil
+}
+
 func (u *milestoneUsecase) Counter(ctx context.Context, contractID, milestoneID, userID string, terms domain.MilestoneInput) (*domain.Milestone, error) {
 	if terms.Amount <= 0 {
 		return nil, errors.New("counter-offer needs a positive amount")

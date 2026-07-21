@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
-import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2 } from "lucide-react";
+import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
@@ -25,7 +25,7 @@ const STATUS_COLOR = {
   rejected: "bg-rose-500",
 };
 
-export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onCounter, onFund, onRelease }) {
+export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onWithdraw, onCounter, onFund, onRelease }) {
   // Tracks "<milestoneId>:<action>" for whichever single button is mid-request,
   // so only that button shows a spinner — its siblings on the same card are
   // merely disabled (not spinning) to block a double-submit race.
@@ -104,6 +104,19 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                     Accept
                   </Button>
                 </>
+              )}
+              {m.status === "proposed" && isProposer && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cardPending}
+                  onClick={() => run(onWithdraw, m.id, "withdraw", "Milestone withdrawn.")}
+                  className="gap-1.5"
+                  title="Made a mistake? Withdraw it and send a corrected one."
+                >
+                  {isPending("withdraw") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
+                  Withdraw
+                </Button>
               )}
               {role === "client" && m.status === "accepted" && (
                 <Button

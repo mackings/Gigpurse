@@ -31,7 +31,7 @@ function MilestonePanel({ contractId }) {
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
   const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
 
-  const { milestones, propose, accept, reject, counter, fund, release } = useMilestones(contractId);
+  const { milestones, propose, accept, reject, withdraw, counter, fund, release } = useMilestones(contractId);
 
   if (!contractId || !contract || !user) return null;
 
@@ -64,6 +64,7 @@ function MilestonePanel({ contractId }) {
             currentUserId={user.id}
             onAccept={accept}
             onReject={reject}
+            onWithdraw={withdraw}
             onCounter={counter}
             onFund={fund}
             onRelease={release}

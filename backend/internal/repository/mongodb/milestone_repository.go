@@ -66,3 +66,8 @@ func (r *milestoneRepository) Update(ctx context.Context, m *domain.Milestone) e
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": m.ID}, m)
 	return err
 }
+
+func (r *milestoneRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}

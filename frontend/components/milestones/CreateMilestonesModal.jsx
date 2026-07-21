@@ -17,7 +17,16 @@ import {
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-const emptyRow = () => ({ title: "", amount: "", due_date: "" });
+const emptyRow = () => ({ title: "", amount: "", due_date: "", due_time: "" });
+
+// Combines a date-only input with an optional time-of-day input into one
+// ISO timestamp. Kept as two separate native inputs rather than a single
+// datetime-local — Firefox's combined widget has historically had
+// rendering issues, and splitting them sidesteps that entirely.
+function combineDateTime(date, time) {
+  if (!date) return undefined;
+  return new Date(`${date}T${time || "00:00"}`).toISOString();
+}
 
 export default function CreateMilestonesModal({ trigger, onCreate }) {
   const [open, setOpen] = useState(false);
@@ -43,7 +52,7 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
       .map((r) => ({
         title: r.title,
         amount: parseFloat(r.amount) || 0,
-        due_date: r.due_date ? new Date(r.due_date).toISOString() : undefined,
+        due_date: combineDateTime(r.due_date, r.due_time),
       }));
     if (cleaned.length === 0) {
       toast.error("Add at least one milestone with a title and amount.");
@@ -86,6 +95,16 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
                 <div className="grid grid-cols-2 gap-2">
                   <CurrencyInput placeholder="Amount (₦)" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
                   <Input type="date" value={row.due_date} onChange={(e) => updateRow(idx, { due_date: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Time (optional)</Label>
+                  <Input
+                    type="time"
+                    value={row.due_time}
+                    disabled={!row.due_date}
+                    onChange={(e) => updateRow(idx, { due_time: e.target.value })}
+                    className="mt-1"
+                  />
                 </div>
               </div>
             ))}

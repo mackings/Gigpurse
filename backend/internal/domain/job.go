@@ -14,7 +14,7 @@ type Job struct {
 	Instrument  string    `json:"instrument" bson:"instrument"`
 	Genre       string    `json:"genre" bson:"genre"`
 	Location    string    `json:"location" bson:"location"`
-	Status      string    `json:"status" bson:"status"` // "pending_funding", "open", "active", "completed", "disputed"
+	Status      string    `json:"status" bson:"status"` // "pending_funding", "open", "active", "completed", "disputed", "closed"
 	MusicianID  string    `json:"musician_id,omitempty" bson:"musician_id,omitempty"`
 
 	ExperienceLevel string   `json:"experience_level,omitempty" bson:"experience_level,omitempty"` // "entry", "intermediate", "expert"
@@ -64,13 +64,33 @@ type JobClientHire struct {
 }
 
 type JobApplication struct {
-	ID         string    `json:"id" bson:"_id"`
-	JobID      string    `json:"job_id" bson:"job_id"`
-	MusicianID string    `json:"musician_id" bson:"musician_id"`
-	Proposal   string    `json:"proposal" bson:"proposal"`
-	PriceBid   float64   `json:"price_bid" bson:"price_bid"`
-	Status     string    `json:"status" bson:"status"` // "pending", "accepted", "rejected"
-	CreatedAt  time.Time `json:"created_at" bson:"created_at"`
+	ID             string          `json:"id" bson:"_id"`
+	JobID          string          `json:"job_id" bson:"job_id"`
+	MusicianID     string          `json:"musician_id" bson:"musician_id"`
+	Proposal       string          `json:"proposal" bson:"proposal"`
+	PriceBid       float64         `json:"price_bid" bson:"price_bid"`
+	Status         string          `json:"status" bson:"status"` // "pending", "accepted", "rejected"
+	// Snapshotted at application time (not a live reference) so the record
+	// stays accurate even if the musician later edits/reorders/deletes
+	// portfolio items — matches how job-detail "client info" is a snapshot,
+	// not a live join.
+	PortfolioItems []PortfolioItem `json:"portfolio_items,omitempty" bson:"portfolio_items,omitempty"`
+	CreatedAt      time.Time       `json:"created_at" bson:"created_at"`
+
+	// Computed at query time only (never persisted) — populated for the
+	// client reviewing applicants, never needed from the musician's own side.
+	Applicant *ApplicantSummary `json:"applicant,omitempty" bson:"-"`
+}
+
+// ApplicantSummary is the at-a-glance context a client sees when reviewing
+// who applied to their job — real rating/genre data, not filler.
+type ApplicantSummary struct {
+	Name        string   `json:"name"`
+	Location    string   `json:"location,omitempty"`
+	Rating      float64  `json:"rating"`
+	ReviewCount int      `json:"review_count"`
+	Genres      []string `json:"genres,omitempty"`
+	Instruments []string `json:"instruments,omitempty"`
 }
 
 // JobPostInput bundles a job posting's fields — kept as a struct rather
@@ -119,12 +139,14 @@ type JobRepository interface {
 
 type JobUsecase interface {
 	PostJob(ctx context.Context, clientID string, input JobPostInput) (*Job, error)
+	UpdateJob(ctx context.Context, clientID, jobID string, input JobPostInput) (*Job, error)
+	CloseJob(ctx context.Context, clientID, jobID string) (*Job, error)
 	FundEscrow(ctx context.Context, clientID, jobID string) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]*Job, error)
 	RecommendedJobs(ctx context.Context, musicianID string, limit int, extra JobFilter) ([]*Job, error)
 
-	ApplyForJob(ctx context.Context, musicianID, jobID, proposal string, priceBid float64) (*JobApplication, error)
+	ApplyForJob(ctx context.Context, musicianID, jobID, proposal string, priceBid float64, portfolioItemIDs []string) (*JobApplication, error)
 	ListJobApplications(ctx context.Context, jobID string) ([]*JobApplication, error)
 	ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*JobApplication, error)
 	ListMusicianJobsByStatus(ctx context.Context, musicianID, status string) ([]*Job, error)

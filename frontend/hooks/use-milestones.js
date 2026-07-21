@@ -36,6 +36,12 @@ export function useMilestones(contractId) {
     return m;
   }
 
+  async function withdraw(milestoneId) {
+    const res = await apiPost("/milestones/withdraw", { contract_id: contractId, milestone_id: milestoneId });
+    invalidate();
+    return res;
+  }
+
   async function counter(milestoneId, terms) {
     const m = await apiPost("/milestones/counter", { contract_id: contractId, milestone_id: milestoneId, ...terms });
     invalidate();
@@ -60,6 +66,7 @@ export function useMilestones(contractId) {
     propose,
     accept,
     reject,
+    withdraw,
     counter,
     fund,
     release,

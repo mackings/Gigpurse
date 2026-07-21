@@ -523,6 +523,37 @@ Response `201`:
 
 Status codes: `201`, `400`, `401`, `403`, `405`.
 
+### `PUT /jobs`
+
+Edits a job the caller posted. Same body shape as `POST /jobs` plus
+`job_id`. Every field is required same as creation (this replaces the
+editable fields, not a partial patch). `budget` can't be changed once
+`escrow_funded` is `true` — the held amount is already locked to the
+original figure. Every musician with a still-pending application to this
+job is notified that it changed.
+
+Auth: required, role `client`, must be the job's creator.
+
+Status codes: `200`, `400`, `401`, `403`.
+
+### `POST /jobs/close`
+
+Manually stops a job accepting applications without hiring anyone —
+distinct from a job going `active` because someone was hired. Only
+callable from `status: "open"` or `"pending_funding"`. If escrow was
+already funded, the held amount is refunded back to the client's wallet
+balance (recorded as an `escrow_release` transaction) since there's no
+counterparty left to pay. Every musician with a still-pending application
+is notified the job closed.
+
+Body: `{"job_id": "..."}`.
+
+Response `200`: the updated `Job`, with `status: "closed"`.
+
+Auth: required, role `client`, must be the job's creator.
+
+Status codes: `200`, `400`, `401`, `403`.
+
 ### `POST /jobs/fund`
 
 Funds a `pending_funding` job's escrow from the client's wallet balance
@@ -665,9 +696,12 @@ Required body:
 {
   "job_id": "job_1",
   "proposal": "I can deliver a clean session.",
-  "price_bid": 450
+  "price_bid": 450,
+  "portfolio_item_ids": ["pi_1700000000000_0", "pi_1700000000000_2"]
 }
 ```
+
+`portfolio_item_ids` is optional — any IDs matching the musician's own `musician_profile.portfolio` items are snapshotted onto the application (title/url/thumbnail/etc. as they were at apply time, not a live reference).
 
 Response `201`:
 
@@ -678,7 +712,8 @@ Response `201`:
   "musician_id": "usr_2",
   "proposal": "I can deliver a clean session.",
   "price_bid": 450,
-  "status": "pending"
+  "status": "pending",
+  "portfolio_items": [{ "id": "pi_1700000000000_0", "title": "Live Session", "url": "..." }]
 }
 ```
 
@@ -697,7 +732,7 @@ Modes:
 | `job_id=<id>` | Client who owns the job gets applications for that job. |
 | no `job_id` | Musician gets their own applications. |
 
-Response `200`: array of `JobApplication`.
+Response `200`: array of `JobApplication`. When fetched by the owning client (`job_id` mode), each entry also carries an `applicant` object — `{name, location, rating, review_count, genres, instruments}`, computed from the applicant's profile and reviews, best-effort.
 
 Status codes: `200`, `400`, `401`, `403`, `404`, `405`, `500`.
 
@@ -1500,6 +1535,15 @@ isn't `proposed`.
 ### `POST /milestones/reject`
 
 Same body/authorization as accept. Sets status to `rejected` (terminal).
+
+### `POST /milestones/withdraw`
+
+Required body: `{"contract_id": "ctr_1", "milestone_id": "ms_1"}`. Lets the
+proposer retract their own still-`proposed` milestone (e.g. they mistyped
+an amount or date) so they can send a corrected one — the record is
+deleted outright rather than marked with a status, since nothing of
+financial consequence has happened yet at that stage. Fails if the caller
+isn't the proposer, or if the milestone is no longer `proposed`.
 
 ### `POST /milestones/counter`
 

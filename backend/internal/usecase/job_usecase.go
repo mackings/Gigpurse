@@ -79,6 +79,111 @@ func (u *jobUsecase) PostJob(ctx context.Context, clientID string, input domain.
 	return newJob, nil
 }
 
+// UpdateJob lets the client edit their own posting after it's live —
+// budget is off-limits once escrow is funded, since that amount is already
+// locked based on the original figure and changing it here wouldn't move
+// any real money. Every musician with a still-pending application is
+// notified, since the posting they applied to just changed under them.
+func (u *jobUsecase) UpdateJob(ctx context.Context, clientID, jobID string, input domain.JobPostInput) (*domain.Job, error) {
+	if input.Title == "" || input.Description == "" || input.Budget <= 0 {
+		return nil, errors.New("invalid job details: title, description, and budget are required")
+	}
+	job, err := u.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return nil, errors.New("unauthorized: only the job's creator can edit it")
+	}
+	if job.EscrowFunded && input.Budget != job.Budget {
+		return nil, errors.New("budget can't be changed after escrow is funded")
+	}
+
+	job.Title = input.Title
+	job.Description = input.Description
+	job.Instrument = input.Instrument
+	job.Genre = input.Genre
+	job.Location = input.Location
+	job.Budget = input.Budget
+	job.ExperienceLevel = input.ExperienceLevel
+	job.Duration = input.Duration
+	job.ProjectType = input.ProjectType
+	job.Skills = input.Skills
+	job.UpdatedAt = time.Now()
+	if err := u.jobRepo.Update(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to update job: %w", err)
+	}
+
+	u.notifyPendingApplicants(ctx, job, "Gig updated",
+		fmt.Sprintf("'%s' was updated by the client — check the latest details.", job.Title))
+
+	return job, nil
+}
+
+// CloseJob manually stops a job accepting applications without hiring
+// anyone — distinct from a job going inactive because someone was hired.
+// If escrow was already funded, the held amount is refunded back to the
+// client's wallet balance since there's no counterparty left to pay it to.
+func (u *jobUsecase) CloseJob(ctx context.Context, clientID, jobID string) (*domain.Job, error) {
+	job, err := u.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return nil, errors.New("unauthorized: only the job's creator can close it")
+	}
+	if job.Status != "open" && job.Status != "pending_funding" {
+		return nil, fmt.Errorf("job can't be closed from status %q", job.Status)
+	}
+
+	if job.EscrowFunded && job.MusicianID == "" {
+		wallet, err := u.walletRepo.GetOrCreate(ctx, clientID)
+		if err == nil {
+			wallet.Balance += job.EscrowAmount
+			wallet.EscrowBalance -= job.EscrowAmount
+			if err := u.walletRepo.Save(ctx, wallet); err == nil {
+				_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+					UserID: clientID, Type: "escrow_release", Amount: job.EscrowAmount,
+					Description: fmt.Sprintf("Escrow refunded — gig closed: %s", job.Title),
+				})
+			}
+		}
+	}
+
+	job.Status = "closed"
+	job.UpdatedAt = time.Now()
+	if err := u.jobRepo.Update(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to close job: %w", err)
+	}
+
+	u.notifyPendingApplicants(ctx, job, "Gig closed",
+		fmt.Sprintf("'%s' was closed by the client and is no longer accepting applications.", job.Title))
+
+	return job, nil
+}
+
+func (u *jobUsecase) notifyPendingApplicants(ctx context.Context, job *domain.Job, title, message string) {
+	apps, err := u.jobRepo.ListApplications(ctx, job.ID)
+	if err != nil {
+		return
+	}
+	for _, app := range apps {
+		if app.Status == "pending" {
+			u.notify(ctx, app.MusicianID, title, message)
+		}
+	}
+}
+
+func (u *jobUsecase) notify(ctx context.Context, userID, title, message string) {
+	_ = u.notifRepo.Create(ctx, &domain.Notification{
+		UserID:    userID,
+		Title:     title,
+		Message:   message,
+		IsRead:    false,
+		CreatedAt: time.Now(),
+	})
+}
+
 // FundEscrow moves the job's budget from the client's wallet balance into
 // escrow and only then makes the job visible/open to applicants — the
 // "Escrow funded" badge shown on job cards is a guarantee, not decoration.
@@ -209,7 +314,7 @@ func (u *jobUsecase) RecommendedJobs(ctx context.Context, musicianID string, lim
 	return jobs, nil
 }
 
-func (u *jobUsecase) ApplyForJob(ctx context.Context, musicianID, jobID, proposal string, priceBid float64) (*domain.JobApplication, error) {
+func (u *jobUsecase) ApplyForJob(ctx context.Context, musicianID, jobID, proposal string, priceBid float64, portfolioItemIDs []string) (*domain.JobApplication, error) {
 	if proposal == "" || priceBid <= 0 {
 		return nil, errors.New("invalid application details: proposal and price bid are required")
 	}
@@ -233,12 +338,13 @@ func (u *jobUsecase) ApplyForJob(ctx context.Context, musicianID, jobID, proposa
 	}
 
 	app := &domain.JobApplication{
-		JobID:      jobID,
-		MusicianID: musicianID,
-		Proposal:   proposal,
-		PriceBid:   priceBid,
-		Status:     "pending",
-		CreatedAt:  time.Now(),
+		JobID:          jobID,
+		MusicianID:     musicianID,
+		Proposal:       proposal,
+		PriceBid:       priceBid,
+		Status:         "pending",
+		PortfolioItems: selectPortfolioItems(user.MusicianProfile, portfolioItemIDs),
+		CreatedAt:      time.Now(),
 	}
 
 	if err := u.jobRepo.CreateApplication(ctx, app); err != nil {
@@ -248,8 +354,62 @@ func (u *jobUsecase) ApplyForJob(ctx context.Context, musicianID, jobID, proposa
 	return app, nil
 }
 
+// selectPortfolioItems snapshots the musician's portfolio items matching
+// the requested IDs, in the order they were selected — a nil/empty
+// selection is a normal, valid application (attaching work samples is
+// optional), so this never errors, it just returns nothing to attach.
+func selectPortfolioItems(profile *domain.MusicianProfile, ids []string) []domain.PortfolioItem {
+	if profile == nil || len(ids) == 0 {
+		return nil
+	}
+	byID := make(map[string]domain.PortfolioItem, len(profile.Portfolio))
+	for _, item := range profile.Portfolio {
+		if item.ID != "" {
+			byID[item.ID] = item
+		}
+	}
+	selected := make([]domain.PortfolioItem, 0, len(ids))
+	for _, id := range ids {
+		if item, ok := byID[id]; ok {
+			selected = append(selected, item)
+		}
+	}
+	return selected
+}
+
 func (u *jobUsecase) ListJobApplications(ctx context.Context, jobID string) ([]*domain.JobApplication, error) {
-	return u.jobRepo.ListApplications(ctx, jobID)
+	apps, err := u.jobRepo.ListApplications(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	for _, app := range apps {
+		app.Applicant = u.buildApplicantSummary(ctx, app.MusicianID)
+	}
+	return apps, nil
+}
+
+// buildApplicantSummary is the at-a-glance context a client sees per
+// applicant (rating, genres, instruments) — best-effort, a lookup failure
+// just means that one application shows without the summary rather than
+// failing the whole list.
+func (u *jobUsecase) buildApplicantSummary(ctx context.Context, musicianID string) *domain.ApplicantSummary {
+	musician, err := u.userRepo.GetByID(ctx, musicianID)
+	if err != nil {
+		return nil
+	}
+	summary := &domain.ApplicantSummary{
+		Name:     musician.Name,
+		Location: musician.Location,
+	}
+	if avg, n, err := u.averageRating(ctx, musicianID); err == nil {
+		summary.Rating = avg
+		summary.ReviewCount = n
+	}
+	if musician.MusicianProfile != nil {
+		summary.Genres = musician.MusicianProfile.Genres
+		summary.Instruments = musician.MusicianProfile.Instruments
+	}
+	return summary
 }
 
 func (u *jobUsecase) ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*domain.JobApplication, error) {

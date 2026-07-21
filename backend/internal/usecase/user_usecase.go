@@ -330,7 +330,29 @@ func (u *userUsecase) GetProfile(ctx context.Context, id string) (*domain.User, 
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
+	// Portfolio items predating the ID field (see backfillPortfolioIDs) get
+	// one assigned and persisted the first time they're read, so a picker
+	// UI referencing item IDs works immediately without requiring the
+	// musician to re-save their profile first.
+	if user.MusicianProfile != nil && backfillPortfolioIDs(user.MusicianProfile) {
+		_ = u.userRepo.Update(ctx, user)
+	}
 	return user, nil
+}
+
+// backfillPortfolioIDs assigns a stable ID to any portfolio item that
+// predates the field, so every item is individually addressable (e.g. for
+// selecting a few to attach to a job application). Returns true if it
+// changed anything, so the caller knows whether to persist.
+func backfillPortfolioIDs(profile *domain.MusicianProfile) bool {
+	changed := false
+	for i := range profile.Portfolio {
+		if profile.Portfolio[i].ID == "" {
+			profile.Portfolio[i].ID = fmt.Sprintf("pi_%d_%d", time.Now().UnixNano(), i)
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, location string, musProfile *domain.MusicianProfile, cliProfile *domain.ClientProfile) (*domain.User, error) {
@@ -360,6 +382,7 @@ func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, l
 		user.MusicianProfile.SocialLinks = musProfile.SocialLinks
 		user.MusicianProfile.IntroVideoURL = musProfile.IntroVideoURL
 		user.MusicianProfile.Portfolio = musProfile.Portfolio
+		backfillPortfolioIDs(user.MusicianProfile)
 	} else if user.Role == "client" && cliProfile != nil {
 		if user.ClientProfile == nil {
 			user.ClientProfile = &domain.ClientProfile{}

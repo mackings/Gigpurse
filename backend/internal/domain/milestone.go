@@ -50,6 +50,7 @@ type MilestoneRepository interface {
 	GetByID(ctx context.Context, id string) (*Milestone, error)
 	ListByContract(ctx context.Context, contractID string) ([]*Milestone, error)
 	Update(ctx context.Context, m *Milestone) error
+	Delete(ctx context.Context, id string) error
 }
 
 type MilestoneUsecase interface {
@@ -57,6 +58,11 @@ type MilestoneUsecase interface {
 	Accept(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	Reject(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	Counter(ctx context.Context, contractID, milestoneID, userID string, terms MilestoneInput) (*Milestone, error)
+	// Withdraw lets the proposer retract their own still-pending proposal
+	// (e.g. they mistyped an amount or date) so they can send a corrected
+	// one — only while it's awaiting a response, before it clutters the
+	// history with a rejected/superseded entry.
+	Withdraw(ctx context.Context, contractID, milestoneID, userID string) error
 	Fund(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	Release(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	List(ctx context.Context, contractID, requesterID string) ([]*Milestone, error)

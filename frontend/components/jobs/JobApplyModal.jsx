@@ -15,14 +15,24 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2 } from "lucide-react";
+import MediaThumb from "@/components/portfolio/MediaThumb";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export default function JobApplyModal({ job, trigger, onApplied }) {
+  const { user } = useCurrentUser();
+  const portfolio = user?.musician_profile?.portfolio || [];
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({ proposal: "", price_bid: "" });
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  function toggleItem(id) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -32,9 +42,11 @@ export default function JobApplyModal({ job, trigger, onApplied }) {
         job_id: job.id,
         proposal: form.proposal,
         price_bid: parseFloat(form.price_bid) || 0,
+        portfolio_item_ids: selectedIds,
       });
       toast.success("Application submitted!");
       setOpen(false);
+      setSelectedIds([]);
       onApplied?.();
     } catch (err) {
       toast.error(err.message);
@@ -73,6 +85,42 @@ export default function JobApplyModal({ job, trigger, onApplied }) {
               className="mt-1.5"
             />
           </div>
+
+          {portfolio.length > 0 && (
+            <div>
+              <Label>
+                Attach portfolio items (optional)
+                {selectedIds.length > 0 && <span className="text-muted-foreground font-normal"> · {selectedIds.length} selected</span>}
+              </Label>
+              <div className="mt-1.5 grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
+                {portfolio.map((item) => {
+                  const selected = selectedIds.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => toggleItem(item.id)}
+                      title={item.title}
+                      className={cn(
+                        "relative aspect-square rounded-lg overflow-hidden border-2 transition-colors",
+                        selected ? "border-primary" : "border-transparent hover:border-border"
+                      )}
+                    >
+                      <MediaThumb item={item} className="rounded-none" />
+                      {selected && (
+                        <div className="absolute inset-0 bg-primary/30 flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit application"}

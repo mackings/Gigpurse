@@ -19,7 +19,16 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
 
-const emptyForm = { title: "", description: "", location: "", eventDate: "", price: "" };
+const emptyForm = { title: "", description: "", location: "", eventDate: "", eventTime: "", price: "" };
+
+// Combines a date-only input with an optional time-of-day input into one
+// ISO timestamp. Kept as two separate native inputs rather than a single
+// datetime-local — Firefox's combined widget has historically had
+// rendering issues, and splitting them sidesteps that entirely.
+function combineDateTime(date, time) {
+  if (!date) return undefined;
+  return new Date(`${date}T${time || "00:00"}`).toISOString();
+}
 
 export default function BookingModal({ targetUserId, targetName, trigger, onSent }) {
   const [open, setOpen] = useState(false);
@@ -35,7 +44,7 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
         title: form.title,
         description: form.description,
         location: form.location,
-        event_date: form.eventDate ? new Date(form.eventDate).toISOString() : undefined,
+        event_date: combineDateTime(form.eventDate, form.eventTime),
         price: parseFloat(form.price) || 0,
       });
       toast.success("Booking request sent!");
@@ -92,20 +101,26 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
               />
             </div>
             <div>
-              <Label htmlFor="eventDate">Date & time</Label>
+              <Label htmlFor="eventDate">Event date</Label>
               <Input
                 id="eventDate"
-                type="datetime-local"
+                type="date"
                 value={form.eventDate}
                 onChange={(e) => setForm({ ...form, eventDate: e.target.value })}
-                // Firefox clips its native datetime-local calendar/clock icon
-                // at the app's default h-8 input height — it needs a taller
-                // box to render the icon (and stay clickable) uncropped.
-                // Chrome renders fine at either height, so this is scoped to
-                // just this input rather than raised globally.
-                className="mt-1.5 h-10 py-1.5"
+                className="mt-1.5"
               />
             </div>
+          </div>
+          <div>
+            <Label htmlFor="eventTime">Time (optional)</Label>
+            <Input
+              id="eventTime"
+              type="time"
+              value={form.eventTime}
+              disabled={!form.eventDate}
+              onChange={(e) => setForm({ ...form, eventTime: e.target.value })}
+              className="mt-1.5"
+            />
           </div>
           <div>
             <Label htmlFor="price">Offered price (₦)</Label>

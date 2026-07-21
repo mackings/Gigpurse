@@ -19,6 +19,7 @@ func (h *MilestoneHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/milestones", JWTMiddleware(h.HandleMilestones))
 	mux.HandleFunc("/milestones/accept", JWTMiddleware(h.Accept))
 	mux.HandleFunc("/milestones/reject", JWTMiddleware(h.Reject))
+	mux.HandleFunc("/milestones/withdraw", JWTMiddleware(h.Withdraw))
 	mux.HandleFunc("/milestones/counter", JWTMiddleware(h.Counter))
 	mux.HandleFunc("/milestones/fund", JWTMiddleware(h.Fund))
 	mux.HandleFunc("/milestones/release", JWTMiddleware(h.Release))
@@ -113,6 +114,28 @@ func (h *MilestoneHandler) Reject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondSuccess(w, http.StatusOK, "milestone rejected successfully", milestone)
+}
+
+func (h *MilestoneHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req milestoneActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.milestoneUsecase.Withdraw(r.Context(), req.ContractID, req.MilestoneID, userID); err != nil {
+		respondError(w, http.StatusBadRequest, "milestone_withdraw_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "milestone withdrawn successfully", map[string]string{"milestone_id": req.MilestoneID})
 }
 
 func (h *MilestoneHandler) Counter(w http.ResponseWriter, r *http.Request) {

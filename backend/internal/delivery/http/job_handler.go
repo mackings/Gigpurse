@@ -29,6 +29,7 @@ func (h *JobHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/jobs/unsave", JWTMiddleware(h.UnsaveJob))
 	mux.HandleFunc("/jobs/saved", JWTMiddleware(h.ListSavedJobs))
 	mux.HandleFunc("/jobs/fund", JWTMiddleware(h.FundEscrow))
+	mux.HandleFunc("/jobs/close", JWTMiddleware(h.CloseJob))
 }
 
 func (h *JobHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +38,8 @@ func (h *JobHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
 		h.ListOrGetJob(w, r)
 	case http.MethodPost:
 		JWTMiddleware(h.PostJob)(w, r)
+	case http.MethodPut:
+		JWTMiddleware(h.UpdateJob)(w, r)
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
@@ -179,6 +182,76 @@ func (h *JobHandler) PostJob(w http.ResponseWriter, r *http.Request) {
 	respondSuccess(w, http.StatusCreated, "job created successfully", job)
 }
 
+func (h *JobHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can edit jobs")
+		return
+	}
+
+	var req struct {
+		JobID           string   `json:"job_id"`
+		Title           string   `json:"title"`
+		Description     string   `json:"description"`
+		Instrument      string   `json:"instrument"`
+		Genre           string   `json:"genre"`
+		Location        string   `json:"location"`
+		Budget          float64  `json:"budget"`
+		ExperienceLevel string   `json:"experience_level"`
+		Duration        string   `json:"duration"`
+		ProjectType     string   `json:"project_type"`
+		Skills          []string `json:"skills"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+
+	job, err := h.jobUsecase.UpdateJob(r.Context(), userID, req.JobID, domain.JobPostInput{
+		Title:           req.Title,
+		Description:     req.Description,
+		Instrument:      req.Instrument,
+		Genre:           req.Genre,
+		Location:        req.Location,
+		Budget:          req.Budget,
+		ExperienceLevel: req.ExperienceLevel,
+		Duration:        req.Duration,
+		ProjectType:     req.ProjectType,
+		Skills:          req.Skills,
+	})
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "job_update_failed", err.Error())
+		return
+	}
+
+	respondSuccess(w, http.StatusOK, "job updated successfully", job)
+}
+
+func (h *JobHandler) CloseJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can close jobs")
+		return
+	}
+	var req struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	job, err := h.jobUsecase.CloseJob(r.Context(), userID, req.JobID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "job_close_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "job closed successfully", job)
+}
+
 func (h *JobHandler) FundEscrow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -217,9 +290,10 @@ func (h *JobHandler) ApplyForJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		JobID    string  `json:"job_id"`
-		Proposal string  `json:"proposal"`
-		PriceBid float64 `json:"price_bid"`
+		JobID            string   `json:"job_id"`
+		Proposal         string   `json:"proposal"`
+		PriceBid         float64  `json:"price_bid"`
+		PortfolioItemIDs []string `json:"portfolio_item_ids"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -227,7 +301,7 @@ func (h *JobHandler) ApplyForJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app, err := h.jobUsecase.ApplyForJob(r.Context(), userID, req.JobID, req.Proposal, req.PriceBid)
+	app, err := h.jobUsecase.ApplyForJob(r.Context(), userID, req.JobID, req.Proposal, req.PriceBid, req.PortfolioItemIDs)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "job_application_failed", err.Error())
 		return
