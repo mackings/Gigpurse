@@ -49,8 +49,16 @@ export default function ResolveDisputeModal({ dispute, clientName, musicianName,
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
             {[
-              { id: dispute?.client_id, label: clientName, sub: "Client" },
-              { id: dispute?.musician_id, label: musicianName, sub: "Talent" },
+              {
+                id: dispute?.client_id,
+                label: clientName,
+                sub: `Client${dispute?.opened_by_id === dispute?.client_id ? " · Complainant" : " · Respondent"}`,
+              },
+              {
+                id: dispute?.musician_id,
+                label: musicianName,
+                sub: `Talent${dispute?.opened_by_id === dispute?.musician_id ? " · Complainant" : " · Respondent"}`,
+              },
             ].map((party) => (
               <button
                 key={party.id}

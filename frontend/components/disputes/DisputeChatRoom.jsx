@@ -51,7 +51,23 @@ function useVoiceRecorder(onDone) {
   return { recording, seconds, start, stop };
 }
 
-function MessageBubble({ msg, isMine, senderLabel, isModeratorSender, isMentioned }) {
+function RoleTag({ role }) {
+  if (!role) return null;
+  const styles =
+    role === "Moderator"
+      ? "text-primary"
+      : role === "Complainant"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-sky-600 dark:text-sky-400";
+  return (
+    <span className={`font-medium flex items-center gap-0.5 ${styles}`}>
+      {role === "Moderator" && <ShieldCheck className="w-3 h-3" />}
+      {role}
+    </span>
+  );
+}
+
+function MessageBubble({ msg, isMine, senderLabel, senderRole, isMentioned }) {
   if (msg.is_system) {
     return (
       <div className="flex justify-center my-2">
@@ -62,46 +78,54 @@ function MessageBubble({ msg, isMine, senderLabel, isModeratorSender, isMentione
     );
   }
 
+  // A screenshot/voice-note message never carries text alongside it (the
+  // composer sends media and text as separate messages) — those stand on
+  // their own instead of sitting inside a chat-bubble card, which just
+  // added a redundant colored frame around an image/audio player that
+  // already reads fine on its own.
+  const isMediaOnly = !!msg.attachment_type;
+
   return (
     <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1.5`}>
       <div className="max-w-[78%] sm:max-w-[65%]">
         {!isMine && (
           <p className="text-[11px] text-muted-foreground mb-0.5 px-1 flex items-center gap-1">
             {senderLabel}
-            {isModeratorSender && (
-              <span className="text-primary font-medium flex items-center gap-0.5">
-                <ShieldCheck className="w-3 h-3" />
-                Moderator
-              </span>
-            )}
+            <RoleTag role={senderRole} />
           </p>
         )}
-        <div
-          className={`rounded-2xl px-3.5 py-2 text-sm ${
-            isMine ? "bg-primary text-primary-foreground font-medium" : "bg-muted text-foreground"
-          }`}
-        >
-          {isMentioned && (
-            <p className={`text-[11px] mb-1 flex items-center gap-1 ${isMine ? "text-primary-foreground/80" : "text-primary"}`}>
-              <AtSign className="w-3 h-3" />
-              tagged for proof
-            </p>
-          )}
-          {msg.attachment_type === "image" && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={msg.attachment_url}
-              alt="Shared screenshot"
-              className="rounded-lg max-w-full max-h-64 mb-1.5 cursor-pointer"
-              onClick={() => window.open(msg.attachment_url, "_blank")}
-            />
-          )}
-          {msg.attachment_type === "audio" && <audio controls src={msg.attachment_url} className="max-w-full mb-1.5" />}
-          {msg.content && <span className="break-words">{msg.content}</span>}
-          <div className={`text-[10px] mt-1 ${isMine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-            {formatMessageTime(msg.timestamp)}
+        {isMentioned && (
+          <p className={`text-[11px] mb-1 px-1 flex items-center gap-1 ${isMine ? "justify-end" : ""} text-primary`}>
+            <AtSign className="w-3 h-3" />
+            tagged for proof
+          </p>
+        )}
+        {isMediaOnly ? (
+          <div className={`flex flex-col ${isMine ? "items-end" : "items-start"}`}>
+            {msg.attachment_type === "image" && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={msg.attachment_url}
+                alt="Shared screenshot"
+                className="rounded-xl max-w-full max-h-64 cursor-pointer"
+                onClick={() => window.open(msg.attachment_url, "_blank")}
+              />
+            )}
+            {msg.attachment_type === "audio" && <audio controls src={msg.attachment_url} className="max-w-full" />}
+            <div className="text-[10px] mt-1 text-muted-foreground px-0.5">{formatMessageTime(msg.timestamp)}</div>
           </div>
-        </div>
+        ) : (
+          <div
+            className={`rounded-2xl px-3.5 py-2 text-sm ${
+              isMine ? "bg-primary text-primary-foreground font-medium" : "bg-muted text-foreground"
+            }`}
+          >
+            <span className="break-words">{msg.content}</span>
+            <div className={`text-[10px] mt-1 ${isMine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+              {formatMessageTime(msg.timestamp)}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -149,6 +173,18 @@ export default function DisputeChatRoom({ disputeId, onBack }) {
     if (userId === dispute?.musician_id) return musicianInfo?.name || "Talent";
     if (userId === dispute?.moderator_id) return moderatorInfo?.name || "Moderator";
     return "Someone";
+  }
+
+  // The moderator wasn't there when this started — spell out who actually
+  // opened the dispute (Complainant) versus who has to answer for it
+  // (Respondent), instead of just "Client"/"Talent" which says nothing
+  // about which side of THIS dispute they're on.
+  function roleFor(userId) {
+    if (!userId || !dispute) return null;
+    if (userId === dispute.moderator_id) return "Moderator";
+    if (userId === dispute.opened_by_id) return "Complainant";
+    if (userId === dispute.client_id || userId === dispute.musician_id) return "Respondent";
+    return null;
   }
 
   async function handleJoin() {
@@ -210,7 +246,8 @@ export default function DisputeChatRoom({ disputeId, onBack }) {
               <StatusBadge status={dispute.status} />
             </div>
             <p className="text-xs text-muted-foreground truncate">
-              {clientInfo?.name || "Client"} &amp; {musicianInfo?.name || "Talent"}
+              {clientInfo?.name || "Client"} ({roleFor(dispute.client_id)}) &amp; {musicianInfo?.name || "Talent"} (
+              {roleFor(dispute.musician_id)})
               {dispute.moderator_id && ` · moderated by ${moderatorInfo?.name || "a moderator"}`}
             </p>
           </div>
@@ -249,7 +286,7 @@ export default function DisputeChatRoom({ disputeId, onBack }) {
                 msg={msg}
                 isMine={msg.sender_id === user?.id}
                 senderLabel={nameFor(msg.sender_id)}
-                isModeratorSender={msg.sender_id === dispute.moderator_id}
+                senderRole={roleFor(msg.sender_id)}
                 isMentioned={msg.mentioned_user_id === user?.id}
               />
             </div>
@@ -277,14 +314,14 @@ export default function DisputeChatRoom({ disputeId, onBack }) {
                 onClick={() => setTagTarget((t) => (t === dispute.client_id ? "" : dispute.client_id))}
                 className={`px-2 py-0.5 rounded-full border ${tagTarget === dispute.client_id ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
               >
-                {clientInfo?.name || "Client"}
+                {clientInfo?.name || "Client"} ({roleFor(dispute.client_id)})
               </button>
               <button
                 type="button"
                 onClick={() => setTagTarget((t) => (t === dispute.musician_id ? "" : dispute.musician_id))}
                 className={`px-2 py-0.5 rounded-full border ${tagTarget === dispute.musician_id ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
               >
-                {musicianInfo?.name || "Talent"}
+                {musicianInfo?.name || "Talent"} ({roleFor(dispute.musician_id)})
               </button>
             </div>
           )}
