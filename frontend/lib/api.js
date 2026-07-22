@@ -66,6 +66,8 @@ export const resendVerification = (email) => authRequest("/api/auth/resend-verif
 export const verifyEmail = (payload) => authRequest("/api/auth/verify-email", payload);
 export const forgotPassword = (email) => authRequest("/api/auth/forgot-password", { email });
 export const resetPassword = (payload) => authRequest("/api/auth/reset-password", payload);
+export const requestModeratorLogin = (email) => authRequest("/api/auth/moderator-request", { email });
+export const verifyModeratorLogin = (payload) => authRequest("/api/auth/moderator-verify", payload);
 
 export async function getWsToken() {
   const res = await fetch("/api/auth/ws-token", { credentials: "include" });

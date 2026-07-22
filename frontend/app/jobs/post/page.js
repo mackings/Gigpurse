@@ -226,9 +226,10 @@ export default function PostJob() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="budget">Budget (₦)</Label>
+                  <Label htmlFor="budget">Budget (₦, in thousands)</Label>
                   <CurrencyInput
                     id="budget"
+                    unit="thousands"
                     required
                     value={form.budget}
                     onChange={(v) => setForm({ ...form, budget: v })}

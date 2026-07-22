@@ -85,3 +85,15 @@ func (h *Hub) Send(userID string, msgType string, data interface{}) bool {
 	}()
 	return true
 }
+
+// SendToMany pushes the same frame to several users at once — the seam a
+// multi-party room (e.g. a dispute chat between two parties and a
+// moderator) fans a message out through, reusing the exact same per-
+// connection locking as Send so it composes safely with it.
+func (h *Hub) SendToMany(userIDs []string, msgType string, data interface{}) {
+	for _, id := range userIDs {
+		if id != "" {
+			h.Send(id, msgType, data)
+		}
+	}
+}

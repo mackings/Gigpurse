@@ -219,6 +219,86 @@ func (u *userUsecase) VerifyEmail(ctx context.Context, email, code string) error
 	return u.emailVerifyRepo.MarkUsed(ctx, verifyToken.ID, time.Now())
 }
 
+// RequestModeratorLogin sends a one-time code to an email so its owner can
+// go moderate a dispute — no signup or pre-existing staff account required,
+// just proof of inbox ownership (reusing the same code infrastructure as
+// signup verification), since this grants access to two people's private
+// dispute conversation and the power to settle their escrow. A brand-new
+// email is silently provisioned a minimal moderator identity on first use.
+// An email already registered as a client/musician is a silent no-op
+// instead — a party to a booking moderating disputes (possibly their own)
+// would be a conflict of interest, and this also keeps the endpoint from
+// leaking which emails are registered.
+func (u *userUsecase) RequestModeratorLogin(ctx context.Context, email string) error {
+	if email == "" {
+		return errors.New("email is required")
+	}
+	if u.emailVerifyRepo == nil {
+		return errors.New("email verification is not configured")
+	}
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		user = &domain.User{
+			Email:     email,
+			Role:      "moderator",
+			Name:      strings.SplitN(email, "@", 2)[0],
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		if err := u.userRepo.Create(ctx, user); err != nil {
+			return fmt.Errorf("failed to provision moderator identity: %w", err)
+		}
+	} else if user.Role != "admin" && user.Role != "moderator" {
+		return nil
+	}
+	return u.sendEmailVerification(ctx, user)
+}
+
+// VerifyModeratorLogin exchanges a valid code for a normal session JWT —
+// from here on the moderator is authenticated exactly like a password
+// login, just without one.
+func (u *userUsecase) VerifyModeratorLogin(ctx context.Context, email, code string) (string, *domain.User, error) {
+	if email == "" || code == "" {
+		return "", nil, errors.New("email and code are required")
+	}
+	if u.emailVerifyRepo == nil {
+		return "", nil, errors.New("email verification is not configured")
+	}
+	verifyToken, err := u.emailVerifyRepo.GetByTokenHash(ctx, hashToken(emailVerificationHashInput(email, code)))
+	if err != nil {
+		return "", nil, errors.New("invalid or expired code")
+	}
+	if !verifyToken.UsedAt.IsZero() || time.Now().After(verifyToken.ExpiresAt) {
+		return "", nil, errors.New("invalid or expired code")
+	}
+	user, err := u.userRepo.GetByID(ctx, verifyToken.UserID)
+	if err != nil {
+		return "", nil, fmt.Errorf("user not found: %w", err)
+	}
+	if !strings.EqualFold(user.Email, email) || (user.Role != "admin" && user.Role != "moderator") {
+		return "", nil, errors.New("invalid or expired code")
+	}
+	if err := u.emailVerifyRepo.MarkUsed(ctx, verifyToken.ID, time.Now()); err != nil {
+		return "", nil, err
+	}
+	if !user.EmailVerified {
+		user.EmailVerified = true
+		user.UpdatedAt = time.Now()
+		_ = u.userRepo.Update(ctx, user)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"role":    user.Role,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString(getJWTSecret())
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to sign token: %w", err)
+	}
+	return tokenString, user, nil
+}
+
 func (u *userUsecase) sendEmailVerification(ctx context.Context, user *domain.User) error {
 	code, err := secureDigits(6)
 	if err != nil {

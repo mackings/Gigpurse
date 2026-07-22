@@ -12,6 +12,7 @@ const STATUS_STYLES = {
   completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   released: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   resolved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  refunded: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   rejected: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
   cancelled: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
   disputed: "bg-rose-500/10 text-rose-600 dark:text-rose-400",

@@ -150,7 +150,7 @@ type JobUsecase interface {
 	ListJobApplications(ctx context.Context, jobID string) ([]*JobApplication, error)
 	ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*JobApplication, error)
 	ListMusicianJobsByStatus(ctx context.Context, musicianID, status string) ([]*Job, error)
-	AcceptApplication(ctx context.Context, clientID, applicationID string) error
+	AcceptApplication(ctx context.Context, clientID, applicationID string) (*Contract, error)
 
 	SaveJob(ctx context.Context, musicianID, jobID string) error
 	UnsaveJob(ctx context.Context, musicianID, jobID string) error

@@ -31,6 +31,10 @@ func (r *chatRepository) SaveMessage(ctx context.Context, msg *domain.ChatMessag
 
 func (r *chatRepository) GetChatHistory(ctx context.Context, user1, user2 string) ([]*domain.ChatMessage, error) {
 	query := bson.M{
+		// Dispute-room messages share this collection but aren't part of any
+		// 1:1 pairwise history — they're addressed by dispute_id, not
+		// recv_id, and would otherwise leak in here as empty-recv_id noise.
+		"dispute_id": bson.M{"$in": bson.A{nil, ""}},
 		"$or": []bson.M{
 			{"sender_id": user1, "recv_id": user2},
 			{"sender_id": user2, "recv_id": user1},
@@ -64,10 +68,30 @@ func (r *chatRepository) GetChatHistory(ctx context.Context, user1, user2 string
 	return messages, nil
 }
 
+func (r *chatRepository) ListByDispute(ctx context.Context, disputeID string) ([]*domain.ChatMessage, error) {
+	opts := options.Find().SetSort(bson.M{"timestamp": 1})
+	cursor, err := r.collection.Find(ctx, bson.M{"dispute_id": disputeID}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	messages := []*domain.ChatMessage{}
+	for cursor.Next(ctx) {
+		var msg domain.ChatMessage
+		if err := cursor.Decode(&msg); err != nil {
+			return nil, err
+		}
+		messages = append(messages, &msg)
+	}
+	return messages, cursor.Err()
+}
+
 func (r *chatRepository) GetRecentChats(ctx context.Context, userID string) ([]*domain.ChatMessage, error) {
 	// Aggregation to find latest message for each distinct chat partner
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
+			"dispute_id": bson.M{"$in": bson.A{nil, ""}},
 			"$or": []bson.M{
 				{"sender_id": userID},
 				{"recv_id": userID},

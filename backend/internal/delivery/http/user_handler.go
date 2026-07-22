@@ -27,6 +27,8 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/auth/email-verification/confirm", h.VerifyEmail)
 	mux.HandleFunc("/auth/password-reset/request", h.RequestPasswordReset)
 	mux.HandleFunc("/auth/password-reset/confirm", h.ResetPassword)
+	mux.HandleFunc("/auth/moderator/request", h.RequestModeratorLogin)
+	mux.HandleFunc("/auth/moderator/verify", h.VerifyModeratorLogin)
 	mux.HandleFunc("GET /users/profile", h.HandleProfile)
 	mux.HandleFunc("PUT /users/profile", h.HandleProfile)
 	mux.HandleFunc("GET /users/{id}", JWTMiddleware(h.GetUserByID))
@@ -85,6 +87,49 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	respondSuccess(w, http.StatusOK, "login successful", map[string]interface{}{
+		"token": token,
+		"user":  user,
+	})
+}
+
+func (h *UserHandler) RequestModeratorLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.userUsecase.RequestModeratorLogin(r.Context(), req.Email); err != nil {
+		respondError(w, http.StatusBadRequest, "moderator_login_request_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "if that email is eligible to moderate, a code has been sent", nil)
+}
+
+func (h *UserHandler) VerifyModeratorLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	token, user, err := h.userUsecase.VerifyModeratorLogin(r.Context(), req.Email, req.Code)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "moderator_login_failed", err.Error())
+		return
+	}
 	respondSuccess(w, http.StatusOK, "login successful", map[string]interface{}{
 		"token": token,
 		"user":  user,

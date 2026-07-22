@@ -24,6 +24,8 @@ var allowedUploadTypes = map[string]string{
 	"audio/mpeg":      "audio",
 	"audio/wav":       "audio",
 	"audio/ogg":       "audio",
+	"audio/webm":      "audio", // what MediaRecorder produces in Chrome/Edge for voice notes
+	"audio/mp4":       "audio", // what MediaRecorder produces in Safari for voice notes
 	"video/mp4":       "video",
 	"video/webm":      "video",
 	"video/quicktime": "video",

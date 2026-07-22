@@ -276,7 +276,36 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	client.post("/disputes", clientToken, map[string]any{"contract_id": contracts[0].ID, "reason": "Need admin review"}, http.StatusCreated, &dispute)
 	client.get("/disputes", musicianToken, http.StatusOK, nil)
 	client.get("/admin/disputes?status=open", adminToken, http.StatusOK, nil)
-	client.post("/admin/disputes/resolve", adminToken, map[string]any{"dispute_id": dispute.ID, "resolution": "Resolved after review"}, http.StatusOK, nil)
+
+	// Neither party can talk in the dispute room until a moderator/admin joins.
+	client.post("/disputes/messages", clientToken, map[string]any{"dispute_id": dispute.ID, "content": "hello?"}, http.StatusBadRequest, nil)
+
+	var joined domain.Dispute
+	client.post("/disputes/join", adminToken, map[string]any{"dispute_id": dispute.ID}, http.StatusOK, &joined)
+	if joined.ModeratorID != adminUser.ID {
+		t.Fatalf("expected joining admin to be recorded as moderator, got %#v", joined)
+	}
+
+	// Now both parties (and the moderator) can message, including a tag that
+	// should notify the tagged party.
+	client.post("/disputes/messages", clientToken, map[string]any{"dispute_id": dispute.ID, "content": "here's what happened"}, http.StatusCreated, nil)
+	client.post("/disputes/messages", adminToken, map[string]any{
+		"dispute_id": dispute.ID, "content": "please share proof", "mentioned_user_id": musicianUser.ID,
+	}, http.StatusCreated, nil)
+
+	var disputeMessages []domain.ChatMessage
+	client.get("/disputes/messages?dispute_id="+dispute.ID, musicianToken, http.StatusOK, &disputeMessages)
+	if len(disputeMessages) < 4 { // opened + joined + client message + tag message
+		t.Fatalf("expected at least 4 dispute messages, got %d: %#v", len(disputeMessages), disputeMessages)
+	}
+
+	var resolved domain.Dispute
+	client.post("/admin/disputes/resolve", adminToken, map[string]any{
+		"dispute_id": dispute.ID, "winner_id": musicianUser.ID, "resolution": "Resolved after review",
+	}, http.StatusOK, &resolved)
+	if resolved.WinnerID != musicianUser.ID || resolved.Status != "resolved" {
+		t.Fatalf("expected dispute resolved in favor of musician, got %#v", resolved)
+	}
 
 	var fundedWallet domain.Wallet
 	client.post("/wallet/deposit", clientToken, map[string]any{"amount": 500}, http.StatusOK, &fundedWallet)
@@ -321,8 +350,12 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 
 	var musicianWallet domain.Wallet
 	client.get("/wallet", musicianToken, http.StatusOK, &musicianWallet)
-	if musicianWallet.Balance != 100 {
-		t.Fatalf("expected musician wallet balance 100 after release, got %v", musicianWallet.Balance)
+	// 100 from this milestone release + the 500 this same contract's job had
+	// sitting in escrow, already paid out to the musician when the dispute
+	// above resolved in their favor (dispute resolution sweeps any
+	// still-funded job-level escrow to the winner).
+	if musicianWallet.Balance != 600 {
+		t.Fatalf("expected musician wallet balance 600 after release, got %v", musicianWallet.Balance)
 	}
 
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)
@@ -361,11 +394,11 @@ func newTestApp() *testApp {
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
-	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo}
 	walletUsecase := usecase.NewWalletUsecase(walletRepo)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo)
+	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -379,11 +412,11 @@ func newTestApp() *testApp {
 	})
 	delivery.NewUserHandler(userUsecase, contractRepo).RegisterRoutes(mux)
 	delivery.NewJobHandler(jobUsecase).RegisterRoutes(mux)
-	delivery.NewChatHandler(chatUsecase, delivery.NewHub()).RegisterRoutes(mux)
+	delivery.NewChatHandler(chatUsecase, disputeUsecase, hub).RegisterRoutes(mux)
 	delivery.NewContractHandler(contractUsecase).RegisterRoutes(mux)
 	delivery.NewReviewHandler(reviewUsecase).RegisterRoutes(mux)
 	delivery.NewNotificationHandler(notifUsecase).RegisterRoutes(mux)
-	delivery.NewDisputeHandler(disputeUsecase).RegisterRoutes(mux)
+	delivery.NewDisputeHandler(disputeUsecase, hub).RegisterRoutes(mux)
 	delivery.NewDashboardHandler(dashboardUsecase).RegisterRoutes(mux)
 	delivery.NewAdminHandler(adminUsecase).RegisterRoutes(mux)
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
@@ -798,6 +831,19 @@ func (r *memoryChatRepo) GetRecentChats(ctx context.Context, userID string) ([]*
 	var out []*domain.ChatMessage
 	for _, msg := range latest {
 		out = append(out, msg)
+	}
+	return out, nil
+}
+
+func (r *memoryChatRepo) ListByDispute(ctx context.Context, disputeID string) ([]*domain.ChatMessage, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []*domain.ChatMessage
+	for _, msg := range r.messages {
+		if msg.DisputeID == disputeID {
+			cp := *msg
+			out = append(out, &cp)
+		}
 	}
 	return out, nil
 }

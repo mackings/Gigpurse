@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -20,10 +22,10 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { formatMoney } from "@/lib/utils";
-import { MapPin, Star, Pencil, XCircle, Loader2, Check } from "lucide-react";
+import { MapPin, Star, Pencil, XCircle, Loader2, Check, UserRound, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 
-function ApplicantRow({ app, jobStatus, onAccept, isAccepting }) {
+function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting }) {
   const a = app.applicant;
   return (
     <div className="p-4 rounded-xl border border-border bg-card space-y-3">
@@ -69,18 +71,35 @@ function ApplicantRow({ app, jobStatus, onAccept, isAccepting }) {
 
       <div className="flex items-center justify-between pt-1">
         <span className="text-sm font-semibold text-foreground">Bid: {formatMoney(app.price_bid)}</span>
-        {app.status === "pending" && jobStatus === "open" && (
-          <Button size="sm" disabled={isAccepting} onClick={() => onAccept(app.id)} className="gap-1.5">
-            {isAccepting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            Accept
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <Link href={`/talent/${app.musician_id}`}>
+              <UserRound className="w-3.5 h-3.5" />
+              View profile
+            </Link>
           </Button>
-        )}
+          {app.status === "pending" && jobStatus === "open" && (
+            <Button size="sm" disabled={isAccepting} onClick={() => onAccept(app.id)} className="gap-1.5">
+              {isAccepting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              Accept
+            </Button>
+          )}
+          {app.status === "accepted" && contractId && (
+            <Button asChild size="sm" className="gap-1.5">
+              <Link href={`/contracts/${contractId}?propose=1`}>
+                <HandCoins className="w-3.5 h-3.5" />
+                Propose milestone
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 export default function ApplicantsPanel({ job, open, onOpenChange }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [acceptingId, setAcceptingId] = useState(null);
@@ -92,14 +111,32 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
     enabled: open,
   });
 
+  // The application record itself doesn't carry a contract_id, so once
+  // someone's accepted, look their contract up by matching this job +
+  // musician against the client's contracts — covers applications accepted
+  // before this "propose a milestone" shortcut existed too.
+  const { data: contracts } = useQuery({
+    queryKey: ["contracts"],
+    queryFn: () => apiGet("/contracts"),
+    enabled: open && applications?.some((a) => a.status === "accepted"),
+  });
+  const contractIdByMusician = {};
+  for (const c of contracts || []) {
+    if (c.job_id === job.id) contractIdByMusician[c.musician_id] = c.id;
+  }
+
   async function accept(applicationId) {
     setAcceptingId(applicationId);
     try {
-      await apiPost("/jobs/applications/accept", { application_id: applicationId });
-      toast.success("Application accepted!");
+      const result = await apiPost("/jobs/applications/accept", { application_id: applicationId });
+      toast.success("Application accepted! Propose a milestone to get started.");
       queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      onOpenChange(false);
+      if (result?.contract_id) {
+        router.push(`/contracts/${result.contract_id}?propose=1`);
+      }
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -185,7 +222,14 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
               ) : applications?.length ? (
                 <div className="space-y-3">
                   {applications.map((app) => (
-                    <ApplicantRow key={app.id} app={app} jobStatus={job.status} onAccept={accept} isAccepting={acceptingId === app.id} />
+                    <ApplicantRow
+                      key={app.id}
+                      app={app}
+                      jobStatus={job.status}
+                      contractId={contractIdByMusician[app.musician_id]}
+                      onAccept={accept}
+                      isAccepting={acceptingId === app.id}
+                    />
                   ))}
                 </div>
               ) : (

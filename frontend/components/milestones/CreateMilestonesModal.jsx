@@ -28,8 +28,8 @@ function combineDateTime(date, time) {
   return new Date(`${date}T${time || "00:00"}`).toISOString();
 }
 
-export default function CreateMilestonesModal({ trigger, onCreate }) {
-  const [open, setOpen] = useState(false);
+export default function CreateMilestonesModal({ trigger, onCreate, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   const [rows, setRows] = useState([emptyRow()]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -93,7 +93,7 @@ export default function CreateMilestonesModal({ trigger, onCreate }) {
                 </div>
                 <Input placeholder="Title (e.g. Rehearsal complete)" value={row.title} onChange={(e) => updateRow(idx, { title: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <CurrencyInput placeholder="Amount (₦)" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
+                  <CurrencyInput placeholder="Amount, e.g. 300" unit="thousands" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
                   <Input type="date" value={row.due_date} onChange={(e) => updateRow(idx, { due_date: e.target.value })} />
                 </div>
                 <div>

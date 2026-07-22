@@ -87,11 +87,11 @@ func main() {
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
-	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo)
+	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
 
 	uploadDir := os.Getenv("MEDIA_UPLOAD_DIR")
 	if uploadDir == "" {
@@ -102,11 +102,11 @@ func main() {
 	// 4. Initialize Handlers
 	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)
 	jobHandler := delivery.NewJobHandler(jobUsecase)
-	chatHandler := delivery.NewChatHandler(chatUsecase, hub)
+	chatHandler := delivery.NewChatHandler(chatUsecase, disputeUsecase, hub)
 	contractHandler := delivery.NewContractHandler(contractUsecase)
 	reviewHandler := delivery.NewReviewHandler(reviewUsecase)
 	notifHandler := delivery.NewNotificationHandler(notifUsecase)
-	disputeHandler := delivery.NewDisputeHandler(disputeUsecase)
+	disputeHandler := delivery.NewDisputeHandler(disputeUsecase, hub)
 	dashboardHandler := delivery.NewDashboardHandler(dashboardUsecase)
 	adminHandler := delivery.NewAdminHandler(adminUsecase)
 	walletHandler := delivery.NewWalletHandler(walletUsecase)

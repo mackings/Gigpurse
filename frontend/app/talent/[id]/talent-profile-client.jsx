@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { hasInAppHistory } from "@/components/SiteChrome";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import ReviewCard from "@/components/reviews/ReviewCard";
@@ -14,10 +16,11 @@ import MediaThumb from "@/components/portfolio/MediaThumb";
 import PortfolioLightbox from "@/components/portfolio/PortfolioLightbox";
 import IconBadge from "@/components/ui/icon-badge";
 import { formatMoney } from "@/lib/utils";
-import { Loader2, MapPin, MessageCircle, Music, Star, Briefcase, Wallet, UserRound } from "lucide-react";
+import { Loader2, MapPin, MessageCircle, Music, Star, Briefcase, Wallet, UserRound, ArrowLeft } from "lucide-react";
 
 export default function TalentProfileClient({ id }) {
   const { user, isAuthenticated } = useCurrentUser();
+  const router = useRouter();
   const [previewItem, setPreviewItem] = useState(null);
 
   const { data: musician, isLoading } = useQuery({
@@ -59,16 +62,39 @@ export default function TalentProfileClient({ id }) {
   const rest = portfolio.filter((item) => !item.is_featured);
   const profileURL = typeof window !== "undefined" ? window.location.href : "";
 
+  // router.back() silently lands on a blank page when there's no prior
+  // in-app history (a direct link, a fresh tab) — fall back to somewhere
+  // useful instead of a dead end.
+  function handleBack() {
+    if (hasInAppHistory()) {
+      router.back();
+    } else {
+      router.push("/browse");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <div className="h-40 bg-primary" />
-      <div className="max-w-5xl mx-auto px-4 -mt-14 pb-16">
+      <div className="border-b border-border bg-background">
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+        </div>
+      </div>
+      <div className="h-16 sm:h-28 bg-primary" />
+      <div className="max-w-5xl mx-auto px-4 -mt-8 sm:-mt-12 pb-16">
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-card rounded-2xl shadow-sm border border-border p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex items-start gap-5">
-                  <div className="w-20 h-20 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-2xl font-bold shrink-0 -mt-10 shadow-lg ring-4 ring-card">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-xl sm:text-2xl font-bold shrink-0 -mt-8 sm:-mt-10 shadow-lg ring-4 ring-card">
                     {(displayName || "?").charAt(0).toUpperCase()}
                   </div>
                   <div className="pt-2">

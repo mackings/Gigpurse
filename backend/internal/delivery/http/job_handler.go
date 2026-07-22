@@ -380,14 +380,15 @@ func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.jobUsecase.AcceptApplication(r.Context(), userID, req.ApplicationID)
+	contract, err := h.jobUsecase.AcceptApplication(r.Context(), userID, req.ApplicationID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "application_accept_failed", err.Error())
 		return
 	}
 
 	respondSuccess(w, http.StatusOK, "application accepted successfully", map[string]string{
-		"message": "application accepted successfully, job is now active",
+		"message":     "application accepted successfully, job is now active",
+		"contract_id": contract.ID,
 	})
 }
 

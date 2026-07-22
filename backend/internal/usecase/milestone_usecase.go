@@ -66,6 +66,9 @@ func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID s
 	if !ok {
 		return nil, errors.New("unauthorized: not a participant on this contract")
 	}
+	if proposerID != contract.ClientID {
+		return nil, errors.New("unauthorized: only the client can propose a new milestone — the talent can counter, accept, or reject one")
+	}
 
 	existing, err := u.milestoneRepo.ListByContract(ctx, contractID)
 	if err != nil {
@@ -310,6 +313,47 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 		fmt.Sprintf("Payment released for milestone '%s' ($%.2f).", milestone.Title, milestone.Amount), contractID)
 
 	return milestone, nil
+}
+
+// RefundHeldForContract moves every still-`funded` milestone on a contract
+// back to the client's wallet balance — the milestone-side half of a
+// dispute resolving in the client's favor (see DisputeUsecase.ResolveDispute,
+// which also sweeps any job-level escrow the same way).
+func (u *milestoneUsecase) RefundHeldForContract(ctx context.Context, contractID string) error {
+	contract, err := u.contractRepo.GetByID(ctx, contractID)
+	if err != nil {
+		return fmt.Errorf("contract not found: %w", err)
+	}
+	milestones, err := u.milestoneRepo.ListByContract(ctx, contractID)
+	if err != nil {
+		return err
+	}
+
+	clientWallet, err := u.walletRepo.GetOrCreate(ctx, contract.ClientID)
+	if err != nil {
+		return err
+	}
+	refunded := false
+	for _, milestone := range milestones {
+		if milestone.Status != "funded" {
+			continue
+		}
+		clientWallet.EscrowBalance -= milestone.Amount
+		clientWallet.Balance += milestone.Amount
+		refunded = true
+		_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+			UserID: contract.ClientID, Type: "escrow_release", Amount: milestone.Amount,
+			Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title),
+		})
+		milestone.Status = "refunded"
+		_ = u.milestoneRepo.Update(ctx, milestone)
+	}
+	if refunded {
+		if err := u.walletRepo.Save(ctx, clientWallet); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (u *milestoneUsecase) List(ctx context.Context, contractID, requesterID string) ([]*domain.Milestone, error) {

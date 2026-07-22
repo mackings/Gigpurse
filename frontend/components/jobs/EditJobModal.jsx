@@ -116,9 +116,10 @@ export default function EditJobModal({ job, trigger, open, onOpenChange }) {
               />
             </div>
             <div>
-              <Label htmlFor="edit-budget">Budget (₦)</Label>
+              <Label htmlFor="edit-budget">Budget (₦, in thousands)</Label>
               <CurrencyInput
                 id="edit-budget"
+                unit="thousands"
                 required
                 disabled={job.escrow_funded}
                 value={form.budget}

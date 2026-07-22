@@ -7,13 +7,17 @@ import (
 
 // Milestone status lifecycle:
 //
-//	proposed  -- either party proposes a milestone for a contract; the other
-//	             party can accept, reject, or counter it (a counter keeps the
-//	             status at "proposed" but flips who's offering what)
+//	proposed  -- the client proposes a milestone for a contract; the talent
+//	             can accept, reject, or counter it (a counter keeps the
+//	             status at "proposed" but flips who's offering what — from
+//	             then on it's whoever didn't make the last offer who can
+//	             respond, so a countered proposal bounces back to the client)
 //	accepted  -- the other party accepted the current terms, making it fundable
 //	rejected  -- the other party rejects it (terminal)
 //	funded    -- the client funds escrow for an accepted milestone
 //	released  -- the client releases escrow, crediting the musician's wallet (terminal)
+//	refunded  -- a dispute resolved in the client's favor, so held escrow
+//	             went back to their wallet balance instead of the musician's (terminal)
 type Milestone struct {
 	ID         string                      `json:"id" bson:"_id"`
 	ContractID string                      `json:"contract_id" bson:"contract_id"`
@@ -66,4 +70,12 @@ type MilestoneUsecase interface {
 	Fund(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	Release(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	List(ctx context.Context, contractID, requesterID string) ([]*Milestone, error)
+
+	// RefundHeldForContract sweeps every still-`funded` milestone on a
+	// contract back to the client's wallet balance — used when a dispute
+	// resolves in the client's favor. Unlike Release/Fund this isn't gated
+	// by a caller userID: the caller (dispute resolution) has already
+	// established the resolver is a moderator/admin, so this is meant to be
+	// invoked internally rather than exposed as its own end-user action.
+	RefundHeldForContract(ctx context.Context, contractID string) error
 }

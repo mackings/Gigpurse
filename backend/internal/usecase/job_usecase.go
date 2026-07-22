@@ -351,6 +351,12 @@ func (u *jobUsecase) ApplyForJob(ctx context.Context, musicianID, jobID, proposa
 		return nil, fmt.Errorf("failed to submit application: %w", err)
 	}
 
+	applicantName := user.Name
+	if user.MusicianProfile != nil && user.MusicianProfile.StageName != "" {
+		applicantName = user.MusicianProfile.StageName
+	}
+	u.notifyAndEmail(ctx, job.ClientID, "New Application", fmt.Sprintf("%s applied to your gig '%s'.", applicantName, job.Title), "/dashboard/client")
+
 	return app, nil
 }
 
@@ -449,29 +455,29 @@ func (u *jobUsecase) ListMusicianJobsByStatus(ctx context.Context, musicianID, s
 	return jobs, nil
 }
 
-func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicationID string) error {
+func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicationID string) (*domain.Contract, error) {
 	app, err := u.jobRepo.GetApplicationByID(ctx, applicationID)
 	if err != nil {
-		return fmt.Errorf("application not found: %w", err)
+		return nil, fmt.Errorf("application not found: %w", err)
 	}
 
 	job, err := u.jobRepo.GetByID(ctx, app.JobID)
 	if err != nil {
-		return fmt.Errorf("job not found: %w", err)
+		return nil, fmt.Errorf("job not found: %w", err)
 	}
 
 	if job.ClientID != clientID {
-		return errors.New("unauthorized: only the job creator can accept applications")
+		return nil, errors.New("unauthorized: only the job creator can accept applications")
 	}
 
 	if job.Status != "open" {
-		return errors.New("job is no longer open")
+		return nil, errors.New("job is no longer open")
 	}
 
 	// Update application status
 	app.Status = "accepted"
 	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
-		return fmt.Errorf("failed to update application status: %w", err)
+		return nil, fmt.Errorf("failed to update application status: %w", err)
 	}
 
 	// Update job status and set hired musician
@@ -479,7 +485,7 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 	job.MusicianID = app.MusicianID
 	job.UpdatedAt = time.Now()
 	if err := u.jobRepo.Update(ctx, job); err != nil {
-		return fmt.Errorf("failed to update job status: %w", err)
+		return nil, fmt.Errorf("failed to update job status: %w", err)
 	}
 
 	// Create official Contract record (Contract System)
@@ -496,7 +502,7 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 		UpdatedAt:   time.Now(),
 	}
 	if err := u.contractRepo.Create(ctx, contract); err != nil {
-		return fmt.Errorf("failed to create contract: %w", err)
+		return nil, fmt.Errorf("failed to create contract: %w", err)
 	}
 
 	// Reject other applications for the same job
@@ -515,7 +521,7 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 	u.notifyAndEmail(ctx, job.ClientID, "Application Accepted", fmt.Sprintf("You have hired musician '%s' for gig '%s'. Price: $%.2f", app.MusicianID, job.Title, app.PriceBid), contractLink)
 	u.notifyAndEmail(ctx, app.MusicianID, "Bid Accepted", fmt.Sprintf("Congratulations! Your proposal for gig '%s' was accepted. Price: $%.2f", job.Title, app.PriceBid), contractLink)
 
-	return nil
+	return contract, nil
 }
 
 func (u *jobUsecase) sortJobs(ctx context.Context, jobs []*domain.Job, filter domain.JobFilter) {

@@ -19,11 +19,14 @@ import {
 const RealtimeContext = createContext({
   connected: false,
   sendChatMessage: () => false,
+  sendDisputeMessage: () => false,
   pendingSendCount: 0,
   unreadMessageCount: 0,
   unreadByPartner: {},
+  unreadByDispute: {},
   clearUnreadMessages: () => {},
   clearUnreadForPartner: () => {},
+  clearUnreadForDispute: () => {},
 });
 
 export function useRealtime() {
@@ -53,6 +56,7 @@ export function RealtimeProvider({ children }) {
   const router = useRouter();
   const [connected, setConnected] = useState(false);
   const [unreadByPartner, setUnreadByPartner] = useState({});
+  const [unreadByDispute, setUnreadByDispute] = useState({});
   const [pendingSendCount, setPendingSendCount] = useState(0);
   // The websocket send path (sendChatMessage below) is fire-and-forget —
   // there's no request/response round trip to hang a try/catch off. The
@@ -119,6 +123,25 @@ export function RealtimeProvider({ children }) {
           if (msg.recv_id === myId) {
             setUnreadByPartner((prev) => ({ ...prev, [msg.sender_id]: (prev[msg.sender_id] || 0) + 1 }));
           }
+        } else if (envelope.type === "dispute_message") {
+          const msg = envelope.data;
+          const myId = userIdRef.current;
+          queryClient.setQueryData(["dispute-messages", msg.dispute_id], (old) => {
+            const list = old || [];
+            if (list.some((m) => m.id === msg.id)) return list;
+            return [...list, msg];
+          });
+          if (msg.sender_id !== myId) {
+            setUnreadByDispute((prev) => ({ ...prev, [msg.dispute_id]: (prev[msg.dispute_id] || 0) + 1 }));
+          }
+        } else if (envelope.type === "dispute_updated") {
+          const dispute = envelope.data;
+          queryClient.setQueryData(["dispute", dispute.id], dispute);
+          queryClient.invalidateQueries({ queryKey: ["disputes"] });
+          // Status changes (moderator joining, dispute resolving) also drop a
+          // system message into the room — refetch so it shows up live
+          // instead of only after the chat is reopened.
+          queryClient.invalidateQueries({ queryKey: ["dispute-messages", dispute.id] });
         } else if (envelope.type === "notification") {
           const notif = envelope.data;
           queryClient.setQueryData(["notifications"], (old) => {
@@ -197,6 +220,27 @@ export function RealtimeProvider({ children }) {
     return true;
   }, []);
 
+  // Images/voice notes go through this too — the caller uploads the file
+  // via apiUpload first (fast: local disk, no processing) and passes just
+  // the resulting URL here, so a dispute attachment is exactly as fast to
+  // deliver as a text message.
+  const sendDisputeMessage = useCallback((disputeId, content, opts = {}) => {
+    const payload = JSON.stringify({
+      dispute_id: disputeId,
+      content,
+      attachment_url: opts.attachmentUrl || "",
+      attachment_type: opts.attachmentType || "",
+      mentioned_user_id: opts.mentionedUserId || "",
+    });
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(payload);
+    } else {
+      pendingQueueRef.current.push(payload);
+      setPendingSendCount(pendingQueueRef.current.length);
+    }
+    return true;
+  }, []);
+
   const clearUnreadMessages = useCallback(() => setUnreadByPartner({}), []);
 
   const clearUnreadForPartner = useCallback((partnerId) => {
@@ -204,6 +248,15 @@ export function RealtimeProvider({ children }) {
       if (!prev[partnerId]) return prev;
       const next = { ...prev };
       delete next[partnerId];
+      return next;
+    });
+  }, []);
+
+  const clearUnreadForDispute = useCallback((disputeId) => {
+    setUnreadByDispute((prev) => {
+      if (!prev[disputeId]) return prev;
+      const next = { ...prev };
+      delete next[disputeId];
       return next;
     });
   }, []);
@@ -218,11 +271,14 @@ export function RealtimeProvider({ children }) {
       value={{
         connected,
         sendChatMessage,
+        sendDisputeMessage,
         pendingSendCount,
         unreadMessageCount,
         unreadByPartner,
+        unreadByDispute,
         clearUnreadMessages,
         clearUnreadForPartner,
+        clearUnreadForDispute,
       }}
     >
       {children}

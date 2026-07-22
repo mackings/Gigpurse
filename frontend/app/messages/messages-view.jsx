@@ -8,8 +8,7 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useRealtime } from "@/lib/RealtimeProvider";
 import ChatList from "@/components/chat/ChatList";
 import ChatWindow from "@/components/chat/ChatWindow";
-
-
+import DisputeChatRoom from "@/components/disputes/DisputeChatRoom";
 
 export default function MessagesView() {
   const searchParams = useSearchParams();
@@ -18,14 +17,16 @@ export default function MessagesView() {
   const withParam = searchParams.get("with");
   const contractParam = searchParams.get("contract");
   const bookingParam = searchParams.get("booking");
+  const disputeParam = searchParams.get("dispute");
 
   // A user-initiated click (or back-tap) in the list overrides whatever the
   // URL says. Until they interact, the selection is derived purely from the
-  // URL (?with= directly, or ?contract= resolved via the fetch below) — no
-  // effect/setState needed to keep those in sync, since it's plain
-  // computation from query data on every render.
-
-  const [manualSelectionId, setManualSelectionId] = useState(undefined);
+  // URL — no effect/setState needed to keep those in sync, since it's plain
+  // computation from query data on every render. Chat and dispute selection
+  // are mutually exclusive, so one bit of state covers both: undefined
+  // (derive from URL), null (explicitly cleared, e.g. mobile back), or
+  // {kind, id}.
+  const [manualSelection, setManualSelection] = useState(undefined);
 
   const { data: linkedContracts } = useQuery({
     queryKey: ["contracts", "detail", contractParam],
@@ -36,8 +37,15 @@ export default function MessagesView() {
   const resolvedWith =
     linkedContract && user ? (user.id === linkedContract.client_id ? linkedContract.musician_id : linkedContract.client_id) : null;
 
-  const hasManualSelection = manualSelectionId !== undefined;
-  const selectedId = hasManualSelection ? manualSelectionId : withParam || resolvedWith || null;
+  const hasManualSelection = manualSelection !== undefined;
+  const derivedFromUrl = disputeParam
+    ? { kind: "dispute", id: disputeParam }
+    : withParam || resolvedWith
+    ? { kind: "chat", id: withParam || resolvedWith }
+    : null;
+  const selection = hasManualSelection ? manualSelection : derivedFromUrl;
+  const selectedId = selection?.kind === "chat" ? selection.id : null;
+  const selectedDisputeId = selection?.kind === "dispute" ? selection.id : null;
   const bookingId = hasManualSelection ? null : bookingParam || null;
 
   // Milestones live on a Contract, not a chat partner, so opening a
@@ -62,22 +70,32 @@ export default function MessagesView() {
   }, [clearUnreadMessages]);
 
   function handleSelect(userId) {
-    setManualSelectionId(userId);
+    setManualSelection({ kind: "chat", id: userId });
   }
+
+  function handleSelectDispute(disputeId) {
+    setManualSelection({ kind: "dispute", id: disputeId });
+  }
+
+  const hasSelection = !!selectedId || !!selectedDisputeId;
 
   return (
     <div className="h-[calc(100vh-4rem)] flex bg-background">
-      <div className={`${selectedId ? "hidden" : "flex"} sm:flex`}>
-        <ChatList selectedId={selectedId} onSelect={handleSelect} />
+      <div className={`${hasSelection ? "hidden" : "flex"} sm:flex`}>
+        <ChatList selectedId={selectedId} selectedDisputeId={selectedDisputeId} onSelect={handleSelect} onSelectDispute={handleSelectDispute} />
       </div>
-      <div className={`${selectedId ? "flex" : "hidden"} sm:flex flex-1`}>
-        <ChatWindow
-          key={selectedId}
-          otherUserId={selectedId}
-          contractId={contractId}
-          bookingId={bookingId}
-          onBack={() => setManualSelectionId(null)}
-        />
+      <div className={`${hasSelection ? "flex" : "hidden"} sm:flex flex-1`}>
+        {selectedDisputeId ? (
+          <DisputeChatRoom key={selectedDisputeId} disputeId={selectedDisputeId} onBack={() => setManualSelection(null)} />
+        ) : (
+          <ChatWindow
+            key={selectedId}
+            otherUserId={selectedId}
+            contractId={contractId}
+            bookingId={bookingId}
+            onBack={() => setManualSelection(null)}
+          />
+        )}
       </div>
     </div>
   );

@@ -1171,9 +1171,17 @@ Status codes: `200`, `401`, `403`, `405`, `500`.
 
 ## Disputes And Customer Service
 
+Opening a dispute creates a 3-party chat room (the two contract participants
+plus, once one joins, a moderator) — see "Dispute chat" below. The two
+original parties **cannot message each other in that room until a
+moderator joins**; the moderator can always post, including the automatic
+system messages noted per-endpoint below.
+
 ### `POST /disputes`
 
 Opens a dispute for a contract. Requester must be a contract participant.
+Also posts a system message into the dispute's chat room containing the
+reason, so the room never starts blank.
 
 Auth: required.
 
@@ -1196,7 +1204,9 @@ Response `201`:
   "musician_id": "usr_2",
   "opened_by_id": "usr_1",
   "reason": "Need admin review",
-  "status": "open"
+  "status": "open",
+  "moderator_id": "",
+  "winner_id": ""
 }
 ```
 
@@ -1204,21 +1214,22 @@ Status codes: `201`, `400`, `401`, `405`.
 
 ### `GET /disputes`
 
-Lists disputes for the authenticated user.
+Lists disputes for the authenticated user, or fetches one via `?id=`.
 
 Auth: required.
 
-Response `200`: array of `Dispute`.
+Response `200`: array of `Dispute` (or a single `Dispute` with `?id=`).
 
-Status codes: `200`, `401`, `405`, `500`.
+Status codes: `200`, `401`, `404`, `405`, `500`.
 
 ### `GET /admin/disputes`
 
 Lists all disputes for admin/moderator review.
 
 Auth: required, role `admin` or `moderator`. Moderators have access to this
-endpoint and `/admin/disputes/resolve` only — every other `/admin/*`
-endpoint (analytics, users, jobs) stays strictly `admin`-only.
+endpoint, `/disputes/join`, `/disputes/messages`, and
+`/admin/disputes/resolve` only — every other `/admin/*` endpoint
+(analytics, users, jobs) stays strictly `admin`-only.
 
 Query parameters: `status=open|resolved|closed`
 
@@ -1228,24 +1239,133 @@ Status codes: `200`, `401`, `403`, `405`, `500`.
 
 ### `POST /admin/disputes/resolve`
 
-Resolves a dispute.
+Resolves a dispute — requires picking a winner, since a dispute is
+adversarial by nature. Also **automatically settles any escrow still held
+against the contract**: every still-`funded` milestone, plus job-level
+escrow for a job-sourced contract that never used milestones, moves to the
+winner (or back to the client's balance if the client won). Posts a system
+message announcing the outcome into the dispute's chat room.
 
 Auth: required, role `admin` or `moderator`.
-
-Auth: required, role `admin`.
 
 Required body:
 
 ```json
 {
   "dispute_id": "dsp_1",
+  "winner_id": "usr_2",
   "resolution": "Resolved after review"
 }
 ```
 
-Response `200`: updated `Dispute`.
+`winner_id` must be the dispute's `client_id` or `musician_id`.
+
+Response `200`: updated `Dispute`, with `status: "resolved"` and
+`winner_id` set.
 
 Status codes: `200`, `400`, `401`, `403`, `405`.
+
+### Dispute chat
+
+### `POST /disputes/join`
+
+A moderator/admin attaches themselves to a dispute — this is what unblocks
+messaging between the two original parties. Posts an automatic system
+message: "`<name>` has been assigned to this dispute as moderator. Please
+speak the truth only...". Idempotent — joining again is a no-op.
+
+Auth: required, role `admin` or `moderator`.
+
+Body: `{"dispute_id": "dsp_1"}`.
+
+Response `200`: updated `Dispute` with `moderator_id` set.
+
+Status codes: `200`, `400`, `401`, `403`.
+
+### `GET /disputes/messages?dispute_id=<id>`
+
+Lists a dispute's chat history (text, system notices, and any image/voice
+attachments), oldest first. Caller must be one of the two parties, the
+assigned moderator, or any admin/moderator account.
+
+Auth: required.
+
+Response `200`: array of `ChatMessage`, each optionally carrying
+`attachment_url`/`attachment_type` (`"image"` or `"audio"`), `is_system`,
+and `mentioned_user_id`.
+
+Status codes: `200`, `401`, `403`.
+
+### `POST /disputes/messages`
+
+Sends a message into a dispute's chat room — text, an attachment, or both.
+**Rejected with `400` if the sender is one of the two original parties and
+no moderator has joined yet.** For an image or voice note, upload the file
+via `POST /media/upload` first (see Media) and send the resulting URL here
+— this keeps attachment delivery exactly as fast as a text message, since
+no file bytes travel through this endpoint.
+
+The moderator can tag one of the two parties via `mentioned_user_id`
+(e.g. "share proof") — that user gets a real-time + push notification.
+Free-text `@mention` parsing is intentionally not used: a dispute room only
+ever has two non-moderator participants, so a single explicit target is
+simpler and unambiguous.
+
+Auth: required, must be a dispute participant.
+
+Body:
+
+```json
+{
+  "dispute_id": "dsp_1",
+  "content": "please share proof",
+  "attachment_url": "",
+  "attachment_type": "",
+  "mentioned_user_id": "usr_2"
+}
+```
+
+Response `201`: the created `ChatMessage`.
+
+Status codes: `201`, `400`, `401`.
+
+**Realtime**: the same `/ws` socket used for normal chat also carries
+dispute messages — send `{dispute_id, content, attachment_url,
+attachment_type, mentioned_user_id}` instead of `{recv_id, content}` and
+the server dispatches it the same way (this is faster than the REST
+endpoint above since it skips a full HTTP round trip; REST is a fallback
+for when the socket isn't connected). Incoming frames use `type:
+"dispute_message"` (a new message) and `type: "dispute_updated"` (the
+dispute record itself changed — a join or a resolution).
+
+### Moderator passwordless login
+
+Lets anyone go moderate a dispute — no signup, no password, no
+pre-existing account required. Still requires proving inbox ownership (a
+one-time code, reusing the same infrastructure as signup email
+verification), since this grants access to two people's private
+conversation, any screenshots/voice notes they've shared, and the power
+to settle their escrow. A brand-new email is silently provisioned a
+minimal `role: "moderator"` account on first request.
+
+### `POST /auth/moderator/request`
+
+Body: `{"email": "mod@example.com"}`. A new email is auto-provisioned a
+moderator account and sent a code. Silently no-ops (still `200`) for an
+email already registered as a client/musician — a party to a booking
+moderating disputes would be a conflict of interest — so the endpoint
+doesn't leak which emails are registered either way. Code expires in 15
+minutes.
+
+Status codes: `200`, `400`.
+
+### `POST /auth/moderator/verify`
+
+Body: `{"email": "mod@example.com", "code": "123456"}`. On success, returns
+the same `{token, user}` shape as `POST /auth/login` — from here on the
+moderator is authenticated exactly like a password login.
+
+Status codes: `200`, `401`.
 
 ## Admin
 

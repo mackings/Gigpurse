@@ -110,4 +110,10 @@ type UserUsecase interface {
 	BrowseMusicians(ctx context.Context, filter MusicianFilter) ([]*User, error)
 	UpdateAccountStatus(ctx context.Context, id string, hidePresence, disabled bool) (*User, error)
 	GetUserStatus(ctx context.Context, id string) (string, error)
+
+	// Passwordless moderator/admin access to a dispute chat room — see
+	// backend/internal/usecase/user_usecase.go for why a code is still
+	// required despite there being no password.
+	RequestModeratorLogin(ctx context.Context, email string) error
+	VerifyModeratorLogin(ctx context.Context, email, code string) (string, *User, error)
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api";
@@ -19,9 +19,26 @@ import { toast } from "sonner";
 
 export default function ContractDetailPage() {
   const { id } = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
   const [isCompleting, setIsCompleting] = useState(false);
+  // Captured once at mount, independent of `searchParams` — the page's own
+  // loading gate below delays CreateMilestonesModal's actual mount until
+  // after the contract/user data resolves, by which point the cleanup
+  // effect may have already stripped the query param. Deriving this from
+  // searchParams directly would race that and lose the flag.
+  const [shouldAutoProposeMilestone] = useState(() => searchParams.get("propose") === "1");
+
+  // Consume the ?propose=1 flag once so a refresh doesn't keep reopening
+  // the modal — the modal itself keeps its own open state from here on.
+  useEffect(() => {
+    if (shouldAutoProposeMilestone) {
+      router.replace(`/contracts/${id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: contracts, isLoading } = useQuery({
     queryKey: ["contracts", "detail", id],
@@ -121,15 +138,18 @@ export default function ContractDetailPage() {
         <div className="bg-card rounded-2xl border border-border p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-foreground">Milestones & escrow</h2>
-            <CreateMilestonesModal
-              trigger={
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />
-                  Propose milestone
-                </Button>
-              }
-              onCreate={propose}
-            />
+            {role === "client" && (
+              <CreateMilestonesModal
+                trigger={
+                  <Button size="sm" variant="outline" className="gap-1.5">
+                    <Plus className="w-3.5 h-3.5" />
+                    Propose milestone
+                  </Button>
+                }
+                onCreate={propose}
+                defaultOpen={shouldAutoProposeMilestone}
+              />
+            )}
           </div>
           <MilestoneList
             milestones={milestones}
@@ -143,8 +163,9 @@ export default function ContractDetailPage() {
             onRelease={release}
           />
           <p className="text-xs text-muted-foreground mt-4">
-            Either party can propose a milestone. The other party accepts or rejects it, then the client funds and
-            releases escrow as work is completed.
+            {role === "client"
+              ? "Propose a milestone for the talent to accept, reject, or counter. Once accepted, fund escrow and release it as work is completed."
+              : "The client proposes each milestone. You can accept, reject, or counter their offer."}
           </p>
         </div>
       </div>

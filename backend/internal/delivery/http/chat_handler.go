@@ -15,14 +15,16 @@ import (
 )
 
 type ChatHandler struct {
-	chatUsecase domain.ChatUsecase
-	upgrader    websocket.Upgrader
-	hub         *Hub
+	chatUsecase    domain.ChatUsecase
+	disputeUsecase domain.DisputeUsecase
+	upgrader       websocket.Upgrader
+	hub            *Hub
 }
 
-func NewChatHandler(cu domain.ChatUsecase, hub *Hub) *ChatHandler {
+func NewChatHandler(cu domain.ChatUsecase, du domain.DisputeUsecase, hub *Hub) *ChatHandler {
 	return &ChatHandler{
-		chatUsecase: cu,
+		chatUsecase:    cu,
+		disputeUsecase: du,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -186,8 +188,12 @@ func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var wsReq struct {
-			RecvID  string `json:"recv_id"`
-			Content string `json:"content"`
+			RecvID          string `json:"recv_id"`
+			Content         string `json:"content"`
+			DisputeID       string `json:"dispute_id"`
+			AttachmentURL   string `json:"attachment_url"`
+			AttachmentType  string `json:"attachment_type"`
+			MentionedUserID string `json:"mentioned_user_id"`
 		}
 
 		if err := json.Unmarshal(messageBytes, &wsReq); err != nil {
@@ -195,9 +201,27 @@ func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Persist & Filter message using usecase
 		// WS uses background context as base
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+		// Images and voice notes travel the exact same path as text here —
+		// the client already uploaded the file via POST /media/upload (fast:
+		// local disk, no processing) and is just sending the resulting URL,
+		// so this is no slower than a plain text message.
+		if wsReq.DisputeID != "" {
+			msg, err := h.disputeUsecase.SendDisputeMessage(ctx, userID, wsReq.DisputeID, wsReq.Content, wsReq.AttachmentURL, wsReq.AttachmentType, wsReq.MentionedUserID)
+			if err != nil {
+				h.hub.Send(userID, "error", err.Error())
+				cancel()
+				continue
+			}
+			if dispute, err := h.disputeUsecase.GetDispute(ctx, userID, wsReq.DisputeID); err == nil {
+				h.hub.SendToMany([]string{dispute.ClientID, dispute.MusicianID, dispute.ModeratorID}, "dispute_message", msg)
+			}
+			cancel()
+			continue
+		}
+
 		msg, err := h.chatUsecase.SendMessage(ctx, userID, wsReq.RecvID, wsReq.Content)
 		cancel()
 
