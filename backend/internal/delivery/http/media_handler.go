@@ -99,7 +99,11 @@ func (h *MediaHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		contentType := header.Header.Get("Content-Type")
-		mediaType, ok := allowedUploadTypes[contentType]
+		// MediaRecorder sends codec parameters along with the type (e.g.
+		// "audio/webm;codecs=opus") — strip everything after the ";" before
+		// checking the allowlist, which only keys on the base type.
+		baseContentType := strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+		mediaType, ok := allowedUploadTypes[baseContentType]
 		if !ok {
 			respondError(w, http.StatusBadRequest, "unsupported_media_type", fmt.Sprintf("unsupported content type for %q: %s", header.Filename, contentType))
 			return
