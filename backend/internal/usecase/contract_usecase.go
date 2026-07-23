@@ -261,7 +261,7 @@ func (u *contractUsecase) CounterDirectHireRequest(ctx context.Context, userID, 
 	if err := u.contractRepo.UpdateDirectHireRequest(ctx, req); err != nil {
 		return nil, fmt.Errorf("failed to update direct hire request: %w", err)
 	}
-	u.notifyAndEmail(ctx, counterpart, "Booking Terms Updated", fmt.Sprintf("New offer for '%s': $%.2f", req.Title, req.Price), "/messages?with="+userID+"&booking="+req.ID)
+	u.notifyAndEmail(ctx, counterpart, "Booking Terms Updated", fmt.Sprintf("New offer for '%s': %s", req.Title, formatNaira(req.Price)), "/messages?with="+userID+"&booking="+req.ID)
 	return req, nil
 }
 

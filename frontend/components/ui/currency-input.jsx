@@ -16,27 +16,13 @@ function formatDigits(raw) {
   return Number(digits).toLocaleString("en-NG");
 }
 
-// The "thousands" unit displays/accepts whatever's typed as thousands of
-// naira (type "300" for ₦300,000) — gig prices are almost always round
-// thousands, and it's much harder to lose track of how many zeros you
-// meant to type. The value reported via onChange is still always the
-// full raw naira amount, so submit code elsewhere never needs to know
-// which mode produced it.
-function formatThousandsDisplay(rawNaira) {
-  const whole = String(rawNaira ?? "").split(".")[0];
-  const digits = whole.replace(/[^\d]/g, "");
-  if (!digits) return "";
-  return Math.round(Number(digits) / 1000).toLocaleString("en-NG");
-}
-
 // Naira amount input: shows thousands-separated digits ("20,000") as the
 // user types instead of a bare number, while the value passed to onChange
 // stays a plain digit string so existing parseFloat(...) submit code needs
 // no changes. Native <input type="number"> can't render commas at all,
 // hence type="text" + inputMode="numeric" here.
-export default function CurrencyInput({ value, onChange, className, placeholder = "0", unit = "naira", ...props }) {
+export default function CurrencyInput({ value, onChange, className, placeholder = "0", ...props }) {
   const inputRef = useRef(null);
-  const isThousands = unit === "thousands";
 
   function handleChange(e) {
     const el = e.target;
@@ -48,7 +34,7 @@ export default function CurrencyInput({ value, onChange, className, placeholder 
     const digitsBeforeCursor = rawValue.slice(0, cursor).replace(/[^\d]/g, "").length;
 
     const typedDigits = rawValue.replace(/[^\d]/g, "");
-    onChange(isThousands ? (typedDigits ? String(Number(typedDigits) * 1000) : "") : typedDigits);
+    onChange(typedDigits);
 
     // The DOM value above is stale until React re-renders with the newly
     // formatted string — without this, every reformat (a comma appearing
@@ -79,17 +65,12 @@ export default function CurrencyInput({ value, onChange, className, placeholder 
         type="text"
         inputMode="numeric"
         autoComplete="off"
-        value={isThousands ? formatThousandsDisplay(value) : formatDigits(value)}
+        value={formatDigits(value)}
         onChange={handleChange}
         placeholder={placeholder}
-        className={cn(isThousands ? "pl-6 pr-11" : "pl-6", className)}
+        className={cn("pl-6", className)}
         {...props}
       />
-      {isThousands && (
-        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-xs pointer-events-none">
-          ,000
-        </span>
-      )}
     </div>
   );
 }

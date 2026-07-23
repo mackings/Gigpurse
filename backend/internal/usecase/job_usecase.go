@@ -204,7 +204,7 @@ func (u *jobUsecase) FundEscrow(ctx context.Context, clientID, jobID string) (*d
 		return nil, fmt.Errorf("failed to load wallet: %w", err)
 	}
 	if wallet.Balance < job.Budget {
-		return nil, fmt.Errorf("insufficient wallet balance: need %.2f, have %.2f — top up your wallet first", job.Budget, wallet.Balance)
+		return nil, fmt.Errorf("insufficient wallet balance: need %s, have %s — top up your wallet first", formatNaira(job.Budget), formatNaira(wallet.Balance))
 	}
 
 	wallet.Balance -= job.Budget
@@ -225,7 +225,35 @@ func (u *jobUsecase) FundEscrow(ctx context.Context, clientID, jobID string) (*d
 		return nil, fmt.Errorf("failed to activate job: %w", err)
 	}
 
+	u.notifyMatchingMusicians(ctx, job)
+
 	return job, nil
+}
+
+// notifyMatchingMusicians pushes a "new gig" alert to musicians whose
+// genre/instrument matches the job — reuses the same filter ListMusicians
+// uses for Browse Talent, so "matching" means the same thing everywhere.
+// A job posted with no genre/instrument set falls back to notifying every
+// musician (an empty filter matches all).
+func (u *jobUsecase) notifyMatchingMusicians(ctx context.Context, job *domain.Job) {
+	musicians, err := u.userRepo.ListMusicians(ctx, domain.MusicianFilter{
+		Genre:      job.Genre,
+		Instrument: job.Instrument,
+	})
+	if err != nil {
+		return
+	}
+	message := fmt.Sprintf("'%s' just went live in %s — %s. Tap to view and apply.", job.Title, job.Location, formatNaira(job.Budget))
+	for _, musician := range musicians {
+		_ = u.notifRepo.Create(ctx, &domain.Notification{
+			UserID:    musician.ID,
+			Title:     "New gig posted",
+			Message:   message,
+			Link:      "/jobs?job=" + job.ID,
+			IsRead:    false,
+			CreatedAt: time.Now(),
+		})
+	}
 }
 
 func (u *jobUsecase) GetJob(ctx context.Context, id string) (*domain.Job, error) {
@@ -518,8 +546,12 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 
 	// Send Notifications (Notification & Email Notification Features)
 	contractLink := "/contracts/" + contract.ID
-	u.notifyAndEmail(ctx, job.ClientID, "Application Accepted", fmt.Sprintf("You have hired musician '%s' for gig '%s'. Price: $%.2f", app.MusicianID, job.Title, app.PriceBid), contractLink)
-	u.notifyAndEmail(ctx, app.MusicianID, "Bid Accepted", fmt.Sprintf("Congratulations! Your proposal for gig '%s' was accepted. Price: $%.2f", job.Title, app.PriceBid), contractLink)
+	musicianName := app.MusicianID
+	if musician, err := u.userRepo.GetByID(ctx, app.MusicianID); err == nil && musician.Name != "" {
+		musicianName = musician.Name
+	}
+	u.notifyAndEmail(ctx, job.ClientID, "Application Accepted", fmt.Sprintf("You have hired musician '%s' for gig '%s'. Price: %s", musicianName, job.Title, formatNaira(app.PriceBid)), contractLink)
+	u.notifyAndEmail(ctx, app.MusicianID, "Bid Accepted", fmt.Sprintf("Congratulations! Your proposal for gig '%s' was accepted. Price: %s", job.Title, formatNaira(app.PriceBid)), contractLink)
 
 	return contract, nil
 }

@@ -30,6 +30,11 @@ type Milestone struct {
 	Order      int                         `json:"order" bson:"order"`
 	CreatedAt  time.Time                   `json:"created_at" bson:"created_at"`
 	UpdatedAt  time.Time                   `json:"updated_at" bson:"updated_at"`
+
+	// LastReminderAt tracks the last time the awaiting-response party was
+	// re-notified about this still-`proposed` milestone — nil until the
+	// first reminder fires. See MilestoneUsecase reminder scanner.
+	LastReminderAt *time.Time `json:"last_reminder_at,omitempty" bson:"last_reminder_at,omitempty"`
 }
 
 // MilestoneNegotiationEntry records one offer in a milestone's back-and-forth
@@ -55,6 +60,9 @@ type MilestoneRepository interface {
 	ListByContract(ctx context.Context, contractID string) ([]*Milestone, error)
 	Update(ctx context.Context, m *Milestone) error
 	Delete(ctx context.Context, id string) error
+	// ListByStatus lists across every contract — used by the reminder
+	// scanner to find every still-`proposed` milestone system-wide.
+	ListByStatus(ctx context.Context, status string) ([]*Milestone, error)
 }
 
 type MilestoneUsecase interface {
@@ -78,4 +86,9 @@ type MilestoneUsecase interface {
 	// established the resolver is a moderator/admin, so this is meant to be
 	// invoked internally rather than exposed as its own end-user action.
 	RefundHeldForContract(ctx context.Context, contractID string) error
+
+	// StartReminderScanner runs in the background for the lifetime of ctx,
+	// periodically re-notifying whoever hasn't responded to a still-`proposed`
+	// milestone. Called once at startup from main.go.
+	StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter time.Duration)
 }

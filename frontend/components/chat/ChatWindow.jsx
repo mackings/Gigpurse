@@ -100,6 +100,36 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const bottomRef = useRef(null);
 
+  // Shares a cache entry (and role derivation) with MilestonePanel below —
+  // needed here too so a milestone-proposed system message can render as an
+  // actual actionable card (accept/reject/counter) inline in the thread
+  // instead of just pointing at the Booking & escrow panel.
+  const { data: contracts } = useQuery({
+    queryKey: ["contracts", "detail", contractId],
+    queryFn: () => apiGet(`/contracts?id=${contractId}`),
+    enabled: !!contractId,
+  });
+  const contract = Array.isArray(contracts) ? contracts[0] : contracts;
+  const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
+  const { milestones, accept, reject, withdraw, counter, fund, release } = useMilestones(contractId);
+  // Drives the mobile trigger button's label/state below (lg:hidden — on
+  // desktop the milestone panel is an always-visible rail, so there's
+  // nothing to point at) — "Booking & escrow" never told either side what
+  // they were actually there to do. Each milestone status maps to exactly
+  // one clear next step per role, checked in priority order: something I
+  // need to act on outranks something merely informational, and a fresh
+  // "funded" outranks the "awaiting" state it just replaced.
+  const milestoneStatusBadge = (() => {
+    const needsMyReview = milestones.some((m) => m.status === "proposed" && m.proposed_by !== user?.id);
+    if (needsMyReview) return { label: "Review milestone", tone: "action" };
+    const needsMyFunding = role === "client" && milestones.some((m) => m.status === "accepted");
+    if (needsMyFunding) return { label: "Fund escrow", tone: "action" };
+    if (milestones.some((m) => m.status === "funded")) return { label: "Escrow funded", tone: "done" };
+    if (role === "musician" && milestones.some((m) => m.status === "accepted")) return { label: "Awaiting funding", tone: "waiting" };
+    if (milestones.some((m) => m.status === "proposed" && m.proposed_by === user?.id)) return { label: "Awaiting response", tone: "waiting" };
+    return null;
+  })();
+
   // The RealtimeProvider's shared socket appends live messages straight into
   // this query's cache (queryKey ["chat-history", otherUserId]), so this is
   // the single source of truth — no local socket, no local message state.
@@ -166,11 +196,34 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
           <Button
             variant="outline"
             size="sm"
-            className="lg:hidden gap-1.5"
+            className={`lg:hidden gap-1.5 ${
+              milestoneStatusBadge?.tone === "action"
+                ? "border-primary text-primary"
+                : milestoneStatusBadge?.tone === "done"
+                  ? "border-violet-500 text-violet-600 dark:text-violet-400"
+                  : ""
+            }`}
             onClick={() => setDetailsOpen(true)}
           >
-            <Info className="w-3.5 h-3.5" />
-            Booking &amp; escrow
+            {milestoneStatusBadge ? (
+              <>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    milestoneStatusBadge.tone === "action"
+                      ? "bg-primary animate-pulse"
+                      : milestoneStatusBadge.tone === "done"
+                        ? "bg-violet-500"
+                        : "bg-muted-foreground"
+                  }`}
+                />
+                {milestoneStatusBadge.label}
+              </>
+            ) : (
+              <>
+                <Info className="w-3.5 h-3.5" />
+                Booking &amp; escrow
+              </>
+            )}
           </Button>
           <span className={`text-xs px-2 py-0.5 rounded-full ${connected ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
             {connected ? "Live" : pendingSendCount > 0 ? `Reconnecting — ${pendingSendCount} message${pendingSendCount > 1 ? "s" : ""} queued` : "Connecting..."}
@@ -198,18 +251,42 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
                     </span>
                   </div>
                 )}
-                <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1.5`}>
-                  <div
-                    className={`max-w-[78%] sm:max-w-[65%] rounded-2xl px-3.5 py-2 text-sm flex items-end gap-2 flex-wrap ${
-                      isMine ? "bg-primary text-primary-foreground font-medium" : "bg-muted text-foreground"
-                    }`}
-                  >
-                    <span className="break-words">{msg.content}</span>
-                    <span className={`text-[10px] shrink-0 ml-auto ${isMine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      {formatMessageTime(msg.timestamp)}
-                    </span>
+                {msg.is_system ? (
+                  msg.milestone_id && msg.contract_id === contractId && milestones.some((m) => m.id === msg.milestone_id) ? (
+                    <div className="max-w-[92%] sm:max-w-[420px] mx-auto my-2">
+                      <MilestoneList
+                        milestones={milestones.filter((m) => m.id === msg.milestone_id)}
+                        role={role}
+                        currentUserId={user?.id}
+                        onAccept={accept}
+                        onReject={reject}
+                        onWithdraw={withdraw}
+                        onCounter={counter}
+                        onFund={fund}
+                        onRelease={release}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex justify-center my-2">
+                      <span className="text-[11px] text-center max-w-[85%] text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+                        {msg.content}
+                      </span>
+                    </div>
+                  )
+                ) : (
+                  <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1.5`}>
+                    <div
+                      className={`max-w-[78%] sm:max-w-[65%] rounded-2xl px-3.5 py-2 text-sm flex items-end gap-2 flex-wrap ${
+                        isMine ? "bg-primary text-primary-foreground font-medium" : "bg-muted text-foreground"
+                      }`}
+                    >
+                      <span className="break-words">{msg.content}</span>
+                      <span className={`text-[10px] shrink-0 ml-auto ${isMine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {formatMessageTime(msg.timestamp)}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             );
           })

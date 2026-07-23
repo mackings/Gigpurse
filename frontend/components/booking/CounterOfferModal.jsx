@@ -50,8 +50,8 @@ export default function CounterOfferModal({ trigger, current, onCounter }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="counter-price">Price (₦, in thousands)</Label>
-            <CurrencyInput id="counter-price" unit="thousands" required value={price} onChange={setPrice} className="mt-1.5" />
+            <Label htmlFor="counter-price">Price (₦)</Label>
+            <CurrencyInput id="counter-price" required value={price} onChange={setPrice} className="mt-1.5" />
           </div>
           <div>
             <Label htmlFor="counter-location">Location (optional change)</Label>

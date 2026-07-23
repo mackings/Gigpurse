@@ -9,11 +9,23 @@ import (
 	"gigpurse/internal/domain"
 )
 
+// Broadcaster is the subset of the websocket Hub that milestoneUsecase needs
+// to push a milestone system message live — defined here (consumer side)
+// rather than imported from delivery/http, which would create an import
+// cycle. main.go wires the concrete *delivery.Hub in, which satisfies this
+// interface structurally without either package needing to import the
+// other (same pattern as PresenceChecker in user_usecase.go).
+type Broadcaster interface {
+	Send(userID string, msgType string, data interface{}) bool
+}
+
 type milestoneUsecase struct {
 	milestoneRepo domain.MilestoneRepository
 	contractRepo  domain.ContractRepository
 	walletRepo    domain.WalletRepository
 	notifRepo     domain.NotificationRepository
+	chatRepo      domain.ChatRepository
+	broadcaster   Broadcaster
 }
 
 func NewMilestoneUsecase(
@@ -21,13 +33,42 @@ func NewMilestoneUsecase(
 	contractRepo domain.ContractRepository,
 	walletRepo domain.WalletRepository,
 	notifRepo domain.NotificationRepository,
+	chatRepo domain.ChatRepository,
+	broadcaster Broadcaster,
 ) domain.MilestoneUsecase {
 	return &milestoneUsecase{
 		milestoneRepo: milestoneRepo,
 		contractRepo:  contractRepo,
 		walletRepo:    walletRepo,
 		notifRepo:     notifRepo,
+		chatRepo:      chatRepo,
+		broadcaster:   broadcaster,
 	}
+}
+
+// postMilestoneChatMessage drops an automatic message into the two parties'
+// normal 1:1 chat thread (same mechanism dispute rooms use for "a moderator
+// joined") so a proposed/countered milestone is visible in Messages, not
+// just as a notification, and pushes it live over the socket to both sides.
+// ContractID/MilestoneID are set on the message so the frontend can render
+// an actual actionable milestone card inline instead of plain text — a
+// message that just says "review it" with no way to act on it right there
+// is not meaningfully different from the notification alone.
+func (u *milestoneUsecase) postMilestoneChatMessage(ctx context.Context, senderID, recvID, contractID, milestoneID, content string) {
+	msg := &domain.ChatMessage{
+		SenderID:    senderID,
+		RecvID:      recvID,
+		IsSystem:    true,
+		Content:     content,
+		Timestamp:   time.Now(),
+		ContractID:  contractID,
+		MilestoneID: milestoneID,
+	}
+	if err := u.chatRepo.SaveMessage(ctx, msg); err != nil {
+		return
+	}
+	u.broadcaster.Send(senderID, "chat_message", msg)
+	u.broadcaster.Send(recvID, "chat_message", msg)
 }
 
 // participant checks the requester is one of the two parties on the
@@ -102,6 +143,13 @@ func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID s
 	u.notify(ctx, counterpart, "New milestone proposed",
 		fmt.Sprintf("A new milestone was proposed: review it in your contract chat."), contractID)
 
+	// One chat message per milestone (not a combined summary) so each one
+	// carries its own MilestoneID and renders as its own actionable card.
+	for _, m := range created {
+		u.postMilestoneChatMessage(ctx, proposerID, counterpart, contractID, m.ID,
+			fmt.Sprintf("Milestone proposed: '%s' (%s).", m.Title, formatNaira(m.Amount)))
+	}
+
 	return created, nil
 }
 
@@ -140,7 +188,7 @@ func (u *milestoneUsecase) Accept(ctx context.Context, contractID, milestoneID, 
 	// counterpart here is the other party relative to the accepter, i.e. the
 	// original proposer — notify them their milestone was accepted.
 	u.notify(ctx, counterpart, "Milestone accepted",
-		fmt.Sprintf("Your milestone '%s' ($%.2f) was accepted.", milestone.Title, milestone.Amount), contractID)
+		fmt.Sprintf("Your milestone '%s' (%s) was accepted.", milestone.Title, formatNaira(milestone.Amount)), contractID)
 
 	return milestone, nil
 }
@@ -162,7 +210,7 @@ func (u *milestoneUsecase) Reject(ctx context.Context, contractID, milestoneID, 
 		return nil, err
 	}
 	u.notify(ctx, counterpart, "Milestone rejected",
-		fmt.Sprintf("Your milestone '%s' ($%.2f) was rejected.", milestone.Title, milestone.Amount), contractID)
+		fmt.Sprintf("Your milestone '%s' (%s) was rejected.", milestone.Title, formatNaira(milestone.Amount)), contractID)
 
 	return milestone, nil
 }
@@ -216,11 +264,17 @@ func (u *milestoneUsecase) Counter(ctx context.Context, contractID, milestoneID,
 		CreatedAt:  now,
 	})
 	milestone.UpdatedAt = now
+	// A counter-offer restarts the response clock — the reminder scanner
+	// should wait a fresh 5 minutes from this new offer, not still be
+	// counting from whenever the original proposal went out.
+	milestone.LastReminderAt = nil
 	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 		return nil, err
 	}
 	u.notify(ctx, counterpart, "Milestone Terms Updated",
-		fmt.Sprintf("New offer for '%s': $%.2f", milestone.Title, milestone.Amount), contractID)
+		fmt.Sprintf("New offer for '%s': %s", milestone.Title, formatNaira(milestone.Amount)), contractID)
+	u.postMilestoneChatMessage(ctx, userID, counterpart, contractID, milestone.ID,
+		fmt.Sprintf("New milestone offer: '%s' — %s.", milestone.Title, formatNaira(milestone.Amount)))
 
 	return milestone, nil
 }
@@ -260,7 +314,7 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		return nil, err
 	}
 	u.notify(ctx, contract.MusicianID, "Escrow funded",
-		fmt.Sprintf("Escrow funded for milestone '%s' ($%.2f).", milestone.Title, milestone.Amount), contractID)
+		fmt.Sprintf("Escrow funded for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), contractID)
 
 	return milestone, nil
 }
@@ -310,7 +364,7 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 		return nil, err
 	}
 	u.notify(ctx, contract.MusicianID, "Payment released",
-		fmt.Sprintf("Payment released for milestone '%s' ($%.2f).", milestone.Title, milestone.Amount), contractID)
+		fmt.Sprintf("Payment released for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), contractID)
 
 	return milestone, nil
 }
@@ -365,4 +419,55 @@ func (u *milestoneUsecase) List(ctx context.Context, contractID, requesterID str
 		return nil, errors.New("unauthorized: not a participant on this contract")
 	}
 	return u.milestoneRepo.ListByContract(ctx, contractID)
+}
+
+// StartReminderScanner polls every checkInterval for milestones stuck in
+// "proposed" for at least nudgeAfter since they were last nudged (or since
+// they were proposed/countered, if never nudged yet), and re-notifies
+// whichever party hasn't responded — repeating every nudgeAfter until they
+// do. Runs until ctx is cancelled.
+func (u *milestoneUsecase) StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				u.sendDueReminders(ctx, nudgeAfter)
+			}
+		}
+	}()
+}
+
+func (u *milestoneUsecase) sendDueReminders(ctx context.Context, nudgeAfter time.Duration) {
+	pending, err := u.milestoneRepo.ListByStatus(ctx, "proposed")
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, m := range pending {
+		baseline := m.UpdatedAt
+		if m.LastReminderAt != nil && m.LastReminderAt.After(baseline) {
+			baseline = *m.LastReminderAt
+		}
+		if now.Sub(baseline) < nudgeAfter {
+			continue
+		}
+		contract, err := u.contractRepo.GetByID(ctx, m.ContractID)
+		if err != nil {
+			continue
+		}
+		respondent, ok := u.participant(contract, m.ProposedBy)
+		if !ok {
+			continue
+		}
+		u.notify(ctx, respondent, "Milestone awaiting your response",
+			fmt.Sprintf("You still haven't responded to the milestone '%s' (%s) — open it and accept, reject, or counter.", m.Title, formatNaira(m.Amount)), m.ContractID)
+
+		reminderTime := now
+		m.LastReminderAt = &reminderTime
+		_ = u.milestoneRepo.Update(ctx, m)
+	}
 }

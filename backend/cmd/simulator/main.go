@@ -99,7 +99,7 @@ func main() {
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
 
 	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)

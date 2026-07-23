@@ -123,10 +123,9 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
             />
           </div>
           <div>
-            <Label htmlFor="price">Offered price (₦, in thousands)</Label>
+            <Label htmlFor="price">Offered price (₦)</Label>
             <CurrencyInput
               id="price"
-              unit="thousands"
               required
               value={form.price}
               onChange={(v) => setForm({ ...form, price: v })}

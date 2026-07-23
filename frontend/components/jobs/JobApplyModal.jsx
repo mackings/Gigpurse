@@ -76,10 +76,9 @@ export default function JobApplyModal({ job, trigger, onApplied }) {
             />
           </div>
           <div>
-            <Label htmlFor="price_bid">Your price bid (₦, in thousands)</Label>
+            <Label htmlFor="price_bid">Your price bid (₦)</Label>
             <CurrencyInput
               id="price_bid"
-              unit="thousands"
               required
               value={form.price_bid}
               onChange={(v) => setForm({ ...form, price_bid: v })}

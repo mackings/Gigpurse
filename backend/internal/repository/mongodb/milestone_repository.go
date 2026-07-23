@@ -61,6 +61,24 @@ func (r *milestoneRepository) ListByContract(ctx context.Context, contractID str
 	return milestones, cursor.Err()
 }
 
+func (r *milestoneRepository) ListByStatus(ctx context.Context, status string) ([]*domain.Milestone, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{"status": status})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var milestones []*domain.Milestone
+	for cursor.Next(ctx) {
+		var m domain.Milestone
+		if err := cursor.Decode(&m); err != nil {
+			return nil, err
+		}
+		milestones = append(milestones, &m)
+	}
+	return milestones, cursor.Err()
+}
+
 func (r *milestoneRepository) Update(ctx context.Context, m *domain.Milestone) error {
 	m.UpdatedAt = time.Now()
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": m.ID}, m)

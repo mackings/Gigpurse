@@ -33,6 +33,14 @@ type ChatMessage struct {
 	// delivery over the realtime socket is exactly as fast as a text message.
 	AttachmentURL  string `json:"attachment_url,omitempty" bson:"attachment_url,omitempty"`
 	AttachmentType string `json:"attachment_type,omitempty" bson:"attachment_type,omitempty"` // "image" or "audio"
+
+	// ContractID/MilestoneID mark this as a milestone system message — when
+	// both are set, the frontend renders an inline actionable milestone card
+	// (accept/reject/counter/fund/release) right in the chat bubble instead
+	// of plain text, so responding to a proposal doesn't require leaving
+	// the thread to find the milestones panel.
+	ContractID  string `json:"contract_id,omitempty" bson:"contract_id,omitempty"`
+	MilestoneID string `json:"milestone_id,omitempty" bson:"milestone_id,omitempty"`
 }
 
 type ChatRepository interface {

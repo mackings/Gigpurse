@@ -45,6 +45,50 @@ function playNotificationSound() {
   }
 }
 
+// A milestone needs a response (money is involved) so it gets a louder,
+// more distinct alert than the default chime — two ~1.3s tones back to
+// back, reading as "two beeps" while also spanning close to 3 seconds
+// total, per how this was asked for. Synthesized with the Web Audio API
+// (an oscillator) instead of a second audio file, so there's nothing to
+// source/ship — just tone parameters.
+function playMilestoneAlert() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContextClass();
+    const beep = (startTime, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.3, startTime + 0.03);
+      gain.gain.setValueAtTime(0.3, startTime + duration - 0.05);
+      gain.gain.linearRampToValueAtTime(0, startTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    };
+    const now = ctx.currentTime;
+    beep(now, 1.3);
+    beep(now + 1.5, 1.3);
+    setTimeout(() => ctx.close(), 3200);
+  } catch {
+    // Web Audio unsupported in this environment — non-fatal.
+  }
+}
+
+// Notification titles the milestone usecase sends (backend/internal/usecase/
+// milestone_usecase.go) that should use the louder milestone alert instead
+// of the default chime — kept as an explicit set rather than a "type" field
+// on Notification, since these are the only ones today and adding a whole
+// domain field for one sound branch would be overkill.
+const MILESTONE_ALERT_TITLES = new Set([
+  "New milestone proposed",
+  "Milestone Terms Updated",
+  "Milestone awaiting your response",
+]);
+
 // Single app-wide websocket, opened once per authenticated session. Every
 // chat message and notification arrives here and is pushed straight into
 // the relevant React Query caches — no component owns its own connection
@@ -149,7 +193,11 @@ export function RealtimeProvider({ children }) {
             if (list.some((n) => n.id === notif.id)) return list;
             return [notif, ...list];
           });
-          playNotificationSound();
+          if (MILESTONE_ALERT_TITLES.has(notif.title)) {
+            playMilestoneAlert();
+          } else {
+            playNotificationSound();
+          }
           // Visible pop-up on top of the sound+badge+cache update above —
           // without this, a live notification only showed up silently in
           // the bell dropdown, easy to miss if you weren't looking at it.

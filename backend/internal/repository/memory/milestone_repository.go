@@ -59,6 +59,19 @@ func (r *milestoneRepository) ListByContract(ctx context.Context, contractID str
 	return out, nil
 }
 
+func (r *milestoneRepository) ListByStatus(ctx context.Context, status string) ([]*domain.Milestone, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []*domain.Milestone
+	for _, m := range r.milestones {
+		if m.Status == status {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 func (r *milestoneRepository) Update(ctx context.Context, m *domain.Milestone) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

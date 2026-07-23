@@ -93,7 +93,7 @@ export default function CreateMilestonesModal({ trigger, onCreate, defaultOpen =
                 </div>
                 <Input placeholder="Title (e.g. Rehearsal complete)" value={row.title} onChange={(e) => updateRow(idx, { title: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
-                  <CurrencyInput placeholder="Amount, e.g. 300" unit="thousands" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
+                  <CurrencyInput placeholder="Amount (₦)" value={row.amount} onChange={(v) => updateRow(idx, { amount: v })} />
                   <Input type="date" value={row.due_date} onChange={(e) => updateRow(idx, { due_date: e.target.value })} />
                 </div>
                 <div>
