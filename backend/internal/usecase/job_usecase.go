@@ -10,15 +10,18 @@ import (
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 type jobUsecase struct {
-	jobRepo      domain.JobRepository
-	userRepo     domain.UserRepository
-	contractRepo domain.ContractRepository
-	notifRepo    domain.NotificationRepository
-	walletRepo   domain.WalletRepository
-	reviewRepo   domain.ReviewRepository
+	paypetalDeps
+	jobRepo         domain.JobRepository
+	contractRepo    domain.ContractRepository
+	notifRepo       domain.NotificationRepository
+	walletRepo      domain.WalletRepository
+	reviewRepo      domain.ReviewRepository
+	escrowRepo      domain.EscrowAgreementRepository
+	frontendBaseURL string
 }
 
 func NewJobUsecase(
@@ -28,14 +31,19 @@ func NewJobUsecase(
 	notifRepo domain.NotificationRepository,
 	walletRepo domain.WalletRepository,
 	reviewRepo domain.ReviewRepository,
+	paypetalClient paypetal.API,
+	escrowRepo domain.EscrowAgreementRepository,
+	frontendBaseURL string,
 ) domain.JobUsecase {
 	return &jobUsecase{
-		jobRepo:      jobRepo,
-		userRepo:     userRepo,
-		contractRepo: contractRepo,
-		notifRepo:    notifRepo,
-		walletRepo:   walletRepo,
-		reviewRepo:   reviewRepo,
+		paypetalDeps:    paypetalDeps{client: paypetalClient, userRepo: userRepo},
+		jobRepo:         jobRepo,
+		contractRepo:    contractRepo,
+		notifRepo:       notifRepo,
+		walletRepo:      walletRepo,
+		reviewRepo:      reviewRepo,
+		escrowRepo:      escrowRepo,
+		frontendBaseURL: frontendBaseURL,
 	}
 }
 
@@ -136,20 +144,11 @@ func (u *jobUsecase) CloseJob(ctx context.Context, clientID, jobID string) (*dom
 		return nil, fmt.Errorf("job can't be closed from status %q", job.Status)
 	}
 
-	if job.EscrowFunded && job.MusicianID == "" {
-		wallet, err := u.walletRepo.GetOrCreate(ctx, clientID)
-		if err == nil {
-			wallet.Balance += job.EscrowAmount
-			wallet.EscrowBalance -= job.EscrowAmount
-			if err := u.walletRepo.Save(ctx, wallet); err == nil {
-				_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-					UserID: clientID, Type: "escrow_release", Amount: job.EscrowAmount,
-					Description: fmt.Sprintf("Escrow refunded — gig closed: %s", job.Title),
-				})
-			}
-		}
-	}
-
+	// No refund branch needed here: with PayPetal, escrow only ever exists
+	// after a hire is confirmed (see FinalizeHire), and a job can only reach
+	// "open"/"pending_funding" — the two closable statuses — before that
+	// happens. A job with real escrow attached is already "active", which
+	// this method doesn't accept closing from.
 	job.Status = "closed"
 	job.UpdatedAt = time.Now()
 	if err := u.jobRepo.Update(ctx, job); err != nil {
@@ -184,41 +183,28 @@ func (u *jobUsecase) notify(ctx context.Context, userID, title, message string) 
 	})
 }
 
-// FundEscrow moves the job's budget from the client's wallet balance into
-// escrow and only then makes the job visible/open to applicants — the
-// "Escrow funded" badge shown on job cards is a guarantee, not decoration.
+// FundEscrow no longer moves any money — PayPetal TrustCore needs both
+// parties to create an agreement, and no musician is known yet at this
+// point (the job isn't even open for applications). This just publishes the
+// job; real payment happens at hire time, see InitiateHire/FinalizeHire.
+// The name/status value survive from the pre-PayPetal design since the
+// frontend and job lifecycle around them are otherwise unaffected — "fund
+// escrow to publish" reads oddly now, but renaming the whole pending_funding
+// → open flow is out of scope for this change; the client-facing copy on
+// this step was already updated separately to explain there's no payment
+// due yet.
 func (u *jobUsecase) FundEscrow(ctx context.Context, clientID, jobID string) (*domain.Job, error) {
 	job, err := u.jobRepo.GetByID(ctx, jobID)
 	if err != nil {
 		return nil, fmt.Errorf("job not found: %w", err)
 	}
 	if job.ClientID != clientID {
-		return nil, errors.New("unauthorized: only the job's creator can fund escrow")
+		return nil, errors.New("unauthorized: only the job's creator can publish it")
 	}
 	if job.Status != "pending_funding" {
-		return nil, errors.New("job is not awaiting escrow funding")
+		return nil, errors.New("job is not awaiting publishing")
 	}
 
-	wallet, err := u.walletRepo.GetOrCreate(ctx, clientID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load wallet: %w", err)
-	}
-	if wallet.Balance < job.Budget {
-		return nil, fmt.Errorf("insufficient wallet balance: need %s, have %s — top up your wallet first", formatNaira(job.Budget), formatNaira(wallet.Balance))
-	}
-
-	wallet.Balance -= job.Budget
-	wallet.EscrowBalance += job.Budget
-	if err := u.walletRepo.Save(ctx, wallet); err != nil {
-		return nil, fmt.Errorf("failed to fund escrow: %w", err)
-	}
-	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: clientID, Type: "escrow_hold", Amount: job.Budget,
-		Description: fmt.Sprintf("Escrow funded for gig: %s", job.Title),
-	})
-
-	job.EscrowFunded = true
-	job.EscrowAmount = job.Budget
 	job.Status = "open"
 	job.UpdatedAt = time.Now()
 	if err := u.jobRepo.Update(ctx, job); err != nil {
@@ -483,57 +469,168 @@ func (u *jobUsecase) ListMusicianJobsByStatus(ctx context.Context, musicianID, s
 	return jobs, nil
 }
 
-func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicationID string) (*domain.Contract, error) {
+// InitiateHire is what "Accept" on an application now does: instead of
+// creating a Contract immediately, it creates a PayPetal TrustCore agreement
+// (client = initiator/payer, musician = counterparty/payee) and returns a
+// hosted checkout URL. Nothing about the job/application/Contract changes
+// until that payment is actually confirmed — see FinalizeHire.
+func (u *jobUsecase) InitiateHire(ctx context.Context, clientID, applicationID string) (string, string, error) {
 	app, err := u.jobRepo.GetApplicationByID(ctx, applicationID)
+	if err != nil {
+		return "", "", fmt.Errorf("application not found: %w", err)
+	}
+	job, err := u.jobRepo.GetByID(ctx, app.JobID)
+	if err != nil {
+		return "", "", fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return "", "", errors.New("unauthorized: only the job creator can accept applications")
+	}
+	if job.Status != "open" {
+		return "", "", errors.New("job is no longer open")
+	}
+
+	client, err := u.userRepo.GetByID(ctx, clientID)
+	if err != nil {
+		return "", "", fmt.Errorf("client not found: %w", err)
+	}
+	musician, err := u.userRepo.GetByID(ctx, app.MusicianID)
+	if err != nil {
+		return "", "", fmt.Errorf("musician not found: %w", err)
+	}
+	// Checked before creating anything on PayPetal's side — this is the one
+	// precondition only the musician can fix, so failing fast here (rather
+	// than after the agreement exists) avoids a half-created hire.
+	if err := u.requirePayoutAccount(musician); err != nil {
+		u.notify(ctx, musician.ID, "Add your bank account to get paid",
+			fmt.Sprintf("A client wants to hire you for '%s' — add a payout account so you can receive payment.", job.Title))
+		return "", "", err
+	}
+
+	clientCustomerID, err := u.ensureCustomer(ctx, client)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to register client with payment provider: %w", err)
+	}
+	musicianCustomerID, err := u.ensureCustomer(ctx, musician)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to register musician with payment provider: %w", err)
+	}
+
+	reference := "job-hire:" + applicationID
+	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
+		ReferenceID:            reference,
+		InitiatorCustomerID:    clientCustomerID,
+		CounterpartyCustomerID: musicianCustomerID,
+		Currency:               "NGN",
+		AmountKobo:             paypetal.NairaToKobo(job.Budget),
+		Description:            fmt.Sprintf("GigPurse hire: %s", job.Title),
+		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to start payment: %w", err)
+	}
+
+	agreement := &domain.EscrowAgreement{
+		ReferenceID:            reference,
+		ScopeType:              "job_hire",
+		ScopeID:                applicationID,
+		InitiatorCustomerID:    clientCustomerID,
+		CounterpartyCustomerID: musicianCustomerID,
+		InitiatorUserID:        clientID,
+		CounterpartyUserID:     app.MusicianID,
+		AmountNaira:            job.Budget,
+		TrustCoreTransactionID: result.TransactionID,
+		Status:                 result.Status,
+		PayoutStatus:           "NONE",
+		RefundStatus:           "NONE",
+	}
+	if err := u.escrowRepo.Create(ctx, agreement); err != nil {
+		return "", "", fmt.Errorf("failed to record escrow agreement: %w", err)
+	}
+
+	app.Status = "accepted_pending_payment"
+	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
+		return "", "", fmt.Errorf("failed to update application status: %w", err)
+	}
+	job.Status = "pending_hire_funding"
+	job.EscrowReference = reference
+	job.UpdatedAt = time.Now()
+	if err := u.jobRepo.Update(ctx, job); err != nil {
+		return "", "", fmt.Errorf("failed to update job status: %w", err)
+	}
+
+	return result.PaymentURL, reference, nil
+}
+
+// FinalizeHire confirms a job-hire payment and does what AcceptApplication
+// used to do synchronously — create the Contract, reject other applicants,
+// notify both sides. Called from the webhook handler and from a frontend
+// poll after the client returns from PayPetal's checkout; idempotent
+// against both firing for the same reference.
+func (u *jobUsecase) FinalizeHire(ctx context.Context, reference string) (*domain.Contract, error) {
+	agreement, err := u.escrowRepo.GetByReference(ctx, reference)
+	if err != nil {
+		return nil, fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	app, err := u.jobRepo.GetApplicationByID(ctx, agreement.ScopeID)
 	if err != nil {
 		return nil, fmt.Errorf("application not found: %w", err)
 	}
-
 	job, err := u.jobRepo.GetByID(ctx, app.JobID)
 	if err != nil {
 		return nil, fmt.Errorf("job not found: %w", err)
 	}
 
-	if job.ClientID != clientID {
-		return nil, errors.New("unauthorized: only the job creator can accept applications")
+	// Idempotent: a webhook delivery and a frontend poll can both land here
+	// for the same reference — if the contract already exists, just return it.
+	if existing, err := u.contractRepo.GetByJobID(ctx, job.ID); err == nil && existing != nil {
+		return existing, nil
 	}
 
-	if job.Status != "open" {
-		return nil, errors.New("job is no longer open")
+	state, err := u.client.GetTrustCoreAgreement(ctx, reference)
+	if err != nil {
+		return nil, fmt.Errorf("failed to confirm payment: %w", err)
+	}
+	if state.Status != "ONGOING" {
+		return nil, fmt.Errorf("payment not yet confirmed (status: %s)", state.Status)
 	}
 
-	// Update application status
+	agreement.Status = state.Status
+	agreement.PayoutStatus = state.PayoutStatus
+	agreement.RefundStatus = state.RefundStatus
+	_ = u.escrowRepo.Update(ctx, agreement)
+
 	app.Status = "accepted"
 	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
 		return nil, fmt.Errorf("failed to update application status: %w", err)
 	}
 
-	// Update job status and set hired musician
 	job.Status = "active"
 	job.MusicianID = app.MusicianID
+	job.EscrowFunded = true
+	job.EscrowAmount = agreement.AmountNaira
 	job.UpdatedAt = time.Now()
 	if err := u.jobRepo.Update(ctx, job); err != nil {
 		return nil, fmt.Errorf("failed to update job status: %w", err)
 	}
 
-	// Create official Contract record (Contract System)
 	contract := &domain.Contract{
-		JobID:       job.ID,
-		ClientID:    job.ClientID,
-		MusicianID:  app.MusicianID,
-		Title:       job.Title,
-		Description: job.Description,
-		Price:       app.PriceBid,
-		Source:      "job",
-		Status:      "active",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		JobID:           job.ID,
+		ClientID:        job.ClientID,
+		MusicianID:      app.MusicianID,
+		Title:           job.Title,
+		Description:     job.Description,
+		Price:           app.PriceBid,
+		Source:          "job",
+		Status:          "active",
+		EscrowReference: reference,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	if err := u.contractRepo.Create(ctx, contract); err != nil {
 		return nil, fmt.Errorf("failed to create contract: %w", err)
 	}
 
-	// Reject other applications for the same job
 	allApps, err := u.jobRepo.ListApplications(ctx, job.ID)
 	if err == nil {
 		for _, otherApp := range allApps {
@@ -544,7 +641,11 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 		}
 	}
 
-	// Send Notifications (Notification & Email Notification Features)
+	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+		UserID: job.ClientID, Type: "escrow_hold", Amount: agreement.AmountNaira,
+		Description: fmt.Sprintf("Escrow funded for gig: %s", job.Title), Reference: reference,
+	})
+
 	contractLink := "/contracts/" + contract.ID
 	musicianName := app.MusicianID
 	if musician, err := u.userRepo.GetByID(ctx, app.MusicianID); err == nil && musician.Name != "" {
@@ -554,6 +655,54 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 	u.notifyAndEmail(ctx, app.MusicianID, "Bid Accepted", fmt.Sprintf("Congratulations! Your proposal for gig '%s' was accepted. Price: %s", job.Title, formatNaira(app.PriceBid)), contractLink)
 
 	return contract, nil
+}
+
+// StartAbandonedHireSweep reverts a job stuck in "pending_hire_funding" back
+// to "open" (and its application back to "pending") if the client never
+// completed checkout — mirrors milestoneUsecase's reminder-scanner shape.
+func (u *jobUsecase) StartAbandonedHireSweep(ctx context.Context, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				u.revertStaleHires(ctx)
+			}
+		}
+	}()
+}
+
+func (u *jobUsecase) revertStaleHires(ctx context.Context) {
+	stale, err := u.escrowRepo.ListStalePending(ctx, time.Now().Add(-escrowReferenceStaleAfter))
+	if err != nil {
+		return
+	}
+	for _, agreement := range stale {
+		if agreement.ScopeType != "job_hire" {
+			continue
+		}
+		state, err := u.client.GetTrustCoreAgreement(ctx, agreement.ReferenceID)
+		if err != nil || state.Status == "ONGOING" {
+			continue // still can't confirm abandonment, or it actually did get paid — leave it for FinalizeHire
+		}
+		app, err := u.jobRepo.GetApplicationByID(ctx, agreement.ScopeID)
+		if err != nil || app.Status != "accepted_pending_payment" {
+			continue
+		}
+		job, err := u.jobRepo.GetByID(ctx, app.JobID)
+		if err != nil || job.Status != "pending_hire_funding" {
+			continue
+		}
+		app.Status = "pending"
+		_ = u.jobRepo.UpdateApplication(ctx, app)
+		job.Status = "open"
+		job.EscrowReference = ""
+		job.UpdatedAt = time.Now()
+		_ = u.jobRepo.Update(ctx, job)
+	}
 }
 
 func (u *jobUsecase) sortJobs(ctx context.Context, jobs []*domain.Job, filter domain.JobFilter) {

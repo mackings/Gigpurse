@@ -17,6 +17,12 @@ type Contract struct {
 	Status      string    `json:"status" bson:"status"` // "active", "completed", "cancelled"
 	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
+
+	// EscrowReference points at the EscrowAgreement backing this contract's
+	// job-level hire payment (job-sourced contracts only — set by
+	// FinalizeHire). Direct-hire contracts have no job-level escrow of
+	// their own; money there only moves through milestones.
+	EscrowReference string `json:"-" bson:"escrow_reference,omitempty"`
 }
 
 // NegotiationEntry records one offer in a DirectHireRequest's back-and-forth
@@ -32,14 +38,14 @@ type NegotiationEntry struct {
 }
 
 type DirectHireRequest struct {
-	ID          string             `json:"id" bson:"_id"`
-	ClientID    string             `json:"client_id" bson:"client_id"`
-	MusicianID  string             `json:"musician_id" bson:"musician_id"`
-	Title       string             `json:"title" bson:"title"`
-	Description string             `json:"description" bson:"description"`
-	Location    string             `json:"location,omitempty" bson:"location,omitempty"`
-	EventDate   *time.Time         `json:"event_date,omitempty" bson:"event_date,omitempty"`
-	Price       float64            `json:"price" bson:"price"`
+	ID          string     `json:"id" bson:"_id"`
+	ClientID    string     `json:"client_id" bson:"client_id"`
+	MusicianID  string     `json:"musician_id" bson:"musician_id"`
+	Title       string     `json:"title" bson:"title"`
+	Description string     `json:"description" bson:"description"`
+	Location    string     `json:"location,omitempty" bson:"location,omitempty"`
+	EventDate   *time.Time `json:"event_date,omitempty" bson:"event_date,omitempty"`
+	Price       float64    `json:"price" bson:"price"`
 	// ProposedBy is whoever made the current (most recent) offer — the
 	// other party is the one who can accept/decline/counter it.
 	ProposedBy string             `json:"proposed_by" bson:"proposed_by"`

@@ -48,6 +48,30 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
     }
   }
 
+  // Funding now means paying — redirect to PayPetal's hosted checkout
+  // instead of showing a success toast. The milestone doesn't flip to
+  // "funded" until that payment is confirmed (see FinalizeFund, triggered
+  // by the webhook or a poll when the client returns from checkout).
+  async function handleFund(id) {
+    const key = `${id}:fund`;
+    setPendingKey(key);
+    try {
+      const result = await onFund(id);
+      if (result?.payment_url) {
+        window.location.href = result.payment_url;
+        return;
+      }
+    } catch (err) {
+      if (err.code === "payout_account_required") {
+        toast.error("This talent hasn't added a payout account yet — they've been notified to add one.");
+      } else {
+        toast.error(err.message);
+      }
+    } finally {
+      setPendingKey(null);
+    }
+  }
+
   return (
     <div className="space-y-3">
       {milestones.map((m) => {
@@ -122,7 +146,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                 <Button
                   size="sm"
                   disabled={cardPending}
-                  onClick={() => run(onFund, m.id, "fund", "Escrow funded for this milestone.")}
+                  onClick={() => handleFund(m.id)}
                   className="gap-1.5"
                 >
                   {isPending("fund") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}

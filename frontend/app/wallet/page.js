@@ -3,15 +3,13 @@
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useWallet } from "@/hooks/use-wallet";
 import WalletCard from "@/components/wallet/WalletCard";
-import WithdrawModal from "@/components/wallet/WithdrawModal";
 import TransactionList from "@/components/wallet/TransactionList";
-import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/utils";
-import { Loader2, ArrowUpRight } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 export default function WalletPage() {
   const { user } = useCurrentUser();
-  const { wallet, transactions, isLoading, deposit, withdraw } = useWallet();
+  const { wallet, transactions, isLoading } = useWallet();
 
   if (isLoading || !user) {
     return (
@@ -26,28 +24,12 @@ export default function WalletPage() {
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Wallet</h1>
-          <p className="text-muted-foreground">Manage your balance, escrow, and payment history.</p>
+          <p className="text-muted-foreground">Your payout account and payment history.</p>
         </div>
 
-        <div className="grid sm:grid-cols-[1fr_auto] gap-4 items-start">
-          <WalletCard balance={wallet?.balance} escrowBalance={wallet?.escrow_balance} onDeposit={deposit} />
-          <WithdrawModal
-            onWithdraw={withdraw}
-            trigger={
-              <Button variant="outline" className="gap-2 sm:h-full sm:px-6">
-                <ArrowUpRight className="w-4 h-4" />
-                Withdraw
-              </Button>
-            }
-          />
-        </div>
+        <WalletCard payoutAccount={wallet?.payout_account} />
 
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm text-amber-700 dark:text-amber-300">
-          Deposits and withdrawals aren&apos;t connected to a real payment processor yet — no real money moves. Balances
-          themselves are real and shared across your sessions.
-        </div>
-
-        <div className="grid sm:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 gap-4">
           <div className="group relative overflow-hidden bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-emerald-500/20 hover:-translate-y-0.5">
             <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-emerald-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
             <p className="relative text-sm text-muted-foreground">Total earned</p>
@@ -57,11 +39,6 @@ export default function WalletPage() {
             <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-rose-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
             <p className="relative text-sm text-muted-foreground">Total spent</p>
             <p className="relative text-2xl font-bold text-foreground tabular-nums">{formatMoney(wallet?.total_spent || 0, { decimals: 2 })}</p>
-          </div>
-          <div className="group relative overflow-hidden bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-violet-500/20 hover:-translate-y-0.5">
-            <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-violet-500 opacity-[0.08] blur-2xl transition-opacity duration-300 group-hover:opacity-[0.16]" />
-            <p className="relative text-sm text-muted-foreground">In escrow</p>
-            <p className="relative text-2xl font-bold text-foreground tabular-nums">{formatMoney(wallet?.escrow_balance || 0, { decimals: 2 })}</p>
           </div>
         </div>
 

@@ -19,7 +19,7 @@ export default function SignupForm() {
   const searchParams = useSearchParams();
   const role = searchParams.get("role") === "musician" ? "musician" : "client";
 
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -76,6 +76,19 @@ export default function SignupForm() {
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="mt-1.5"
               />
+            </div>
+            <div>
+              <Label htmlFor="phone">Phone number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                required
+                placeholder="+2348012345678"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="mt-1.5"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Needed so we can pay you or process a refund later.</p>
             </div>
             <div>
               <Label htmlFor="password">Password</Label>

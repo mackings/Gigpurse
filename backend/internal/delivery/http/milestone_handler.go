@@ -2,9 +2,11 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/usecase"
 )
 
 type MilestoneHandler struct {
@@ -22,6 +24,7 @@ func (h *MilestoneHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/milestones/withdraw", JWTMiddleware(h.Withdraw))
 	mux.HandleFunc("/milestones/counter", JWTMiddleware(h.Counter))
 	mux.HandleFunc("/milestones/fund", JWTMiddleware(h.Fund))
+	mux.HandleFunc("/milestones/fund/finalize", JWTMiddleware(h.FinalizeFund))
 	mux.HandleFunc("/milestones/release", JWTMiddleware(h.Release))
 }
 
@@ -180,9 +183,47 @@ func (h *MilestoneHandler) Fund(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
-	milestone, err := h.milestoneUsecase.Fund(r.Context(), req.ContractID, req.MilestoneID, userID)
+	paymentURL, reference, err := h.milestoneUsecase.Fund(r.Context(), req.ContractID, req.MilestoneID, userID)
 	if err != nil {
+		if errors.Is(err, usecase.ErrPayoutAccountRequired) {
+			respondError(w, http.StatusConflict, "payout_account_required", "this musician hasn't set up payouts yet — they've been notified to add a bank account")
+			return
+		}
+		if errors.Is(err, usecase.ErrPhoneRequired) {
+			respondError(w, http.StatusConflict, "phone_required", "add a phone number to your account before funding this milestone")
+			return
+		}
 		respondError(w, http.StatusBadRequest, "milestone_fund_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "payment started", map[string]string{
+		"payment_url": paymentURL,
+		"reference":   reference,
+	})
+}
+
+// FinalizeFund is polled by the frontend after the client returns from
+// PayPetal's hosted checkout (the webhook also calls the same usecase
+// method independently — whichever lands first wins, both are idempotent).
+func (h *MilestoneHandler) FinalizeFund(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if _, _, ok := GetUserFromContext(r.Context()); !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req struct {
+		Reference string `json:"reference"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	milestone, err := h.milestoneUsecase.FinalizeFund(r.Context(), req.Reference)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "milestone_finalize_failed", err.Error())
 		return
 	}
 	respondSuccess(w, http.StatusOK, "milestone funded successfully", milestone)

@@ -9,19 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import CurrencyInput from "@/components/ui/currency-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useWallet } from "@/hooks/use-wallet";
 import { formatMoney, JOB_DURATION_LABELS, JOB_EXPERIENCE_LABELS, JOB_PROJECT_TYPE_LABELS } from "@/lib/utils";
-import { Loader2, X, ShieldCheck, Wallet as WalletIcon } from "lucide-react";
+import { Loader2, X, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
 
 export default function PostJob() {
   const router = useRouter();
-  const { wallet, isLoading: walletLoading, deposit } = useWallet();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isFunding, setIsFunding] = useState(false);
-  const [isDepositing, setIsDepositing] = useState(false);
-  const [topUpAmount, setTopUpAmount] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
   const [postedJob, setPostedJob] = useState(null);
   const [skillInput, setSkillInput] = useState("");
   const [form, setForm] = useState({
@@ -54,7 +50,7 @@ export default function PostJob() {
     setIsSubmitting(true);
     try {
       const job = await apiPost("/jobs", { ...form, budget: parseFloat(form.budget) || 0 });
-      toast.success("Gig details saved — now fund escrow to publish it.");
+      toast.success("Gig details saved — publish it to start receiving applications.");
       setPostedJob(job);
     } catch (err) {
       toast.error(err.message);
@@ -63,92 +59,45 @@ export default function PostJob() {
     }
   }
 
-  async function handleFundEscrow() {
-    setIsFunding(true);
+  async function handlePublish() {
+    setIsPublishing(true);
     try {
       await apiPost("/jobs/fund", { job_id: postedJob.id });
-      toast.success("Escrow funded — your gig is live!");
+      toast.success("Your gig is live!");
       router.push("/dashboard/client");
     } catch (err) {
       toast.error(err.message);
     } finally {
-      setIsFunding(false);
-    }
-  }
-
-  async function handleTopUp(e) {
-    e.preventDefault();
-    setIsDepositing(true);
-    try {
-      await deposit(parseFloat(topUpAmount) || 0);
-      toast.success("Funds added.");
-      setTopUpAmount("");
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setIsDepositing(false);
+      setIsPublishing(false);
     }
   }
 
   if (postedJob) {
-    const balance = wallet?.balance ?? 0;
-    const needed = postedJob.budget;
-    const canFund = balance >= needed;
-
     return (
       <div className="min-h-screen bg-background py-12 px-4">
         <div className="max-w-xl mx-auto">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Fund escrow to publish</CardTitle>
+              <CardTitle className="text-2xl">Publish your gig</CardTitle>
               <CardDescription>
-                Gigs only become visible to talent once their budget is secured in escrow — this guarantees payment for
-                whoever you hire.
+                No payment is due yet — you&apos;ll pay securely when you accept a specific applicant, and that amount is
+                held in escrow until the work is done.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-xl border border-border p-4">
                 <p className="font-semibold text-foreground">{postedJob.title}</p>
                 <p className="text-sm text-muted-foreground mt-1">{postedJob.location}</p>
-                <p className="text-lg font-bold text-foreground mt-2">{formatMoney(needed)}</p>
+                <p className="text-lg font-bold text-foreground mt-2">{formatMoney(postedJob.budget)}</p>
               </div>
 
-              <div className="flex items-center justify-between rounded-xl bg-muted/40 p-4">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <WalletIcon className="w-4 h-4" />
-                  Wallet balance
-                </div>
-                <span className="font-semibold text-foreground tabular-nums">
-                  {walletLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : formatMoney(balance, { decimals: 2 })}
-                </span>
-              </div>
-
-              {!canFund && !walletLoading && (
-                <form onSubmit={handleTopUp} className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Insufficient balance — top up at least {formatMoney(needed - balance)} to fund this gig
-                  </Label>
-                  <div className="flex gap-2">
-                    <CurrencyInput
-                      required
-                      placeholder="Amount (₦)"
-                      value={topUpAmount}
-                      onChange={setTopUpAmount}
-                      className="flex-1"
-                    />
-                    <Button type="submit" variant="outline" disabled={isDepositing}>
-                      {isDepositing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add funds"}
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              <Button className="w-full gap-2" disabled={!canFund || isFunding} onClick={handleFundEscrow}>
-                {isFunding ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                Fund escrow &amp; publish gig
+              <Button className="w-full gap-2" disabled={isPublishing} onClick={handlePublish}>
+                {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Megaphone className="w-4 h-4" />}
+                Publish gig
               </Button>
               <p className="text-xs text-muted-foreground text-center">
-                Your gig is saved as a draft until funded — you can come back and fund it later from your dashboard.
+                Your gig is saved as a draft until published — you can come back and publish it later from your
+                dashboard.
               </p>
             </CardContent>
           </Card>

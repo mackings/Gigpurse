@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/usecase"
 )
 
 type JobHandler struct {
@@ -25,6 +27,7 @@ func (h *JobHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/jobs/apply", JWTMiddleware(h.ApplyForJob))
 	mux.HandleFunc("/jobs/applications", JWTMiddleware(h.HandleApplications))
 	mux.HandleFunc("/jobs/applications/accept", JWTMiddleware(h.AcceptApplication))
+	mux.HandleFunc("/jobs/hire/finalize", JWTMiddleware(h.FinalizeHire))
 	mux.HandleFunc("/jobs/save", JWTMiddleware(h.SaveJob))
 	mux.HandleFunc("/jobs/unsave", JWTMiddleware(h.UnsaveJob))
 	mux.HandleFunc("/jobs/saved", JWTMiddleware(h.ListSavedJobs))
@@ -359,6 +362,10 @@ func (h *JobHandler) HandleApplications(w http.ResponseWriter, r *http.Request) 
 	respondError(w, http.StatusBadRequest, "missing_job_id", "job_id query parameter is required for clients")
 }
 
+// AcceptApplication starts the hire — it no longer creates a Contract
+// directly, since TrustCore requires the client to actually pay first. It
+// returns a hosted checkout URL for the frontend to redirect the client to;
+// FinalizeHire (below) is what completes the hire once payment is confirmed.
 func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -380,14 +387,52 @@ func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contract, err := h.jobUsecase.AcceptApplication(r.Context(), userID, req.ApplicationID)
+	paymentURL, reference, err := h.jobUsecase.InitiateHire(r.Context(), userID, req.ApplicationID)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "application_accept_failed", err.Error())
+		if errors.Is(err, usecase.ErrPayoutAccountRequired) {
+			respondError(w, http.StatusConflict, "payout_account_required", "this musician hasn't set up payouts yet — they've been notified to add a bank account")
+			return
+		}
+		if errors.Is(err, usecase.ErrPhoneRequired) {
+			respondError(w, http.StatusConflict, "phone_required", "add a phone number to your account before hiring")
+			return
+		}
+		respondError(w, http.StatusBadRequest, "hire_initiate_failed", err.Error())
 		return
 	}
 
-	respondSuccess(w, http.StatusOK, "application accepted successfully", map[string]string{
-		"message":     "application accepted successfully, job is now active",
+	respondSuccess(w, http.StatusOK, "payment started", map[string]string{
+		"payment_url": paymentURL,
+		"reference":   reference,
+	})
+}
+
+// FinalizeHire is polled by the frontend after the client returns from
+// PayPetal's hosted checkout (the webhook also calls the same usecase
+// method independently — whichever lands first wins, both are idempotent).
+func (h *JobHandler) FinalizeHire(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if _, _, ok := GetUserFromContext(r.Context()); !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req struct {
+		Reference string `json:"reference"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	contract, err := h.jobUsecase.FinalizeHire(r.Context(), req.Reference)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "hire_finalize_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "hire confirmed", map[string]string{
+		"message":     "payment confirmed, job is now active",
 		"contract_id": contract.ID,
 	})
 }

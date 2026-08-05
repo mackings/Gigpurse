@@ -6,14 +6,20 @@ import (
 )
 
 type User struct {
-	ID              string           `json:"id" bson:"_id"`
-	Email           string           `json:"email" bson:"email"`
-	EmailVerified   bool             `json:"email_verified" bson:"email_verified"`
-	PasswordHash    string           `json:"-" bson:"password_hash"`
-	Role            string           `json:"role" bson:"role"` // "client" or "musician"
-	Name            string           `json:"name" bson:"name"`
-	Bio             string           `json:"bio" bson:"bio"`
-	Location        string           `json:"location" bson:"location"`
+	ID            string `json:"id" bson:"_id"`
+	Email         string `json:"email" bson:"email"`
+	EmailVerified bool   `json:"email_verified" bson:"email_verified"`
+	PasswordHash  string `json:"-" bson:"password_hash"`
+	Role          string `json:"role" bson:"role"` // "client" or "musician"
+	Name          string `json:"name" bson:"name"`
+	Bio           string `json:"bio" bson:"bio"`
+	Location      string `json:"location" bson:"location"`
+	// Phone is required at signup — PayPetal rejects creating a customer
+	// record without one (despite documenting it as optional), and a
+	// customer record is needed the moment a user sends or receives any
+	// payment. omitempty here only accounts for accounts that predate this
+	// requirement; see UpdatePhone for backfilling those.
+	Phone           string           `json:"phone,omitempty" bson:"phone,omitempty"`
 	MusicianProfile *MusicianProfile `json:"musician_profile,omitempty" bson:"musician_profile,omitempty"`
 	ClientProfile   *ClientProfile   `json:"client_profile,omitempty" bson:"client_profile,omitempty"`
 	TermsAcceptedAt time.Time        `json:"terms_accepted_at,omitempty" bson:"terms_accepted_at,omitempty"`
@@ -26,6 +32,12 @@ type User struct {
 	// account" toggle, not a suspension, so the owner can always undo it.
 	HidePresence bool `json:"hide_presence" bson:"hide_presence"`
 	Disabled     bool `json:"disabled" bson:"disabled"`
+
+	// PayPetal escrow identity — lazily created the first time this user is
+	// party to a real money movement (see paypetalDeps.ensureCustomer), not
+	// at signup. Never serialized to the frontend.
+	PayPetalCustomerID string         `json:"-" bson:"paypetal_customer_id,omitempty"`
+	PayoutAccount      *PayoutAccount `json:"payout_account,omitempty" bson:"payout_account,omitempty"`
 
 	// Computed at query time only (never persisted — bson:"-" keeps them out
 	// of Create/Update writes even if a caller round-trips a listed User).
@@ -81,6 +93,17 @@ type ClientProfile struct {
 	CompanyName string `json:"company_name" bson:"company_name"`
 }
 
+// PayoutAccount is the bank account PayPetal pays this user's escrow
+// releases to. One per user — set just-in-time the first time this user is
+// the counterparty on an escrow agreement, not at signup/onboarding.
+type PayoutAccount struct {
+	BankCode      string    `json:"bank_code" bson:"bank_code"`
+	BankName      string    `json:"bank_name" bson:"bank_name"`
+	AccountNumber string    `json:"account_number" bson:"account_number"` // frontend masks all but last 4
+	AccountName   string    `json:"account_name" bson:"account_name"`     // resolved by PayPetal's validate call, not user-typed
+	LinkedAt      time.Time `json:"linked_at" bson:"linked_at"`
+}
+
 type MusicianFilter struct {
 	Genre      string `json:"genre"`
 	Instrument string `json:"instrument"`
@@ -99,7 +122,7 @@ type UserRepository interface {
 }
 
 type UserUsecase interface {
-	SignUp(ctx context.Context, email, password, role, name string, acceptedTerms bool) (*User, error)
+	SignUp(ctx context.Context, email, password, role, name, phone string, acceptedTerms bool) (*User, error)
 	Login(ctx context.Context, email, password string) (string, *User, error) // Returns JWT token and User
 	ResendEmailVerification(ctx context.Context, email string) error
 	VerifyEmail(ctx context.Context, email, code string) error
@@ -110,6 +133,11 @@ type UserUsecase interface {
 	BrowseMusicians(ctx context.Context, filter MusicianFilter) ([]*User, error)
 	UpdateAccountStatus(ctx context.Context, id string, hidePresence, disabled bool) (*User, error)
 	GetUserStatus(ctx context.Context, id string) (string, error)
+
+	// UpdatePhone backfills a phone number onto an account that predates
+	// requiring one at signup — see paypetalDeps.ensureCustomer, which
+	// returns ErrPhoneRequired for any such account trying to transact.
+	UpdatePhone(ctx context.Context, id, phone string) (*User, error)
 
 	// Passwordless moderator/admin access to a dispute chat room — see
 	// backend/internal/usecase/user_usecase.go for why a code is still

@@ -6,13 +6,13 @@ import (
 )
 
 type Dispute struct {
-	ID         string    `json:"id" bson:"_id"`
-	ContractID string    `json:"contract_id" bson:"contract_id"`
-	ClientID   string    `json:"client_id" bson:"client_id"`
-	MusicianID string    `json:"musician_id" bson:"musician_id"`
-	OpenedByID string    `json:"opened_by_id" bson:"opened_by_id"`
-	Reason     string    `json:"reason" bson:"reason"`
-	Status     string    `json:"status" bson:"status"` // "open", "resolved", "closed"
+	ID         string `json:"id" bson:"_id"`
+	ContractID string `json:"contract_id" bson:"contract_id"`
+	ClientID   string `json:"client_id" bson:"client_id"`
+	MusicianID string `json:"musician_id" bson:"musician_id"`
+	OpenedByID string `json:"opened_by_id" bson:"opened_by_id"`
+	Reason     string `json:"reason" bson:"reason"`
+	Status     string `json:"status" bson:"status"` // "open", "resolved", "closed"
 
 	// ModeratorID is empty until a moderator/admin joins the dispute's chat
 	// room — the two original parties can't message each other in that room

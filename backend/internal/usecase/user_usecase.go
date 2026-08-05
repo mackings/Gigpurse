@@ -76,8 +76,8 @@ func getJWTSecret() []byte {
 	return []byte(secret)
 }
 
-func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name string, acceptedTerms bool) (*domain.User, error) {
-	if email == "" || password == "" || role == "" || name == "" {
+func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name, phone string, acceptedTerms bool) (*domain.User, error) {
+	if email == "" || password == "" || role == "" || name == "" || phone == "" {
 		return nil, errors.New("missing required signup fields")
 	}
 	if !acceptedTerms {
@@ -116,6 +116,7 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name st
 		PasswordHash:    string(hashed),
 		Role:            role,
 		Name:            name,
+		Phone:           phone,
 		TermsAcceptedAt: time.Now(),
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -474,6 +475,22 @@ func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, l
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
 
+	return user, nil
+}
+
+func (u *userUsecase) UpdatePhone(ctx context.Context, id, phone string) (*domain.User, error) {
+	if phone == "" {
+		return nil, errors.New("phone is required")
+	}
+	user, err := u.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	user.Phone = phone
+	user.UpdatedAt = time.Now()
+	if err := u.userRepo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update phone: %w", err)
+	}
 	return user, nil
 }
 

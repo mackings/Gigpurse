@@ -33,6 +33,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /users/profile", h.HandleProfile)
 	mux.HandleFunc("GET /users/{id}", JWTMiddleware(h.GetUserByID))
 	mux.HandleFunc("PUT /users/account-status", JWTMiddleware(h.UpdateAccountStatus))
+	mux.HandleFunc("POST /users/phone", JWTMiddleware(h.UpdatePhone))
 	mux.HandleFunc("/musicians", h.BrowseMusicians)
 	mux.HandleFunc("GET /musicians/{id}", h.GetMusicianByID)
 }
@@ -48,6 +49,7 @@ func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		Password      string `json:"password"`
 		Role          string `json:"role"`
 		Name          string `json:"name"`
+		Phone         string `json:"phone"`
 		AcceptedTerms bool   `json:"accepted_terms"`
 	}
 
@@ -56,7 +58,7 @@ func (h *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userUsecase.SignUp(r.Context(), req.Email, req.Password, req.Role, req.Name, req.AcceptedTerms)
+	user, err := h.userUsecase.SignUp(r.Context(), req.Email, req.Password, req.Role, req.Name, req.Phone, req.AcceptedTerms)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "signup_failed", err.Error())
 		return
@@ -259,6 +261,31 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, user
 	}
 
 	respondSuccess(w, http.StatusOK, "profile updated successfully", user)
+}
+
+func (h *UserHandler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	user, err := h.userUsecase.UpdatePhone(r.Context(), userID, req.Phone)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "phone_update_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "phone updated successfully", user)
 }
 
 func (h *UserHandler) BrowseMusicians(w http.ResponseWriter, r *http.Request) {

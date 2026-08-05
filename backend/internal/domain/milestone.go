@@ -35,6 +35,10 @@ type Milestone struct {
 	// re-notified about this still-`proposed` milestone — nil until the
 	// first reminder fires. See MilestoneUsecase reminder scanner.
 	LastReminderAt *time.Time `json:"last_reminder_at,omitempty" bson:"last_reminder_at,omitempty"`
+
+	// EscrowReference points at the EscrowAgreement backing this milestone's
+	// PayPetal TrustCore payment — set by Fund, confirmed by FinalizeFund.
+	EscrowReference string `json:"-" bson:"escrow_reference,omitempty"`
 }
 
 // MilestoneNegotiationEntry records one offer in a milestone's back-and-forth
@@ -75,7 +79,12 @@ type MilestoneUsecase interface {
 	// one — only while it's awaiting a response, before it clutters the
 	// history with a rejected/superseded entry.
 	Withdraw(ctx context.Context, contractID, milestoneID, userID string) error
-	Fund(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
+	// Fund starts a PayPetal TrustCore payment for an accepted milestone and
+	// returns a hosted checkout URL — it no longer moves money itself or
+	// flips the milestone to "funded" synchronously; FinalizeFund does that
+	// once the payment is confirmed (by the webhook or a frontend poll).
+	Fund(ctx context.Context, contractID, milestoneID, userID string) (paymentURL, reference string, err error)
+	FinalizeFund(ctx context.Context, reference string) (*Milestone, error)
 	Release(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
 	List(ctx context.Context, contractID, requesterID string) ([]*Milestone, error)
 

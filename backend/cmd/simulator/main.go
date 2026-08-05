@@ -15,6 +15,7 @@ import (
 
 	delivery "gigpurse/internal/delivery/http"
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 	"gigpurse/internal/repository/memory"
 	"gigpurse/internal/repository/mongodb"
 	"gigpurse/internal/usecase"
@@ -89,18 +90,31 @@ func main() {
 	disputeRepo := mongodb.NewDisputeRepository(db)
 	walletRepo := memory.NewWalletRepository()
 	milestoneRepo := memory.NewMilestoneRepository()
+	escrowAgreementRepo := memory.NewEscrowAgreementRepository()
+	// The simulator drives the real HTTP API end-to-end including hire/
+	// milestone flows, which now depend on PayPetal actually confirming a
+	// payment — something a one-shot script can't do without a live
+	// checkout. It's wired against real sandbox credentials the same as the
+	// main server; steps that need a confirmed payment are expected to fail
+	// until this script is extended to also drive PayPetal's hosted
+	// checkout (or a fake), which is out of scope for now.
+	simPaypetalBaseURL := os.Getenv("PAYPETAL_BASE_URL")
+	if simPaypetalBaseURL == "" {
+		simPaypetalBaseURL = "https://sandbox.paypetalhq.xyz"
+	}
+	paypetalClient := paypetal.NewClient(simPaypetalBaseURL, os.Getenv("PAYPETAL_SECRET_KEY"), os.Getenv("PAYPETAL_APP_ID"))
 
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo, paypetalClient, escrowAgreementRepo, "http://localhost:3000")
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
-	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
+	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo, walletRepo, paypetalClient, escrowAgreementRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo)
-	walletUsecase := usecase.NewWalletUsecase(walletRepo)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub)
-	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
+	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, "http://localhost:3000")
+	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
 
 	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)
 	jobHandler := delivery.NewJobHandler(jobUsecase)

@@ -117,15 +117,13 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected new job to start pending_funding, got %q", job.Status)
 	}
 
-	// A job stays invisible to talent until its escrow is funded. Deposit
-	// exactly the job's budget so escrow-funding fully consumes it, leaving
-	// the wallet at 0 — the later fresh-deposit assertion below expects to
-	// start from a zero balance.
-	client.post("/wallet/deposit", clientToken, map[string]any{"amount": 500}, http.StatusOK, nil)
+	// A job stays invisible to talent until it's published — no money moves
+	// here anymore (PayPetal needs both parties to create an agreement, and
+	// no musician is known yet); real payment happens at hire time below.
 	var fundedJob domain.Job
 	client.post("/jobs/fund", clientToken, map[string]any{"job_id": job.ID}, http.StatusOK, &fundedJob)
-	if fundedJob.Status != "open" || !fundedJob.EscrowFunded {
-		t.Fatalf("expected job to be open and escrow-funded after funding, got %#v", fundedJob)
+	if fundedJob.Status != "open" || fundedJob.EscrowFunded {
+		t.Fatalf("expected job to be open and not yet escrow-funded after publishing, got %#v", fundedJob)
 	}
 	job = fundedJob
 
@@ -186,13 +184,45 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected chat_message envelope, got %q", receiverEnvelope.Type)
 	}
 
-	client.post("/jobs/applications/accept", clientToken, map[string]any{"application_id": application.ID}, http.StatusOK, nil)
+	// Hiring is blocked until the musician has a payout account on file —
+	// confirm that gate, then set one up.
+	client.post("/jobs/applications/accept", clientToken, map[string]any{"application_id": application.ID}, http.StatusConflict, nil)
+	client.post("/payout-account/validate", musicianToken, map[string]any{
+		"bank_code": "000", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account", musicianToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+
+	// Accepting now starts a PayPetal checkout instead of creating a
+	// Contract synchronously.
+	var hireStart struct {
+		PaymentURL string `json:"payment_url"`
+		Reference  string `json:"reference"`
+	}
+	client.post("/jobs/applications/accept", clientToken, map[string]any{"application_id": application.ID}, http.StatusOK, &hireStart)
+	if hireStart.PaymentURL == "" || hireStart.Reference == "" {
+		t.Fatalf("expected a payment URL and reference from InitiateHire, got %+v", hireStart)
+	}
+
+	// A real client would be redirected to hireStart.PaymentURL and pay
+	// there; simulate that completing, then finalize the hire the same way
+	// the webhook (or a frontend poll) would.
+	app.paypetal.SimulatePaymentCompleted(hireStart.Reference)
+	var hireResult struct {
+		ContractID string `json:"contract_id"`
+	}
+	client.post("/jobs/hire/finalize", clientToken, map[string]any{"reference": hireStart.Reference}, http.StatusOK, &hireResult)
+	if hireResult.ContractID == "" {
+		t.Fatal("expected FinalizeHire to return a contract_id")
+	}
+
 	client.get("/jobs/mine?status=active", musicianToken, http.StatusOK, nil)
 
 	var contracts []domain.Contract
 	client.get("/contracts", clientToken, http.StatusOK, &contracts)
-	if len(contracts) == 0 {
-		t.Fatal("expected accepted application to create a contract")
+	if len(contracts) == 0 || contracts[0].ID != hireResult.ContractID {
+		t.Fatalf("expected accepted application to create the contract returned by FinalizeHire, got %#v vs %q", contracts, hireResult.ContractID)
 	}
 	client.get("/contracts?id="+contracts[0].ID, clientToken, http.StatusOK, nil)
 
@@ -306,12 +336,20 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	if resolved.WinnerID != musicianUser.ID || resolved.Status != "resolved" {
 		t.Fatalf("expected dispute resolved in favor of musician, got %#v", resolved)
 	}
-
-	var fundedWallet domain.Wallet
-	client.post("/wallet/deposit", clientToken, map[string]any{"amount": 500}, http.StatusOK, &fundedWallet)
-	if fundedWallet.Balance != 500 {
-		t.Fatalf("expected wallet balance 500 after deposit, got %v", fundedWallet.Balance)
+	// The job-level escrow (funded when the hire above was finalized) should
+	// have been released to the musician, who won — confirmed directly
+	// against the fake, since that's the actual source of truth now.
+	// (hireStart.Reference is the same "job-hire:{applicationID}" reference
+	// InitiateHire recorded on the contract — Contract.EscrowReference is
+	// json:"-" so it isn't visible in the HTTP response to read it back from.)
+	agreementAfterResolve, err := app.paypetal.GetTrustCoreAgreement(context.Background(), hireStart.Reference)
+	if err != nil {
+		t.Fatalf("expected job escrow agreement to exist after resolve: %v", err)
 	}
+	if agreementAfterResolve.PayoutStatus != "COMPLETED" {
+		t.Fatalf("expected job escrow to be released to the musician after they won the dispute, got payout_status=%q", agreementAfterResolve.PayoutStatus)
+	}
+
 	client.get("/wallet", clientToken, http.StatusOK, nil)
 	client.get("/wallet/transactions", clientToken, http.StatusOK, nil)
 
@@ -332,10 +370,21 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected milestone accepted, got %s", accepted.Status)
 	}
 
-	var funded domain.Milestone
+	// Funding a milestone now starts a PayPetal checkout too.
+	var fundStart struct {
+		PaymentURL string `json:"payment_url"`
+		Reference  string `json:"reference"`
+	}
 	client.post("/milestones/fund", clientToken, map[string]any{
 		"contract_id": contracts[0].ID, "milestone_id": proposed[0].ID,
-	}, http.StatusOK, &funded)
+	}, http.StatusOK, &fundStart)
+	if fundStart.PaymentURL == "" || fundStart.Reference == "" {
+		t.Fatalf("expected a payment URL and reference from milestone Fund, got %+v", fundStart)
+	}
+	app.paypetal.SimulatePaymentCompleted(fundStart.Reference)
+
+	var funded domain.Milestone
+	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": fundStart.Reference}, http.StatusOK, &funded)
 	if funded.Status != "funded" {
 		t.Fatalf("expected milestone funded, got %s", funded.Status)
 	}
@@ -348,14 +397,27 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected milestone released, got %s", released.Status)
 	}
 
-	var musicianWallet domain.Wallet
+	var musicianTxs []domain.Transaction
+	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxs)
+	foundPayment := false
+	for _, tx := range musicianTxs {
+		if tx.Type == "payment_received" && tx.Amount == 100 && tx.Reference == fundStart.Reference {
+			foundPayment = true
+		}
+	}
+	if !foundPayment {
+		t.Fatalf("expected a payment_received transaction of 100 referencing the milestone's escrow agreement, got %#v", musicianTxs)
+	}
+
+	var musicianWallet domain.WalletSummary
 	client.get("/wallet", musicianToken, http.StatusOK, &musicianWallet)
-	// 100 from this milestone release + the 500 this same contract's job had
-	// sitting in escrow, already paid out to the musician when the dispute
-	// above resolved in their favor (dispute resolution sweeps any
-	// still-funded job-level escrow to the winner).
-	if musicianWallet.Balance != 600 {
-		t.Fatalf("expected musician wallet balance 600 after release, got %v", musicianWallet.Balance)
+	// 100 from this milestone release + the 500 job-level escrow, which was
+	// already released to the musician back when contracts[0] was marked
+	// completed (CompleteContract releases job-level escrow automatically —
+	// the dispute resolved on the same contract afterward was a no-op on
+	// the money side, since it was already settled by then).
+	if musicianWallet.TotalEarned != 600 {
+		t.Fatalf("expected musician total_earned 600 (job escrow released at completion + this milestone), got %v", musicianWallet.TotalEarned)
 	}
 
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)
@@ -372,6 +434,7 @@ type testApp struct {
 	mux             *http.ServeMux
 	resetRepo       *memoryPasswordResetRepo
 	emailVerifyRepo *memoryEmailVerificationRepo
+	paypetal        *memory.PayPetalFake
 }
 
 func newTestApp() *testApp {
@@ -386,19 +449,23 @@ func newTestApp() *testApp {
 	disputeRepo := newMemoryDisputeRepo()
 	walletRepo := memory.NewWalletRepository()
 	milestoneRepo := memory.NewMilestoneRepository()
+	escrowRepo := memory.NewEscrowAgreementRepository()
+	paypetalFake := memory.NewPayPetalFake()
 	hub := delivery.NewHub()
+	const testFrontendBaseURL = "https://gigpurse.test"
 
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo, paypetalFake, escrowRepo, testFrontendBaseURL)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
-	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
+	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo, walletRepo, paypetalFake, escrowRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo}
-	walletUsecase := usecase.NewWalletUsecase(walletRepo)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub)
-	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
+	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL)
+	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalFake, escrowRepo)
+	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalFake, userRepo)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -421,8 +488,9 @@ func newTestApp() *testApp {
 	delivery.NewAdminHandler(adminUsecase).RegisterRoutes(mux)
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
 	delivery.NewMilestoneHandler(milestoneUsecase).RegisterRoutes(mux)
+	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
 
-	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo}
+	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake}
 }
 
 type apiClient struct {
@@ -433,7 +501,10 @@ type apiClient struct {
 
 func (c *apiClient) signup(email, password, role, name string) domain.User {
 	var user domain.User
-	c.post("/auth/signup", "", map[string]any{"email": email, "password": password, "role": role, "name": name, "accepted_terms": true}, http.StatusCreated, &user)
+	c.post("/auth/signup", "", map[string]any{
+		"email": email, "password": password, "role": role, "name": name,
+		"phone": "+234801" + email[:7], "accepted_terms": true,
+	}, http.StatusCreated, &user)
 	return user
 }
 

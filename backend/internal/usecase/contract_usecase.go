@@ -8,30 +8,34 @@ import (
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 type contractUsecase struct {
+	paypetalDeps
 	contractRepo domain.ContractRepository
 	jobRepo      domain.JobRepository
 	notifRepo    domain.NotificationRepository
-	userRepo     domain.UserRepository
+	walletRepo   domain.WalletRepository
+	escrowRepo   domain.EscrowAgreementRepository
 }
 
 func NewContractUsecase(
 	contractRepo domain.ContractRepository,
 	jobRepo domain.JobRepository,
 	notifRepo domain.NotificationRepository,
-	userRepos ...domain.UserRepository,
+	userRepo domain.UserRepository,
+	walletRepo domain.WalletRepository,
+	paypetalClient paypetal.API,
+	escrowRepo domain.EscrowAgreementRepository,
 ) domain.ContractUsecase {
-	var userRepo domain.UserRepository
-	if len(userRepos) > 0 {
-		userRepo = userRepos[0]
-	}
 	return &contractUsecase{
+		paypetalDeps: paypetalDeps{client: paypetalClient, userRepo: userRepo},
 		contractRepo: contractRepo,
 		jobRepo:      jobRepo,
 		notifRepo:    notifRepo,
-		userRepo:     userRepo,
+		walletRepo:   walletRepo,
+		escrowRepo:   escrowRepo,
 	}
 }
 
@@ -83,11 +87,54 @@ func (u *contractUsecase) CompleteContract(ctx context.Context, clientID, contra
 		jobTitle = job.Title
 	}
 
+	// Release job-level escrow (the whole-budget-up-front case, no
+	// milestones) to the musician now that the client has confirmed the
+	// work is done — this is the only trigger for that money ever moving;
+	// unlike milestones there's no separate "release" button for it.
+	// Best-effort: a release failure here shouldn't block marking the
+	// contract complete, since the client's own action already succeeded.
+	if job != nil && job.EscrowFunded && contract.EscrowReference != "" {
+		if err := u.releaseJobEscrow(ctx, contract, job); err != nil {
+			log.Printf("contract %s: job escrow release failed: %v", contract.ID, err)
+		}
+	}
+
 	// Send Notifications
 	contractLink := "/contracts/" + contract.ID
 	u.notifyAndEmail(ctx, contract.ClientID, "Contract Completed", fmt.Sprintf("The contract '%s' has been marked completed. Please leave a review for the musician.", jobTitle), contractLink)
 	u.notifyAndEmail(ctx, contract.MusicianID, "Contract Completed", fmt.Sprintf("Your contract '%s' has been marked completed by the client. Please leave a review for the client.", jobTitle), contractLink)
 
+	return nil
+}
+
+// releaseJobEscrow pays out a job-sourced contract's lump-sum escrow to the
+// musician — mirrors disputeUsecase.resolveJobEscrow's musician-wins branch
+// exactly, just triggered by normal completion instead of a dispute ruling.
+func (u *contractUsecase) releaseJobEscrow(ctx context.Context, contract *domain.Contract, job *domain.Job) error {
+	agreement, err := u.escrowRepo.GetByReference(ctx, contract.EscrowReference)
+	if err != nil {
+		return fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	if agreement.PayoutStatus != "NONE" || agreement.RefundStatus != "NONE" {
+		return nil // already settled (e.g. a dispute got there first)
+	}
+
+	if err := u.client.CompleteTrustCoreAgreement(ctx, contract.EscrowReference); err != nil {
+		return fmt.Errorf("failed to release payment: %w", err)
+	}
+	agreement.PayoutStatus = "PENDING"
+	_ = u.escrowRepo.Update(ctx, agreement)
+
+	if u.walletRepo != nil {
+		_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+			UserID: contract.MusicianID, Type: "payment_received", Amount: job.EscrowAmount,
+			Description: fmt.Sprintf("Payment released: %s", job.Title), Reference: contract.EscrowReference,
+		})
+	}
+
+	job.EscrowAmount = 0
+	job.EscrowFunded = false
+	_ = u.jobRepo.Update(ctx, job)
 	return nil
 }
 

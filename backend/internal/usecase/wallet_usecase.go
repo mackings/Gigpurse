@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"gigpurse/internal/domain"
@@ -10,63 +9,41 @@ import (
 
 type walletUsecase struct {
 	walletRepo domain.WalletRepository
+	userRepo   domain.UserRepository
 }
 
-func NewWalletUsecase(repo domain.WalletRepository) domain.WalletUsecase {
+func NewWalletUsecase(repo domain.WalletRepository, userRepo domain.UserRepository) domain.WalletUsecase {
 	return &walletUsecase{
 		walletRepo: repo,
+		userRepo:   userRepo,
 	}
 }
 
-func (u *walletUsecase) GetWallet(ctx context.Context, userID string) (*domain.Wallet, error) {
-	wallet, err := u.walletRepo.GetOrCreate(ctx, userID)
+// GetWallet computes total earned/spent from the transaction log (the log
+// is the source of truth — nothing mutates a running balance anymore) and
+// reports whether a payout account is on file, which is what the Wallet
+// page shows instead of a spendable balance.
+func (u *walletUsecase) GetWallet(ctx context.Context, userID string) (*domain.WalletSummary, error) {
+	txs, err := u.walletRepo.ListTransactions(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("usecase get wallet: %w", err)
 	}
-	return wallet, nil
+	summary := &domain.WalletSummary{UserID: userID}
+	for _, tx := range txs {
+		switch tx.Type {
+		case "payment_received":
+			summary.TotalEarned += tx.Amount
+		case "escrow_hold":
+			summary.TotalSpent += tx.Amount
+		}
+	}
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil {
+		summary.HasPayoutAccount = user.PayoutAccount != nil
+		summary.PayoutAccount = user.PayoutAccount
+	}
+	return summary, nil
 }
 
 func (u *walletUsecase) ListTransactions(ctx context.Context, userID string) ([]*domain.Transaction, error) {
 	return u.walletRepo.ListTransactions(ctx, userID)
-}
-
-func (u *walletUsecase) Deposit(ctx context.Context, userID string, amount float64) (*domain.Wallet, error) {
-	if amount <= 0 {
-		return nil, errors.New("amount must be greater than zero")
-	}
-	wallet, err := u.walletRepo.GetOrCreate(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("usecase deposit: %w", err)
-	}
-
-	wallet.Balance += amount
-	if err := u.walletRepo.Save(ctx, wallet); err != nil {
-		return nil, fmt.Errorf("usecase deposit: %w", err)
-	}
-	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: userID, Type: "deposit", Amount: amount, Description: "Wallet top-up",
-	})
-	return wallet, nil
-}
-
-func (u *walletUsecase) Withdraw(ctx context.Context, userID string, amount float64) (*domain.Wallet, error) {
-	if amount <= 0 {
-		return nil, errors.New("amount must be greater than zero")
-	}
-	wallet, err := u.walletRepo.GetOrCreate(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("usecase withdraw: %w", err)
-	}
-	if amount > wallet.Balance {
-		return nil, errors.New("insufficient balance")
-	}
-
-	wallet.Balance -= amount
-	if err := u.walletRepo.Save(ctx, wallet); err != nil {
-		return nil, fmt.Errorf("usecase withdraw: %w", err)
-	}
-	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: userID, Type: "withdrawal", Amount: amount, Description: "Withdrawal to bank account",
-	})
-	return wallet, nil
 }

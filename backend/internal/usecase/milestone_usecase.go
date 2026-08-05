@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 // Broadcaster is the subset of the websocket Hub that milestoneUsecase needs
@@ -20,12 +21,15 @@ type Broadcaster interface {
 }
 
 type milestoneUsecase struct {
-	milestoneRepo domain.MilestoneRepository
-	contractRepo  domain.ContractRepository
-	walletRepo    domain.WalletRepository
-	notifRepo     domain.NotificationRepository
-	chatRepo      domain.ChatRepository
-	broadcaster   Broadcaster
+	paypetalDeps
+	milestoneRepo   domain.MilestoneRepository
+	contractRepo    domain.ContractRepository
+	walletRepo      domain.WalletRepository
+	notifRepo       domain.NotificationRepository
+	chatRepo        domain.ChatRepository
+	broadcaster     Broadcaster
+	escrowRepo      domain.EscrowAgreementRepository
+	frontendBaseURL string
 }
 
 func NewMilestoneUsecase(
@@ -35,14 +39,21 @@ func NewMilestoneUsecase(
 	notifRepo domain.NotificationRepository,
 	chatRepo domain.ChatRepository,
 	broadcaster Broadcaster,
+	paypetalClient paypetal.API,
+	userRepo domain.UserRepository,
+	escrowRepo domain.EscrowAgreementRepository,
+	frontendBaseURL string,
 ) domain.MilestoneUsecase {
 	return &milestoneUsecase{
-		milestoneRepo: milestoneRepo,
-		contractRepo:  contractRepo,
-		walletRepo:    walletRepo,
-		notifRepo:     notifRepo,
-		chatRepo:      chatRepo,
-		broadcaster:   broadcaster,
+		paypetalDeps:    paypetalDeps{client: paypetalClient, userRepo: userRepo},
+		milestoneRepo:   milestoneRepo,
+		contractRepo:    contractRepo,
+		walletRepo:      walletRepo,
+		notifRepo:       notifRepo,
+		chatRepo:        chatRepo,
+		broadcaster:     broadcaster,
+		escrowRepo:      escrowRepo,
+		frontendBaseURL: frontendBaseURL,
 	}
 }
 
@@ -279,42 +290,125 @@ func (u *milestoneUsecase) Counter(ctx context.Context, contractID, milestoneID,
 	return milestone, nil
 }
 
-func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, userID string) (*domain.Milestone, error) {
+// Fund starts a TrustCore payment for an accepted milestone and returns a
+// hosted checkout URL — see FinalizeFund for what used to happen here
+// synchronously.
+func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, userID string) (string, string, error) {
 	contract, milestone, _, err := u.loadForTransition(ctx, contractID, milestoneID, userID)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 	if userID != contract.ClientID {
-		return nil, errors.New("unauthorized: only the client can fund a milestone")
+		return "", "", errors.New("unauthorized: only the client can fund a milestone")
 	}
 	if milestone.Status != "accepted" {
-		return nil, errors.New("milestone must be accepted by both parties before it can be funded")
+		return "", "", errors.New("milestone must be accepted by both parties before it can be funded")
 	}
 
-	wallet, err := u.walletRepo.GetOrCreate(ctx, contract.ClientID)
+	client, err := u.userRepo.GetByID(ctx, contract.ClientID)
 	if err != nil {
-		return nil, err
+		return "", "", fmt.Errorf("client not found: %w", err)
 	}
-	if milestone.Amount > wallet.Balance {
-		return nil, errors.New("insufficient wallet balance to fund this milestone")
+	musician, err := u.userRepo.GetByID(ctx, contract.MusicianID)
+	if err != nil {
+		return "", "", fmt.Errorf("musician not found: %w", err)
 	}
-	wallet.Balance -= milestone.Amount
-	wallet.EscrowBalance += milestone.Amount
-	wallet.TotalSpent += milestone.Amount
-	if err := u.walletRepo.Save(ctx, wallet); err != nil {
-		return nil, err
+	if err := u.requirePayoutAccount(musician); err != nil {
+		u.notify(ctx, musician.ID, "Add your bank account to get paid",
+			fmt.Sprintf("A milestone payment for '%s' is waiting on you to add a payout account.", milestone.Title), contractID)
+		return "", "", err
 	}
-	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: contract.ClientID, Type: "escrow_hold", Amount: milestone.Amount,
-		Description: fmt.Sprintf("Escrow funded: %s", milestone.Title),
+
+	clientCustomerID, err := u.ensureCustomer(ctx, client)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to register client with payment provider: %w", err)
+	}
+	musicianCustomerID, err := u.ensureCustomer(ctx, musician)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to register musician with payment provider: %w", err)
+	}
+
+	reference := "milestone:" + milestoneID
+	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
+		ReferenceID:            reference,
+		InitiatorCustomerID:    clientCustomerID,
+		CounterpartyCustomerID: musicianCustomerID,
+		Currency:               "NGN",
+		AmountKobo:             paypetal.NairaToKobo(milestone.Amount),
+		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
+		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
 	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to start payment: %w", err)
+	}
+
+	agreement := &domain.EscrowAgreement{
+		ReferenceID:            reference,
+		ScopeType:              "milestone",
+		ScopeID:                milestoneID,
+		ContractID:             contractID,
+		InitiatorCustomerID:    clientCustomerID,
+		CounterpartyCustomerID: musicianCustomerID,
+		InitiatorUserID:        contract.ClientID,
+		CounterpartyUserID:     contract.MusicianID,
+		AmountNaira:            milestone.Amount,
+		TrustCoreTransactionID: result.TransactionID,
+		Status:                 result.Status,
+		PayoutStatus:           "NONE",
+		RefundStatus:           "NONE",
+	}
+	if err := u.escrowRepo.Create(ctx, agreement); err != nil {
+		return "", "", fmt.Errorf("failed to record escrow agreement: %w", err)
+	}
+
+	milestone.EscrowReference = reference
+	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
+		return "", "", err
+	}
+
+	return result.PaymentURL, reference, nil
+}
+
+// FinalizeFund confirms a milestone payment and flips it to "funded" — the
+// counterpart to job hiring's FinalizeHire. Called from the webhook handler
+// and from a frontend poll; idempotent against both firing.
+func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (*domain.Milestone, error) {
+	agreement, err := u.escrowRepo.GetByReference(ctx, reference)
+	if err != nil {
+		return nil, fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	milestone, err := u.milestoneRepo.GetByID(ctx, agreement.ScopeID)
+	if err != nil {
+		return nil, fmt.Errorf("milestone not found: %w", err)
+	}
+	if milestone.Status == "funded" {
+		return milestone, nil // already finalized
+	}
+
+	state, err := u.client.GetTrustCoreAgreement(ctx, reference)
+	if err != nil {
+		return nil, fmt.Errorf("failed to confirm payment: %w", err)
+	}
+	if state.Status != "ONGOING" {
+		return nil, fmt.Errorf("payment not yet confirmed (status: %s)", state.Status)
+	}
+
+	agreement.Status = state.Status
+	agreement.PayoutStatus = state.PayoutStatus
+	agreement.RefundStatus = state.RefundStatus
+	_ = u.escrowRepo.Update(ctx, agreement)
 
 	milestone.Status = "funded"
 	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 		return nil, err
 	}
-	u.notify(ctx, contract.MusicianID, "Escrow funded",
-		fmt.Sprintf("Escrow funded for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), contractID)
+
+	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+		UserID: agreement.InitiatorUserID, Type: "escrow_hold", Amount: milestone.Amount,
+		Description: fmt.Sprintf("Escrow funded: %s", milestone.Title), Reference: reference,
+	})
+	u.notify(ctx, agreement.CounterpartyUserID, "Escrow funded",
+		fmt.Sprintf("Escrow funded for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), milestone.ContractID)
 
 	return milestone, nil
 }
@@ -330,82 +424,71 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	if milestone.Status != "funded" {
 		return nil, errors.New("milestone is not funded yet")
 	}
-
-	clientWallet, err := u.walletRepo.GetOrCreate(ctx, contract.ClientID)
-	if err != nil {
-		return nil, err
-	}
-	clientWallet.EscrowBalance -= milestone.Amount
-	if err := u.walletRepo.Save(ctx, clientWallet); err != nil {
-		return nil, err
+	if milestone.EscrowReference == "" {
+		return nil, errors.New("milestone has no escrow agreement on file")
 	}
 
-	musicianWallet, err := u.walletRepo.GetOrCreate(ctx, contract.MusicianID)
-	if err != nil {
-		return nil, err
+	if err := u.client.CompleteTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
+		return nil, fmt.Errorf("failed to release payment: %w", err)
 	}
-	musicianWallet.Balance += milestone.Amount
-	musicianWallet.TotalEarned += milestone.Amount
-	if err := u.walletRepo.Save(ctx, musicianWallet); err != nil {
-		return nil, err
+	if agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference); err == nil {
+		agreement.PayoutStatus = "PENDING"
+		_ = u.escrowRepo.Update(ctx, agreement)
 	}
 
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
 		UserID: contract.ClientID, Type: "escrow_release", Amount: milestone.Amount,
-		Description: fmt.Sprintf("Payment released: %s", milestone.Title),
+		Description: fmt.Sprintf("Payment released: %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
 		UserID: contract.MusicianID, Type: "payment_received", Amount: milestone.Amount,
-		Description: fmt.Sprintf("Payment received: %s", milestone.Title),
+		Description: fmt.Sprintf("Payment received: %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 
 	milestone.Status = "released"
 	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 		return nil, err
 	}
+	// PayPetal debits its wallet and queues the bank transfer asynchronously
+	// — the `trustcore.payment.completed` webhook confirms it actually
+	// landed, so this notification is deliberately phrased as "initiated,"
+	// not "paid."
 	u.notify(ctx, contract.MusicianID, "Payment released",
-		fmt.Sprintf("Payment released for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), contractID)
+		fmt.Sprintf("Payment for milestone '%s' (%s) has been sent to your bank account.", milestone.Title, formatNaira(milestone.Amount)), contractID)
 
 	return milestone, nil
 }
 
-// RefundHeldForContract moves every still-`funded` milestone on a contract
-// back to the client's wallet balance — the milestone-side half of a
-// dispute resolving in the client's favor (see DisputeUsecase.ResolveDispute,
-// which also sweeps any job-level escrow the same way).
+// RefundHeldForContract refunds every still-`funded` milestone on a
+// contract back to the client — the milestone-side half of a dispute
+// resolving in the client's favor (see DisputeUsecase.ResolveDispute, which
+// also sweeps any job-level escrow the same way). Best-effort per item: one
+// failed refund doesn't stop the rest from being attempted.
 func (u *milestoneUsecase) RefundHeldForContract(ctx context.Context, contractID string) error {
-	contract, err := u.contractRepo.GetByID(ctx, contractID)
-	if err != nil {
-		return fmt.Errorf("contract not found: %w", err)
-	}
 	milestones, err := u.milestoneRepo.ListByContract(ctx, contractID)
 	if err != nil {
 		return err
 	}
 
-	clientWallet, err := u.walletRepo.GetOrCreate(ctx, contract.ClientID)
-	if err != nil {
-		return err
-	}
-	refunded := false
 	for _, milestone := range milestones {
-		if milestone.Status != "funded" {
+		if milestone.Status != "funded" || milestone.EscrowReference == "" {
 			continue
 		}
-		clientWallet.EscrowBalance -= milestone.Amount
-		clientWallet.Balance += milestone.Amount
-		refunded = true
+		agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
+		if err != nil {
+			continue
+		}
+		if err := u.client.RefundTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
+			continue
+		}
+		agreement.RefundStatus = "PENDING"
+		_ = u.escrowRepo.Update(ctx, agreement)
 		_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-			UserID: contract.ClientID, Type: "escrow_release", Amount: milestone.Amount,
-			Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title),
+			UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: milestone.Amount,
+			Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
 		})
 		milestone.Status = "refunded"
 		_ = u.milestoneRepo.Update(ctx, milestone)
-	}
-	if refunded {
-		if err := u.walletRepo.Save(ctx, clientWallet); err != nil {
-			return err
-		}
 	}
 	return nil
 }

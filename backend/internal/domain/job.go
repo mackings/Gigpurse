@@ -6,27 +6,32 @@ import (
 )
 
 type Job struct {
-	ID          string    `json:"id" bson:"_id"`
-	ClientID    string    `json:"client_id" bson:"client_id"`
-	Title       string    `json:"title" bson:"title"`
-	Description string    `json:"description" bson:"description"`
-	Budget      float64   `json:"budget" bson:"budget"`
-	Instrument  string    `json:"instrument" bson:"instrument"`
-	Genre       string    `json:"genre" bson:"genre"`
-	Location    string    `json:"location" bson:"location"`
-	Status      string    `json:"status" bson:"status"` // "pending_funding", "open", "active", "completed", "disputed", "closed"
-	MusicianID  string    `json:"musician_id,omitempty" bson:"musician_id,omitempty"`
+	ID          string  `json:"id" bson:"_id"`
+	ClientID    string  `json:"client_id" bson:"client_id"`
+	Title       string  `json:"title" bson:"title"`
+	Description string  `json:"description" bson:"description"`
+	Budget      float64 `json:"budget" bson:"budget"`
+	Instrument  string  `json:"instrument" bson:"instrument"`
+	Genre       string  `json:"genre" bson:"genre"`
+	Location    string  `json:"location" bson:"location"`
+	Status      string  `json:"status" bson:"status"` // "pending_funding", "open", "pending_hire_funding", "active", "completed", "disputed", "closed"
+	MusicianID  string  `json:"musician_id,omitempty" bson:"musician_id,omitempty"`
 
 	ExperienceLevel string   `json:"experience_level,omitempty" bson:"experience_level,omitempty"` // "entry", "intermediate", "expert"
 	Duration        string   `json:"duration,omitempty" bson:"duration,omitempty"`                 // "less_than_1_week", "1_to_2_weeks", "1_to_4_weeks", "1_to_3_months", "3_plus_months"
 	ProjectType     string   `json:"project_type,omitempty" bson:"project_type,omitempty"`         // "one_time", "ongoing"
 	Skills          []string `json:"skills,omitempty" bson:"skills,omitempty"`
 
-	// Fixed-price escrow: a job cannot go live (status "open") until the
-	// client funds it from their wallet balance. This makes the "Escrow
-	// funded" badge shown to applicants a real guarantee, not decoration.
-	EscrowFunded bool    `json:"escrow_funded" bson:"escrow_funded"`
-	EscrowAmount float64 `json:"escrow_amount,omitempty" bson:"escrow_amount,omitempty"`
+	// Fixed-price escrow via PayPetal TrustCore. Money moves at hire time,
+	// not post time — TrustCore requires both parties (initiator +
+	// counterparty) to create an agreement, and no musician is known yet
+	// when a job is posted. EscrowFunded/EscrowAmount stay false/zero
+	// through "open" and only become true once InitiateHire's payment is
+	// confirmed (see FinalizeHire); EscrowReference points at the
+	// EscrowAgreement backing them.
+	EscrowFunded    bool    `json:"escrow_funded" bson:"escrow_funded"`
+	EscrowAmount    float64 `json:"escrow_amount,omitempty" bson:"escrow_amount,omitempty"`
+	EscrowReference string  `json:"-" bson:"escrow_reference,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
@@ -43,17 +48,17 @@ type Job struct {
 // view — every field is derived from real jobs/contracts/reviews data, no
 // simulated stats (no Connects/bid-range/"last viewed" style filler).
 type JobClientInfo struct {
-	Name        string           `json:"name"`
-	CompanyName string           `json:"company_name,omitempty"`
-	Location    string           `json:"location,omitempty"`
-	MemberSince time.Time        `json:"member_since"`
-	Rating      float64          `json:"rating"`
-	ReviewCount int              `json:"review_count"`
-	JobsPosted  int              `json:"jobs_posted"`
-	OpenJobs    int              `json:"open_jobs"`
-	HireRate    float64          `json:"hire_rate"`   // % of posted jobs that resulted in a hire
-	TotalSpent  float64          `json:"total_spent"` // sum of completed-contract prices
-	RecentHires []JobClientHire  `json:"recent_hires,omitempty"`
+	Name        string          `json:"name"`
+	CompanyName string          `json:"company_name,omitempty"`
+	Location    string          `json:"location,omitempty"`
+	MemberSince time.Time       `json:"member_since"`
+	Rating      float64         `json:"rating"`
+	ReviewCount int             `json:"review_count"`
+	JobsPosted  int             `json:"jobs_posted"`
+	OpenJobs    int             `json:"open_jobs"`
+	HireRate    float64         `json:"hire_rate"`   // % of posted jobs that resulted in a hire
+	TotalSpent  float64         `json:"total_spent"` // sum of completed-contract prices
+	RecentHires []JobClientHire `json:"recent_hires,omitempty"`
 }
 
 type JobClientHire struct {
@@ -64,12 +69,12 @@ type JobClientHire struct {
 }
 
 type JobApplication struct {
-	ID             string          `json:"id" bson:"_id"`
-	JobID          string          `json:"job_id" bson:"job_id"`
-	MusicianID     string          `json:"musician_id" bson:"musician_id"`
-	Proposal       string          `json:"proposal" bson:"proposal"`
-	PriceBid       float64         `json:"price_bid" bson:"price_bid"`
-	Status         string          `json:"status" bson:"status"` // "pending", "accepted", "rejected"
+	ID         string  `json:"id" bson:"_id"`
+	JobID      string  `json:"job_id" bson:"job_id"`
+	MusicianID string  `json:"musician_id" bson:"musician_id"`
+	Proposal   string  `json:"proposal" bson:"proposal"`
+	PriceBid   float64 `json:"price_bid" bson:"price_bid"`
+	Status     string  `json:"status" bson:"status"` // "pending", "accepted_pending_payment", "accepted", "rejected"
 	// Snapshotted at application time (not a live reference) so the record
 	// stays accurate even if the musician later edits/reorders/deletes
 	// portfolio items — matches how job-detail "client info" is a snapshot,
@@ -150,7 +155,20 @@ type JobUsecase interface {
 	ListJobApplications(ctx context.Context, jobID string) ([]*JobApplication, error)
 	ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*JobApplication, error)
 	ListMusicianJobsByStatus(ctx context.Context, musicianID, status string) ([]*Job, error)
-	AcceptApplication(ctx context.Context, clientID, applicationID string) (*Contract, error)
+
+	// InitiateHire replaces the old synchronous AcceptApplication — TrustCore
+	// requires the client to actually pay via a hosted checkout before a
+	// Contract exists, so accepting an application now returns a payment URL
+	// instead of a Contract. FinalizeHire (called by the webhook, or by a
+	// frontend poll after the client returns from checkout) does what
+	// AcceptApplication used to do once payment is confirmed.
+	InitiateHire(ctx context.Context, clientID, applicationID string) (paymentURL, reference string, err error)
+	FinalizeHire(ctx context.Context, reference string) (*Contract, error)
+	// StartAbandonedHireSweep runs in the background for the lifetime of
+	// ctx, reverting a job stuck in "pending_hire_funding" back to "open"
+	// if the client never completed checkout. Mirrors
+	// MilestoneUsecase.StartReminderScanner's shape.
+	StartAbandonedHireSweep(ctx context.Context, checkInterval time.Duration)
 
 	SaveJob(ctx context.Context, musicianID, jobID string) error
 	UnsaveJob(ctx context.Context, musicianID, jobID string) error

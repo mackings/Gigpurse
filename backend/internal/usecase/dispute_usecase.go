@@ -8,17 +8,19 @@ import (
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 type disputeUsecase struct {
+	paypetalDeps
 	disputeRepo      domain.DisputeRepository
 	contractRepo     domain.ContractRepository
 	notifRepo        domain.NotificationRepository
 	chatRepo         domain.ChatRepository
-	userRepo         domain.UserRepository
 	jobRepo          domain.JobRepository
 	walletRepo       domain.WalletRepository
 	milestoneUsecase domain.MilestoneUsecase
+	escrowRepo       domain.EscrowAgreementRepository
 }
 
 func NewDisputeUsecase(
@@ -30,16 +32,19 @@ func NewDisputeUsecase(
 	jobRepo domain.JobRepository,
 	walletRepo domain.WalletRepository,
 	milestoneUsecase domain.MilestoneUsecase,
+	paypetalClient paypetal.API,
+	escrowRepo domain.EscrowAgreementRepository,
 ) domain.DisputeUsecase {
 	return &disputeUsecase{
+		paypetalDeps:     paypetalDeps{client: paypetalClient, userRepo: userRepo},
 		disputeRepo:      disputeRepo,
 		contractRepo:     contractRepo,
 		notifRepo:        notifRepo,
 		chatRepo:         chatRepo,
-		userRepo:         userRepo,
 		jobRepo:          jobRepo,
 		walletRepo:       walletRepo,
 		milestoneUsecase: milestoneUsecase,
+		escrowRepo:       escrowRepo,
 	}
 }
 
@@ -289,44 +294,46 @@ func (u *disputeUsecase) milestonesFor(ctx context.Context, contractID string) (
 
 // resolveJobEscrow handles the case where the contract came straight from a
 // job whose whole budget was funded up front and never split into
-// milestones — mirrors jobUsecase.CloseJob's refund-to-client math, just
-// routable to the musician too when they're the winner.
+// milestones. clientWon refunds the initiator (client); otherwise the
+// escrow is released to the counterparty (musician) — PayPetal already
+// knows both parties from the agreement, so there's no manual wallet
+// routing to do, just telling TrustCore which direction to settle.
 func (u *disputeUsecase) resolveJobEscrow(ctx context.Context, dispute *domain.Dispute, clientWon bool) {
 	contract, err := u.contractRepo.GetByID(ctx, dispute.ContractID)
-	if err != nil || contract.JobID == "" {
+	if err != nil || contract.JobID == "" || contract.EscrowReference == "" {
 		return
 	}
+	agreement, err := u.escrowRepo.GetByReference(ctx, contract.EscrowReference)
+	if err != nil || agreement.PayoutStatus != "NONE" || agreement.RefundStatus != "NONE" {
+		return // already settled (or never confirmed funded) — nothing to do
+	}
+
 	job, err := u.jobRepo.GetByID(ctx, contract.JobID)
-	if err != nil || !job.EscrowFunded || job.EscrowAmount <= 0 {
+	if err != nil {
 		return
 	}
+
+	var settleErr error
+	if clientWon {
+		settleErr = u.client.RefundTrustCoreAgreement(ctx, contract.EscrowReference)
+		agreement.RefundStatus = "PENDING"
+	} else {
+		settleErr = u.client.CompleteTrustCoreAgreement(ctx, contract.EscrowReference)
+		agreement.PayoutStatus = "PENDING"
+	}
+	if settleErr != nil {
+		log.Printf("dispute %s: job escrow settle failed: %v", dispute.ID, settleErr)
+		return
+	}
+	_ = u.escrowRepo.Update(ctx, agreement)
 
 	payeeID := dispute.MusicianID
 	if clientWon {
 		payeeID = dispute.ClientID
 	}
-
-	clientWallet, err := u.walletRepo.GetOrCreate(ctx, dispute.ClientID)
-	if err != nil {
-		return
-	}
-	clientWallet.EscrowBalance -= job.EscrowAmount
-	_ = u.walletRepo.Save(ctx, clientWallet)
-
-	if clientWon {
-		clientWallet.Balance += job.EscrowAmount
-		_ = u.walletRepo.Save(ctx, clientWallet)
-	} else {
-		musicianWallet, err := u.walletRepo.GetOrCreate(ctx, dispute.MusicianID)
-		if err == nil {
-			musicianWallet.Balance += job.EscrowAmount
-			musicianWallet.TotalEarned += job.EscrowAmount
-			_ = u.walletRepo.Save(ctx, musicianWallet)
-		}
-	}
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
 		UserID: payeeID, Type: "escrow_release", Amount: job.EscrowAmount,
-		Description: fmt.Sprintf("Dispute resolved — escrow settled for gig: %s", job.Title),
+		Description: fmt.Sprintf("Dispute resolved — escrow settled for gig: %s", job.Title), Reference: contract.EscrowReference,
 	})
 
 	job.EscrowAmount = 0

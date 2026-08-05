@@ -9,6 +9,7 @@ import (
 	"time"
 
 	delivery "gigpurse/internal/delivery/http"
+	"gigpurse/internal/paypetal"
 	"gigpurse/internal/repository/mongodb"
 	"gigpurse/internal/usecase"
 
@@ -79,20 +80,42 @@ func main() {
 	disputeRepo := mongodb.NewDisputeRepository(db)
 	walletRepo := mongodb.NewWalletRepository(db)
 	milestoneRepo := mongodb.NewMilestoneRepository(db)
+	escrowAgreementRepo := mongodb.NewEscrowAgreementRepository(db)
+
+	// PayPetal — sandbox vs production is a config change, not a code
+	// change. PAYPETAL_BASE_URL defaults to sandbox so a missing env var
+	// fails safe (can't accidentally hit production).
+	paypetalBaseURL := os.Getenv("PAYPETAL_BASE_URL")
+	if paypetalBaseURL == "" {
+		paypetalBaseURL = "https://sandbox.paypetalhq.xyz"
+	}
+	paypetalSecretKey := os.Getenv("PAYPETAL_SECRET_KEY")
+	paypetalAppID := os.Getenv("PAYPETAL_APP_ID")
+	if paypetalSecretKey == "" || paypetalAppID == "" {
+		log.Println("PAYPETAL_SECRET_KEY/PAYPETAL_APP_ID not set — escrow payment features will fail.")
+	}
+	paypetalClient := paypetal.NewClient(paypetalBaseURL, paypetalSecretKey, paypetalAppID)
+	// Where PayPetal redirects the client back to after hosted checkout.
+	frontendBaseURL := os.Getenv("FRONTEND_BASE_URL")
+	if frontendBaseURL == "" {
+		frontendBaseURL = "http://localhost:3000"
+	}
 
 	// 3. Initialize Usecases
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo, paypetalClient, escrowAgreementRepo, frontendBaseURL)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
-	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo)
+	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo, walletRepo, paypetalClient, escrowAgreementRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo)
-	walletUsecase := usecase.NewWalletUsecase(walletRepo)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub)
-	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase)
+	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL)
+	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
+	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo)
 	milestoneUsecase.StartReminderScanner(context.Background(), time.Minute, 5*time.Minute)
+	jobUsecase.StartAbandonedHireSweep(context.Background(), 5*time.Minute)
 
 	uploadDir := os.Getenv("MEDIA_UPLOAD_DIR")
 	if uploadDir == "" {
@@ -115,6 +138,8 @@ func main() {
 	mediaHandler := delivery.NewMediaHandler(uploadDir, publicURL)
 	pushHandler := delivery.NewPushHandler(pushSubRepo, vapidPublicKey)
 	linkPreviewHandler := delivery.NewLinkPreviewHandler()
+	payoutAccountHandler := delivery.NewPayoutAccountHandler(payoutAccountUsecase)
+	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(paypetalClient, escrowAgreementRepo, jobUsecase, milestoneUsecase, notifRepo)
 
 	// 5. Register HTTP Routes
 	mux := http.NewServeMux()
@@ -140,6 +165,11 @@ func main() {
 	mediaHandler.RegisterRoutes(mux)
 	pushHandler.RegisterRoutes(mux)
 	linkPreviewHandler.RegisterRoutes(mux)
+	payoutAccountHandler.RegisterRoutes(mux)
+	// Deliberately outside JWTMiddleware — PayPetal isn't a logged-in
+	// GigPurse user. See PayPetalWebhookHandler for why the payload itself
+	// is never trusted for a money decision.
+	paypetalWebhookHandler.RegisterRoutes(mux)
 
 	// Serve uploaded media files
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))

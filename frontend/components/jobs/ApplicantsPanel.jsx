@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "@/lib/api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -99,7 +98,6 @@ function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting }) {
 }
 
 export default function ApplicantsPanel({ job, open, onOpenChange }) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [acceptingId, setAcceptingId] = useState(null);
@@ -129,16 +127,21 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
     setAcceptingId(applicationId);
     try {
       const result = await apiPost("/jobs/applications/accept", { application_id: applicationId });
-      toast.success("Application accepted! Propose a milestone to get started.");
       queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      onOpenChange(false);
-      if (result?.contract_id) {
-        router.push(`/contracts/${result.contract_id}?propose=1`);
+      // Hiring now means paying — redirect to PayPetal's hosted checkout.
+      // The contract itself isn't created until that payment is confirmed
+      // (see FinalizeHire, triggered by the webhook or /contracts/pending).
+      if (result?.payment_url) {
+        window.location.href = result.payment_url;
+        return;
       }
     } catch (err) {
-      toast.error(err.message);
+      if (err.code === "payout_account_required") {
+        toast.error("This musician hasn't added a payout account yet — they've been notified to add one.");
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setAcceptingId(null);
     }
