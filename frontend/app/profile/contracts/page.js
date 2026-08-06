@@ -11,8 +11,12 @@ export default function ProfileContracts() {
     queryFn: () => apiGet("/contracts"),
   });
 
-  const active = contracts?.filter((c) => c.status === "active") || [];
-  const completed = contracts?.filter((c) => c.status === "completed") || [];
+  // Direct-hire-sourced contracts (i.e. bookings) live under Bookings
+  // instead, where they render alongside the booking's own negotiation
+  // history — this tab is job-postings-only.
+  const jobContracts = contracts?.filter((c) => c.source !== "direct_hire") || [];
+  const active = jobContracts.filter((c) => c.status === "active");
+  const completed = jobContracts.filter((c) => c.status === "completed");
 
   if (isLoading) {
     return (

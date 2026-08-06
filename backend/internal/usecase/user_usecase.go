@@ -436,7 +436,7 @@ func backfillPortfolioIDs(profile *domain.MusicianProfile) bool {
 	return changed
 }
 
-func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, location string, musProfile *domain.MusicianProfile, cliProfile *domain.ClientProfile) (*domain.User, error) {
+func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, location, avatarURL string, musProfile *domain.MusicianProfile, cliProfile *domain.ClientProfile) (*domain.User, error) {
 	user, err := u.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
@@ -447,6 +447,9 @@ func (u *userUsecase) UpdateProfile(ctx context.Context, id string, name, bio, l
 	}
 	user.Bio = bio
 	user.Location = location
+	if avatarURL != "" {
+		user.AvatarURL = avatarURL
+	}
 	user.UpdatedAt = time.Now()
 
 	if user.Role == "musician" && musProfile != nil {

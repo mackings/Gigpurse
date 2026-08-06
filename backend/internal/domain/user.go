@@ -20,6 +20,7 @@ type User struct {
 	// payment. omitempty here only accounts for accounts that predate this
 	// requirement; see UpdatePhone for backfilling those.
 	Phone           string           `json:"phone,omitempty" bson:"phone,omitempty"`
+	AvatarURL       string           `json:"avatar_url,omitempty" bson:"avatar_url,omitempty"`
 	MusicianProfile *MusicianProfile `json:"musician_profile,omitempty" bson:"musician_profile,omitempty"`
 	ClientProfile   *ClientProfile   `json:"client_profile,omitempty" bson:"client_profile,omitempty"`
 	TermsAcceptedAt time.Time        `json:"terms_accepted_at,omitempty" bson:"terms_accepted_at,omitempty"`
@@ -129,7 +130,7 @@ type UserUsecase interface {
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	GetProfile(ctx context.Context, id string) (*User, error)
-	UpdateProfile(ctx context.Context, id string, name, bio, location string, musProfile *MusicianProfile, cliProfile *ClientProfile) (*User, error)
+	UpdateProfile(ctx context.Context, id string, name, bio, location, avatarURL string, musProfile *MusicianProfile, cliProfile *ClientProfile) (*User, error)
 	BrowseMusicians(ctx context.Context, filter MusicianFilter) ([]*User, error)
 	UpdateAccountStatus(ctx context.Context, id string, hidePresence, disabled bool) (*User, error)
 	GetUserStatus(ctx context.Context, id string) (string, error)

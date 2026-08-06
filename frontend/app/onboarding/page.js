@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { apiGet, apiPut } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import AccountStatusSettings from "@/components/account/AccountStatusSettings";
+import AvatarUpload from "@/components/profile/AvatarUpload";
 
 const genresList = [
   "Afrobeats", "Gospel", "R&B", "Jazz", "Classical", "Hip-Hop", "Reggae",
@@ -41,6 +42,7 @@ export default function TalentOnboarding() {
     name: "",
     bio: "",
     location: "",
+    avatar_url: "",
     stage_name: "",
     genres: [],
     instruments: [],
@@ -61,6 +63,7 @@ export default function TalentOnboarding() {
           name: user.name || "",
           bio: user.bio || "",
           location: user.location || "",
+          avatar_url: user.avatar_url || "",
           stage_name: mp.stage_name || "",
           genres: mp.genres || [],
           instruments: mp.instruments || [],
@@ -94,6 +97,7 @@ export default function TalentOnboarding() {
         name: form.name,
         bio: form.bio,
         location: form.location,
+        avatar_url: form.avatar_url,
         musician_profile: {
           stage_name: form.stage_name,
           genres: form.genres,
@@ -174,6 +178,11 @@ export default function TalentOnboarding() {
                   <CardDescription>Tell us about yourself and your musical journey</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  <AvatarUpload
+                    value={form.avatar_url}
+                    onChange={(url) => setForm({ ...form, avatar_url: url })}
+                    name={form.stage_name || form.name}
+                  />
                   <div>
                     <Label htmlFor="stage_name">Stage Name / Artist Name</Label>
                     <Input
@@ -368,8 +377,13 @@ export default function TalentOnboarding() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-xl border border-border">
-                    <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center">
-                      <Disc3 className="w-6 h-6 text-primary-foreground" />
+                    <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center overflow-hidden shrink-0">
+                      {form.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={form.avatar_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <Disc3 className="w-6 h-6 text-primary-foreground" />
+                      )}
                     </div>
                     <div>
                       <h3 className="font-bold text-foreground">{form.stage_name || "Your Stage Name"}</h3>

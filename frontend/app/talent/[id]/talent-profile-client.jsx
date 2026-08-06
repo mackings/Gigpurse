@@ -94,8 +94,13 @@ export default function TalentProfileClient({ id }) {
             <div className="bg-card rounded-2xl shadow-sm border border-border p-6">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex items-start gap-5">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-xl sm:text-2xl font-bold shrink-0 -mt-8 sm:-mt-10 shadow-lg ring-4 ring-card">
-                    {(displayName || "?").charAt(0).toUpperCase()}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-xl sm:text-2xl font-bold shrink-0 -mt-8 sm:-mt-10 shadow-lg ring-4 ring-card overflow-hidden">
+                    {musician.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={musician.avatar_url} alt={displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      (displayName || "?").charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div className="pt-2">
                     <h1 className="text-2xl font-bold text-foreground">{displayName}</h1>

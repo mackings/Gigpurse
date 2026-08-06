@@ -21,10 +21,10 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { formatMoney } from "@/lib/utils";
-import { MapPin, Star, Pencil, XCircle, Loader2, Check, UserRound, HandCoins } from "lucide-react";
+import { MapPin, Star, Pencil, XCircle, Loader2, Check, UserRound, HandCoins, BookmarkPlus, BookmarkMinus } from "lucide-react";
 import { toast } from "sonner";
 
-function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting }) {
+function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting, onShortlist, onUnshortlist, isTogglingShortlist }) {
   const a = app.applicant;
   return (
     <div className="p-4 rounded-xl border border-border bg-card space-y-3">
@@ -68,9 +68,9 @@ function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
         <span className="text-sm font-semibold text-foreground">Bid: {formatMoney(app.price_bid)}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button asChild size="sm" variant="outline" className="gap-1.5">
             <Link href={`/talent/${app.musician_id}`}>
               <UserRound className="w-3.5 h-3.5" />
@@ -78,6 +78,18 @@ function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting }) {
             </Link>
           </Button>
           {app.status === "pending" && jobStatus === "open" && (
+            <Button size="sm" variant="outline" disabled={isTogglingShortlist} onClick={() => onShortlist(app.id)} className="gap-1.5">
+              {isTogglingShortlist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+              Shortlist
+            </Button>
+          )}
+          {app.status === "shortlisted" && jobStatus === "open" && (
+            <Button size="sm" variant="outline" disabled={isTogglingShortlist} onClick={() => onUnshortlist(app.id)} className="gap-1.5">
+              {isTogglingShortlist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkMinus className="w-3.5 h-3.5" />}
+              Remove
+            </Button>
+          )}
+          {(app.status === "pending" || app.status === "shortlisted") && jobStatus === "open" && (
             <Button size="sm" disabled={isAccepting} onClick={() => onAccept(app.id)} className="gap-1.5">
               {isAccepting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
               Accept
@@ -102,6 +114,8 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
   const [editOpen, setEditOpen] = useState(false);
   const [acceptingId, setAcceptingId] = useState(null);
   const [isClosing, setIsClosing] = useState(false);
+  const [togglingShortlistId, setTogglingShortlistId] = useState(null);
+  const [tab, setTab] = useState("all");
 
   const { data: applications, isLoading } = useQuery({
     queryKey: ["job-applications", job.id],
@@ -122,6 +136,9 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
   for (const c of contracts || []) {
     if (c.job_id === job.id) contractIdByMusician[c.musician_id] = c.id;
   }
+
+  const shortlistedCount = applications?.filter((a) => a.status === "shortlisted").length || 0;
+  const visibleApplications = tab === "shortlisted" ? applications?.filter((a) => a.status === "shortlisted") : applications;
 
   async function accept(applicationId) {
     setAcceptingId(applicationId);
@@ -144,6 +161,30 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
       }
     } finally {
       setAcceptingId(null);
+    }
+  }
+
+  async function shortlist(applicationId) {
+    setTogglingShortlistId(applicationId);
+    try {
+      await apiPost("/jobs/applications/shortlist", { application_id: applicationId });
+      queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setTogglingShortlistId(null);
+    }
+  }
+
+  async function unshortlist(applicationId) {
+    setTogglingShortlistId(applicationId);
+    try {
+      await apiPost("/jobs/applications/unshortlist", { application_id: applicationId });
+      queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setTogglingShortlistId(null);
     }
   }
 
@@ -197,8 +238,8 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Close this gig?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          It&apos;ll stop accepting applications immediately. Anyone with a pending application will be notified.
-                          {job.escrow_funded && " Since escrow was already funded, that amount is refunded back to your wallet."}
+                          It&apos;ll stop accepting applications immediately. Anyone with a pending or shortlisted application will
+                          be notified.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -215,16 +256,36 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
             </div>
 
             <div>
-              <h3 className="font-semibold text-foreground mb-3">
-                Applicants {applications?.length > 0 && `(${applications.length})`}
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-foreground">
+                  Applicants {applications?.length > 0 && `(${applications.length})`}
+                </h3>
+                {shortlistedCount > 0 && (
+                  <div className="flex items-center gap-1 rounded-full bg-muted p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setTab("all")}
+                      className={`px-2.5 py-1 rounded-full font-medium transition-colors ${tab === "all" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTab("shortlisted")}
+                      className={`px-2.5 py-1 rounded-full font-medium transition-colors ${tab === "shortlisted" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                    >
+                      Shortlisted ({shortlistedCount})
+                    </button>
+                  </div>
+                )}
+              </div>
               {isLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-primary" />
                 </div>
-              ) : applications?.length ? (
+              ) : visibleApplications?.length ? (
                 <div className="space-y-3">
-                  {applications.map((app) => (
+                  {visibleApplications.map((app) => (
                     <ApplicantRow
                       key={app.id}
                       app={app}
@@ -232,9 +293,14 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
                       contractId={contractIdByMusician[app.musician_id]}
                       onAccept={accept}
                       isAccepting={acceptingId === app.id}
+                      onShortlist={shortlist}
+                      onUnshortlist={unshortlist}
+                      isTogglingShortlist={togglingShortlistId === app.id}
                     />
                   ))}
                 </div>
+              ) : tab === "shortlisted" ? (
+                <p className="text-sm text-muted-foreground">No shortlisted applicants yet.</p>
               ) : (
                 <p className="text-sm text-muted-foreground">No applications yet.</p>
               )}

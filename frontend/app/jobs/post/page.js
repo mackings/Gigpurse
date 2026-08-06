@@ -272,7 +272,7 @@ export default function PostJob() {
               </div>
 
               <Button type="submit" disabled={isSubmitting} className="w-full">
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Continue to fund escrow"}
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Post gig"}
               </Button>
             </form>
           </CardContent>

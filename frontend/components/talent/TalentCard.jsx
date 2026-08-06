@@ -8,8 +8,13 @@ export default function TalentCard({ musician }) {
     <Link href={`/talent/${musician.id}`}>
       <div className="group bg-card rounded-2xl border border-border hover:border-primary/40 hover:shadow-lg hover:shadow-black/5 hover:-translate-y-0.5 transition-all duration-200 p-5 h-full flex flex-col">
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold text-lg shrink-0">
-            {(mp.stage_name || musician.name || "?").charAt(0).toUpperCase()}
+          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-semibold text-lg shrink-0 overflow-hidden">
+            {musician.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={musician.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              (mp.stage_name || musician.name || "?").charAt(0).toUpperCase()
+            )}
           </div>
           <div className="min-w-0">
             <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">

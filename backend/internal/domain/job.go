@@ -74,7 +74,7 @@ type JobApplication struct {
 	MusicianID string  `json:"musician_id" bson:"musician_id"`
 	Proposal   string  `json:"proposal" bson:"proposal"`
 	PriceBid   float64 `json:"price_bid" bson:"price_bid"`
-	Status     string  `json:"status" bson:"status"` // "pending", "accepted_pending_payment", "accepted", "rejected"
+	Status     string  `json:"status" bson:"status"` // "pending", "shortlisted", "accepted_pending_payment", "accepted", "rejected"
 	// Snapshotted at application time (not a live reference) so the record
 	// stays accurate even if the musician later edits/reorders/deletes
 	// portfolio items — matches how job-detail "client info" is a snapshot,
@@ -155,6 +155,13 @@ type JobUsecase interface {
 	ListJobApplications(ctx context.Context, jobID string) ([]*JobApplication, error)
 	ListApplicationsByMusician(ctx context.Context, musicianID string) ([]*JobApplication, error)
 	ListMusicianJobsByStatus(ctx context.Context, musicianID, status string) ([]*Job, error)
+	// ShortlistApplication/UnshortlistApplication toggle a lightweight,
+	// non-committing "still considering" flag a client can set on a pending
+	// applicant — purely organizational (doesn't touch payment); a
+	// shortlisted application can still be accepted (hired) or reverted
+	// back to pending at any time before the job is filled.
+	ShortlistApplication(ctx context.Context, clientID, applicationID string) (*JobApplication, error)
+	UnshortlistApplication(ctx context.Context, clientID, applicationID string) (*JobApplication, error)
 
 	// InitiateHire replaces the old synchronous AcceptApplication — TrustCore
 	// requires the client to actually pay via a hosted checkout before a

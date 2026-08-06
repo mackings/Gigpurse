@@ -4,6 +4,7 @@ const STATUS_STYLES = {
   open: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
   pending_funding: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   pending: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  shortlisted: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
   proposed: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   waiting: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   active: "bg-primary/10 text-primary",

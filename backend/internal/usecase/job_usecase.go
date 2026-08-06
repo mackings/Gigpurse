@@ -167,7 +167,7 @@ func (u *jobUsecase) notifyPendingApplicants(ctx context.Context, job *domain.Jo
 		return
 	}
 	for _, app := range apps {
-		if app.Status == "pending" {
+		if app.Status == "pending" || app.Status == "shortlisted" {
 			u.notify(ctx, app.MusicianID, title, message)
 		}
 	}
@@ -408,6 +408,53 @@ func (u *jobUsecase) ListJobApplications(ctx context.Context, jobID string) ([]*
 	return apps, nil
 }
 
+// loadOwnedApplication fetches an application and confirms the requester
+// owns the job it's on — shared guard for the shortlist toggle.
+func (u *jobUsecase) loadOwnedApplication(ctx context.Context, clientID, applicationID string) (*domain.JobApplication, error) {
+	app, err := u.jobRepo.GetApplicationByID(ctx, applicationID)
+	if err != nil {
+		return nil, fmt.Errorf("application not found: %w", err)
+	}
+	job, err := u.jobRepo.GetByID(ctx, app.JobID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return nil, errors.New("unauthorized: only the job creator can manage applicants")
+	}
+	return app, nil
+}
+
+func (u *jobUsecase) ShortlistApplication(ctx context.Context, clientID, applicationID string) (*domain.JobApplication, error) {
+	app, err := u.loadOwnedApplication(ctx, clientID, applicationID)
+	if err != nil {
+		return nil, err
+	}
+	if app.Status != "pending" {
+		return nil, fmt.Errorf("can't shortlist an application in status %q", app.Status)
+	}
+	app.Status = "shortlisted"
+	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
+		return nil, fmt.Errorf("failed to shortlist application: %w", err)
+	}
+	return app, nil
+}
+
+func (u *jobUsecase) UnshortlistApplication(ctx context.Context, clientID, applicationID string) (*domain.JobApplication, error) {
+	app, err := u.loadOwnedApplication(ctx, clientID, applicationID)
+	if err != nil {
+		return nil, err
+	}
+	if app.Status != "shortlisted" {
+		return nil, fmt.Errorf("application is not shortlisted (status %q)", app.Status)
+	}
+	app.Status = "pending"
+	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
+		return nil, fmt.Errorf("failed to unshortlist application: %w", err)
+	}
+	return app, nil
+}
+
 // buildApplicantSummary is the at-a-glance context a client sees per
 // applicant (rating, genres, instruments) — best-effort, a lookup failure
 // just means that one application shows without the summary rather than
@@ -444,7 +491,7 @@ func (u *jobUsecase) ListMusicianJobsByStatus(ctx context.Context, musicianID, s
 		}
 		var jobs []*domain.Job
 		for _, app := range apps {
-			if app.Status != "pending" {
+			if app.Status != "pending" && app.Status != "shortlisted" {
 				continue
 			}
 			job, err := u.jobRepo.GetByID(ctx, app.JobID)
@@ -634,7 +681,7 @@ func (u *jobUsecase) FinalizeHire(ctx context.Context, reference string) (*domai
 	allApps, err := u.jobRepo.ListApplications(ctx, job.ID)
 	if err == nil {
 		for _, otherApp := range allApps {
-			if otherApp.ID != app.ID && otherApp.Status == "pending" {
+			if otherApp.ID != app.ID && (otherApp.Status == "pending" || otherApp.Status == "shortlisted") {
 				otherApp.Status = "rejected"
 				_ = u.jobRepo.UpdateApplication(ctx, otherApp)
 			}

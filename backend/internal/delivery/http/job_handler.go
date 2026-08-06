@@ -27,6 +27,8 @@ func (h *JobHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/jobs/apply", JWTMiddleware(h.ApplyForJob))
 	mux.HandleFunc("/jobs/applications", JWTMiddleware(h.HandleApplications))
 	mux.HandleFunc("/jobs/applications/accept", JWTMiddleware(h.AcceptApplication))
+	mux.HandleFunc("/jobs/applications/shortlist", JWTMiddleware(h.ShortlistApplication))
+	mux.HandleFunc("/jobs/applications/unshortlist", JWTMiddleware(h.UnshortlistApplication))
 	mux.HandleFunc("/jobs/hire/finalize", JWTMiddleware(h.FinalizeHire))
 	mux.HandleFunc("/jobs/save", JWTMiddleware(h.SaveJob))
 	mux.HandleFunc("/jobs/unsave", JWTMiddleware(h.UnsaveJob))
@@ -405,6 +407,56 @@ func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 		"payment_url": paymentURL,
 		"reference":   reference,
 	})
+}
+
+func (h *JobHandler) ShortlistApplication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can shortlist applicants")
+		return
+	}
+	var req struct {
+		ApplicationID string `json:"application_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	app, err := h.jobUsecase.ShortlistApplication(r.Context(), userID, req.ApplicationID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "shortlist_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "application shortlisted", app)
+}
+
+func (h *JobHandler) UnshortlistApplication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can manage applicants")
+		return
+	}
+	var req struct {
+		ApplicationID string `json:"application_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	app, err := h.jobUsecase.UnshortlistApplication(r.Context(), userID, req.ApplicationID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "unshortlist_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "application removed from shortlist", app)
 }
 
 // FinalizeHire is polled by the frontend after the client returns from

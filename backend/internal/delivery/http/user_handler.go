@@ -245,6 +245,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, user
 		Name            string                  `json:"name"`
 		Bio             string                  `json:"bio"`
 		Location        string                  `json:"location"`
+		AvatarURL       string                  `json:"avatar_url"`
 		MusicianProfile *domain.MusicianProfile `json:"musician_profile,omitempty"`
 		ClientProfile   *domain.ClientProfile   `json:"client_profile,omitempty"`
 	}
@@ -254,7 +255,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	user, err := h.userUsecase.UpdateProfile(r.Context(), userID, req.Name, req.Bio, req.Location, req.MusicianProfile, req.ClientProfile)
+	user, err := h.userUsecase.UpdateProfile(r.Context(), userID, req.Name, req.Bio, req.Location, req.AvatarURL, req.MusicianProfile, req.ClientProfile)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "profile_update_failed", err.Error())
 		return

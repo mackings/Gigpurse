@@ -12,13 +12,14 @@ import { toast } from "sonner";
 import { apiGet, apiPut } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import AccountStatusSettings from "@/components/account/AccountStatusSettings";
+import AvatarUpload from "@/components/profile/AvatarUpload";
 
 export default function ProfilePage() {
   const router = useRouter();
   const { user: authUser } = useCurrentUser();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: "", bio: "", location: "", company_name: "" });
+  const [form, setForm] = useState({ name: "", bio: "", location: "", company_name: "", avatar_url: "" });
 
   useEffect(() => {
     if (authUser?.role === "musician") {
@@ -33,6 +34,7 @@ export default function ProfilePage() {
           bio: user.bio || "",
           location: user.location || "",
           company_name: user.client_profile?.company_name || "",
+          avatar_url: user.avatar_url || "",
         });
       })
       .catch(() => {})
@@ -47,6 +49,7 @@ export default function ProfilePage() {
         name: form.name,
         bio: form.bio,
         location: form.location,
+        avatar_url: form.avatar_url,
         client_profile: { company_name: form.company_name },
       });
       toast.success("Profile saved!");
@@ -75,6 +78,11 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            <AvatarUpload
+              value={form.avatar_url}
+              onChange={(url) => setForm({ ...form, avatar_url: url })}
+              name={form.name}
+            />
             <div>
               <Label htmlFor="name">Full name</Label>
               <Input
