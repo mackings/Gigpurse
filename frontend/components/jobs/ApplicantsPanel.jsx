@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
-import { openPaymentPopup } from "@/lib/payment-popup";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
@@ -145,30 +144,17 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
   async function accept(applicationId) {
     setAcceptingId(applicationId);
     try {
-      const result = await apiPost("/jobs/applications/accept", { application_id: applicationId });
+      // Hiring is free and immediate — no payment happens here. Every
+      // payment from here on is its own milestone, proposed on the
+      // resulting contract (PayPetal can't partially release one upfront
+      // payment, so there's no "pay once at hire time" option anymore).
+      await apiPost("/jobs/applications/accept", { application_id: applicationId });
+      toast.success("Hired! Propose a milestone to start paying for the work.");
       queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
-      // Hiring now means paying — open PayPetal's hosted checkout in a
-      // popup instead of navigating away. The contract itself isn't created
-      // until that payment is confirmed (see FinalizeHire, triggered by the
-      // webhook or the popup's own poll) — once the popup closes, re-sync so
-      // the confirmed hire shows up without a manual refresh.
-      if (result?.payment_url) {
-        openPaymentPopup(result.payment_url, {
-          onClose: () => {
-            queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
-            queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
-            queryClient.invalidateQueries({ queryKey: ["contracts"] });
-          },
-        });
-        return;
-      }
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
     } catch (err) {
-      if (err.code === "payout_account_required") {
-        toast.error("This musician hasn't added a payout account yet — they've been notified to add one.");
-      } else {
-        toast.error(err.message);
-      }
+      toast.error(err.message);
     } finally {
       setAcceptingId(null);
     }

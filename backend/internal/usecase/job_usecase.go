@@ -205,7 +205,8 @@ func (u *jobUsecase) DeleteJob(ctx context.Context, clientID, jobID string) erro
 // FundEscrow no longer moves any money — PayPetal TrustCore needs both
 // parties to create an agreement, and no musician is known yet at this
 // point (the job isn't even open for applications). This just publishes the
-// job; real payment happens at hire time, see InitiateHire/FinalizeHire.
+// job; payment happens per-milestone once someone's hired, see
+// AcceptApplication and milestoneUsecase.Fund.
 // The name/status value survive from the pre-PayPetal design since the
 // frontend and job lifecycle around them are otherwise unaffected — "fund
 // escrow to publish" reads oddly now, but renaming the whole pending_funding
@@ -580,104 +581,86 @@ func (u *jobUsecase) ListMusicianJobsByStatus(ctx context.Context, musicianID, s
 	return jobs, nil
 }
 
-// InitiateHire is what "Accept" on an application now does: instead of
-// creating a Contract immediately, it creates a PayPetal TrustCore agreement
-// (client = initiator/payer, musician = counterparty/payee) and returns a
-// hosted checkout URL. Nothing about the job/application/Contract changes
-// until that payment is actually confirmed — see FinalizeHire.
-func (u *jobUsecase) InitiateHire(ctx context.Context, clientID, applicationID string) (string, string, error) {
+// AcceptApplication hires a musician immediately, at no cost — job hires no
+// longer collect the full budget upfront. PayPetal's TrustCore agreements
+// can only release their full amount in one shot (no partial-release
+// endpoint), so there's no way to pay once at hire time and then release
+// individual milestones out of that same payment. Instead this mirrors a
+// direct-hire booking exactly: the Contract is created for free, and every
+// payment from here on is its own separate milestone, funded and released
+// individually as work is delivered.
+func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicationID string) (*domain.Contract, error) {
 	app, err := u.jobRepo.GetApplicationByID(ctx, applicationID)
 	if err != nil {
-		return "", "", fmt.Errorf("application not found: %w", err)
+		return nil, fmt.Errorf("application not found: %w", err)
 	}
 	job, err := u.jobRepo.GetByID(ctx, app.JobID)
 	if err != nil {
-		return "", "", fmt.Errorf("job not found: %w", err)
+		return nil, fmt.Errorf("job not found: %w", err)
 	}
 	if job.ClientID != clientID {
-		return "", "", errors.New("unauthorized: only the job creator can accept applications")
+		return nil, errors.New("unauthorized: only the job creator can accept applications")
 	}
 	if job.Status != "open" {
-		return "", "", errors.New("job is no longer open")
+		return nil, errors.New("job is no longer open")
 	}
 
-	client, err := u.userRepo.GetByID(ctx, clientID)
-	if err != nil {
-		return "", "", fmt.Errorf("client not found: %w", err)
-	}
-	musician, err := u.userRepo.GetByID(ctx, app.MusicianID)
-	if err != nil {
-		return "", "", fmt.Errorf("musician not found: %w", err)
-	}
-	// Checked before creating anything on PayPetal's side — this is the one
-	// precondition only the musician can fix, so failing fast here (rather
-	// than after the agreement exists) avoids a half-created hire.
-	if err := u.requirePayoutAccount(musician); err != nil {
-		u.notify(ctx, musician.ID, "Add your bank account to get paid",
-			fmt.Sprintf("A client wants to hire you for '%s' — add a payout account so you can receive payment.", job.Title))
-		return "", "", err
-	}
-
-	clientCustomerID, err := u.ensureCustomer(ctx, client)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to register client with payment provider: %w", err)
-	}
-	musicianCustomerID, err := u.ensureCustomer(ctx, musician)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to register musician with payment provider: %w", err)
-	}
-
-	reference := "job-hire:" + applicationID
-	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
-		ReferenceID:            reference,
-		InitiatorCustomerID:    clientCustomerID,
-		CounterpartyCustomerID: musicianCustomerID,
-		Currency:               "NGN",
-		AmountKobo:             paypetal.NairaToKobo(job.Budget),
-		Description:            fmt.Sprintf("GigPurse hire: %s", job.Title),
-		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
-	})
-	if err != nil {
-		return "", "", fmt.Errorf("failed to start payment: %w", err)
-	}
-
-	agreement := &domain.EscrowAgreement{
-		ReferenceID:            reference,
-		ScopeType:              "job_hire",
-		ScopeID:                applicationID,
-		InitiatorCustomerID:    clientCustomerID,
-		CounterpartyCustomerID: musicianCustomerID,
-		InitiatorUserID:        clientID,
-		CounterpartyUserID:     app.MusicianID,
-		AmountNaira:            job.Budget,
-		TrustCoreTransactionID: result.TransactionID,
-		Status:                 result.Status,
-		PayoutStatus:           "NONE",
-		RefundStatus:           "NONE",
-	}
-	if err := u.escrowRepo.Create(ctx, agreement); err != nil {
-		return "", "", fmt.Errorf("failed to record escrow agreement: %w", err)
-	}
-
-	app.Status = "accepted_pending_payment"
+	app.Status = "accepted"
 	if err := u.jobRepo.UpdateApplication(ctx, app); err != nil {
-		return "", "", fmt.Errorf("failed to update application status: %w", err)
+		return nil, fmt.Errorf("failed to update application status: %w", err)
 	}
-	job.Status = "pending_hire_funding"
-	job.EscrowReference = reference
+
+	job.Status = "active"
+	job.MusicianID = app.MusicianID
 	job.UpdatedAt = time.Now()
 	if err := u.jobRepo.Update(ctx, job); err != nil {
-		return "", "", fmt.Errorf("failed to update job status: %w", err)
+		return nil, fmt.Errorf("failed to update job status: %w", err)
 	}
 
-	return result.PaymentURL, reference, nil
+	contract := &domain.Contract{
+		JobID:       job.ID,
+		ClientID:    job.ClientID,
+		MusicianID:  app.MusicianID,
+		Title:       job.Title,
+		Description: job.Description,
+		Price:       app.PriceBid,
+		Source:      "job",
+		Status:      "active",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	if err := u.contractRepo.Create(ctx, contract); err != nil {
+		return nil, fmt.Errorf("failed to create contract: %w", err)
+	}
+
+	allApps, err := u.jobRepo.ListApplications(ctx, job.ID)
+	if err == nil {
+		for _, otherApp := range allApps {
+			if otherApp.ID != app.ID && (otherApp.Status == "pending" || otherApp.Status == "shortlisted") {
+				otherApp.Status = "rejected"
+				_ = u.jobRepo.UpdateApplication(ctx, otherApp)
+			}
+		}
+	}
+
+	contractLink := "/contracts/" + contract.ID
+	musicianName := app.MusicianID
+	if musician, err := u.userRepo.GetByID(ctx, app.MusicianID); err == nil && musician.Name != "" {
+		musicianName = musician.Name
+	}
+	u.notifyAndEmail(ctx, job.ClientID, "Application Accepted",
+		fmt.Sprintf("You have hired '%s' for gig '%s'. Propose a milestone to start paying for the work.", musicianName, job.Title), contractLink)
+	u.notifyAndEmail(ctx, app.MusicianID, "Bid Accepted",
+		fmt.Sprintf("Congratulations! Your proposal for gig '%s' was accepted.", job.Title), contractLink)
+
+	return contract, nil
 }
 
-// FinalizeHire confirms a job-hire payment and does what AcceptApplication
-// used to do synchronously — create the Contract, reject other applicants,
-// notify both sides. Called from the webhook handler and from a frontend
-// poll after the client returns from PayPetal's checkout; idempotent
-// against both firing for the same reference.
+// FinalizeHire only still matters for legacy escrow agreements created
+// before AcceptApplication stopped charging anything upfront — nothing
+// creates a new "job_hire"-scoped agreement anymore, so this has no live
+// caller from the accept flow. Kept so the webhook handler and the
+// reconciler can still finalize any such agreement that's still PENDING.
 func (u *jobUsecase) FinalizeHire(ctx context.Context, reference string) (*domain.Contract, error) {
 	agreement, err := u.escrowRepo.GetByReference(ctx, reference)
 	if err != nil {

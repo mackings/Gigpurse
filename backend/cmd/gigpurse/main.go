@@ -113,7 +113,7 @@ func main() {
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowAgreementRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
-	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, jobRepo, contractRepo, milestoneRepo, notifRepo)
+	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, contractRepo, milestoneRepo, notifRepo)
 	milestoneUsecase.StartReminderScanner(context.Background(), time.Minute, 5*time.Minute)
 	jobUsecase.StartAbandonedHireSweep(context.Background(), 5*time.Minute)
 	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, jobUsecase, milestoneUsecase, 30*time.Second)

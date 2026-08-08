@@ -19,10 +19,13 @@ type Contract struct {
 	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
 
 	// EscrowReference points at the EscrowAgreement backing this contract's
-	// job-level hire payment (job-sourced contracts only — set by
-	// FinalizeHire). Direct-hire contracts have no job-level escrow of
-	// their own; money there only moves through milestones.
-	EscrowReference string `json:"-" bson:"escrow_reference,omitempty"`
+	// job-level hire payment — only ever set on legacy contracts from
+	// before job hires stopped charging the full budget upfront (see
+	// jobUsecase.AcceptApplication). Exposed to the frontend (just a
+	// correlation id, not sensitive) so the contract page can tell a
+	// legacy prepaid-in-full contract apart from a normal one, where all
+	// payment happens through milestones.
+	EscrowReference string `json:"escrow_reference,omitempty" bson:"escrow_reference,omitempty"`
 }
 
 // NegotiationEntry records one offer in a DirectHireRequest's back-and-forth

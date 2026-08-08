@@ -135,40 +135,55 @@ export default function ContractDetailPage() {
           </div>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-foreground">Milestones & escrow</h2>
-            {role === "client" && (
-              <CreateMilestonesModal
-                trigger={
-                  <Button size="sm" variant="outline" className="gap-1.5">
-                    <Plus className="w-3.5 h-3.5" />
-                    Propose milestone
-                  </Button>
-                }
-                onCreate={propose}
-                defaultOpen={shouldAutoProposeMilestone}
-              />
-            )}
+        {contract.escrow_reference ? (
+          // Legacy contract from before job hires stopped charging the full
+          // budget upfront — the whole amount is already sitting in one
+          // escrow agreement that can only release all-or-nothing, so
+          // milestones (which need to release incrementally) don't apply.
+          <div className="bg-card rounded-2xl border border-border p-6">
+            <h2 className="font-semibold text-foreground mb-2">Payment</h2>
+            <p className="text-sm text-muted-foreground">
+              {role === "client"
+                ? `The full contract value (${formatMoney(contract.price)}) was already paid when you hired for this gig — it's held in escrow. Mark the contract complete once the work is done to release payment to the talent.`
+                : `The client already paid the full contract value (${formatMoney(contract.price)}) when they hired you — it's held in escrow and will be released once they mark the contract complete.`}
+            </p>
           </div>
-          <MilestoneList
-            milestones={milestones}
-            role={role}
-            currentUserId={user.id}
-            onAccept={accept}
-            onReject={reject}
-            onWithdraw={withdraw}
-            onCounter={counter}
-            onFund={fund}
-            onRelease={release}
-            onRefresh={refresh}
-          />
-          <p className="text-xs text-muted-foreground mt-4">
-            {role === "client"
-              ? "Propose a milestone for the talent to accept, reject, or counter. Once accepted, fund escrow and release it as work is completed."
-              : "The client proposes each milestone. You can accept, reject, or counter their offer."}
-          </p>
-        </div>
+        ) : (
+          <div className="bg-card rounded-2xl border border-border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-foreground">Milestones & escrow</h2>
+              {role === "client" && (
+                <CreateMilestonesModal
+                  trigger={
+                    <Button size="sm" variant="outline" className="gap-1.5">
+                      <Plus className="w-3.5 h-3.5" />
+                      Propose milestone
+                    </Button>
+                  }
+                  onCreate={propose}
+                  defaultOpen={shouldAutoProposeMilestone}
+                />
+              )}
+            </div>
+            <MilestoneList
+              milestones={milestones}
+              role={role}
+              currentUserId={user.id}
+              onAccept={accept}
+              onReject={reject}
+              onWithdraw={withdraw}
+              onCounter={counter}
+              onFund={fund}
+              onRelease={release}
+              onRefresh={refresh}
+            />
+            <p className="text-xs text-muted-foreground mt-4">
+              {role === "client"
+                ? "Propose a milestone for the talent to accept, reject, or counter. Once accepted, fund escrow and release it as work is completed."
+                : "The client proposes each milestone. You can accept, reject, or counter their offer."}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -22,13 +22,13 @@ type Job struct {
 	ProjectType     string   `json:"project_type,omitempty" bson:"project_type,omitempty"`         // "one_time", "ongoing"
 	Skills          []string `json:"skills,omitempty" bson:"skills,omitempty"`
 
-	// Fixed-price escrow via PayPetal TrustCore. Money moves at hire time,
-	// not post time — TrustCore requires both parties (initiator +
-	// counterparty) to create an agreement, and no musician is known yet
-	// when a job is posted. EscrowFunded/EscrowAmount stay false/zero
-	// through "open" and only become true once InitiateHire's payment is
-	// confirmed (see FinalizeHire); EscrowReference points at the
-	// EscrowAgreement backing them.
+	// Legacy fields from when job hires paid the full budget upfront via one
+	// PayPetal TrustCore agreement, before that moved to per-milestone
+	// payment (see jobUsecase.AcceptApplication) — PayPetal has no way to
+	// partially release one agreement, so incremental payment needs each
+	// milestone to be its own. Never set on a job hired after that change;
+	// kept only so a legacy contract's already-collected escrow still
+	// releases correctly on completion (see releaseJobEscrow).
 	EscrowFunded    bool    `json:"escrow_funded" bson:"escrow_funded"`
 	EscrowAmount    float64 `json:"escrow_amount,omitempty" bson:"escrow_amount,omitempty"`
 	EscrowReference string  `json:"-" bson:"escrow_reference,omitempty"`
@@ -166,18 +166,18 @@ type JobUsecase interface {
 	ShortlistApplication(ctx context.Context, clientID, applicationID string) (*JobApplication, error)
 	UnshortlistApplication(ctx context.Context, clientID, applicationID string) (*JobApplication, error)
 
-	// InitiateHire replaces the old synchronous AcceptApplication — TrustCore
-	// requires the client to actually pay via a hosted checkout before a
-	// Contract exists, so accepting an application now returns a payment URL
-	// instead of a Contract. FinalizeHire (called by the webhook, or by a
-	// frontend poll after the client returns from checkout) does what
-	// AcceptApplication used to do once payment is confirmed.
-	InitiateHire(ctx context.Context, clientID, applicationID string) (paymentURL, reference string, err error)
+	// AcceptApplication hires the applicant immediately, at no cost — every
+	// payment happens through milestones proposed afterward, since PayPetal
+	// can't partially release one upfront payment. Creates the Contract
+	// synchronously; no payment URL, no polling, no webhook involved.
+	AcceptApplication(ctx context.Context, clientID, applicationID string) (*Contract, error)
+	// FinalizeHire only matters for legacy escrow agreements created before
+	// AcceptApplication stopped charging upfront — see its own doc comment.
 	FinalizeHire(ctx context.Context, reference string) (*Contract, error)
 	// StartAbandonedHireSweep runs in the background for the lifetime of
 	// ctx, reverting a job stuck in "pending_hire_funding" back to "open"
-	// if the client never completed checkout. Mirrors
-	// MilestoneUsecase.StartReminderScanner's shape.
+	// if the client never completed checkout — only reachable by legacy
+	// agreements today. Mirrors MilestoneUsecase.StartReminderScanner's shape.
 	StartAbandonedHireSweep(ctx context.Context, checkInterval time.Duration)
 
 	SaveJob(ctx context.Context, musicianID, jobID string) error

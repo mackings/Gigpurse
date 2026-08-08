@@ -25,7 +25,6 @@ type PayoutAccountUsecase interface {
 
 type payoutAccountUsecase struct {
 	paypetalDeps
-	jobRepo       domain.JobRepository
 	contractRepo  domain.ContractRepository
 	milestoneRepo domain.MilestoneRepository
 	notifRepo     domain.NotificationRepository
@@ -34,14 +33,12 @@ type payoutAccountUsecase struct {
 func NewPayoutAccountUsecase(
 	client paypetal.API,
 	userRepo domain.UserRepository,
-	jobRepo domain.JobRepository,
 	contractRepo domain.ContractRepository,
 	milestoneRepo domain.MilestoneRepository,
 	notifRepo domain.NotificationRepository,
 ) PayoutAccountUsecase {
 	return &payoutAccountUsecase{
 		paypetalDeps:  paypetalDeps{client: client, userRepo: userRepo},
-		jobRepo:       jobRepo,
 		contractRepo:  contractRepo,
 		milestoneRepo: milestoneRepo,
 		notifRepo:     notifRepo,
@@ -101,11 +98,11 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 		return nil, err
 	}
 
-	// Only worth telling anyone about the first time — every InitiateHire/
-	// Fund attempt that hit requirePayoutAccount before this failed silently
-	// from the client's point of view (no record kept of who tried), so this
-	// tells every client who's currently blocked on this specific musician
-	// rather than just whoever happens to retry on their own.
+	// Only worth telling anyone about the first time — every Fund attempt
+	// that hit requirePayoutAccount before this failed silently from the
+	// client's point of view (no record kept of who tried), so this tells
+	// every client who's currently blocked funding a milestone with this
+	// musician rather than just whoever happens to retry on their own.
 	if hadNoAccountBefore {
 		u.notifyUnblockedClients(ctx, user)
 	}
@@ -113,21 +110,11 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	return user, nil
 }
 
+// notifyUnblockedClients only needs to look at milestones now — hiring
+// itself no longer requires a payout account (see jobUsecase.AcceptApplication),
+// so a pending/shortlisted application was never blocked on this in the
+// first place.
 func (u *payoutAccountUsecase) notifyUnblockedClients(ctx context.Context, musician *domain.User) {
-	if apps, err := u.jobRepo.ListApplicationsByMusician(ctx, musician.ID); err == nil {
-		for _, app := range apps {
-			if app.Status != "pending" && app.Status != "shortlisted" {
-				continue
-			}
-			job, err := u.jobRepo.GetByID(ctx, app.JobID)
-			if err != nil || job.Status != "open" {
-				continue
-			}
-			u.notify(ctx, job.ClientID, "Talent ready to be hired",
-				fmt.Sprintf("%s added a payout account and can now be hired for '%s'.", musician.Name, job.Title))
-		}
-	}
-
 	if contracts, err := u.contractRepo.ListForUser(ctx, musician.ID, "musician"); err == nil {
 		for _, c := range contracts {
 			if c.Status != "active" {
