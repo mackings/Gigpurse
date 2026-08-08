@@ -72,6 +72,19 @@ func (r *escrowAgreementRepository) ListByInitiator(ctx context.Context, userID 
 	return out, nil
 }
 
+func (r *escrowAgreementRepository) ListPending(ctx context.Context) ([]*domain.EscrowAgreement, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []*domain.EscrowAgreement
+	for _, a := range r.agreements {
+		if a.Status == "PENDING" {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
 func (r *escrowAgreementRepository) ListStalePending(ctx context.Context, olderThan time.Time) ([]*domain.EscrowAgreement, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -45,6 +45,13 @@ type EscrowAgreementRepository interface {
 	// ListStalePending finds agreements still awaiting payment past a
 	// cutoff, for the abandoned-checkout sweep to revert.
 	ListStalePending(ctx context.Context, olderThan time.Time) ([]*EscrowAgreement, error)
+	// ListPending finds every agreement not yet finalized, any age — the
+	// reconciler polls these against PayPetal directly and finalizes
+	// whichever have actually gone ONGOING. This is what confirmation
+	// actually depends on: PayPetal's webhook has no documented registration
+	// mechanism, so there's no way to confirm it's even configured, and a
+	// user's browser closing mid-checkout can't be relied on to keep polling.
+	ListPending(ctx context.Context) ([]*EscrowAgreement, error)
 	// ListByInitiator finds every agreement this user paid into — the
 	// client's wallet page sums these into "currently in escrow".
 	ListByInitiator(ctx context.Context, userID string) ([]*EscrowAgreement, error)

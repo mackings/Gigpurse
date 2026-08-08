@@ -116,6 +116,7 @@ func main() {
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, jobRepo, contractRepo, milestoneRepo, notifRepo)
 	milestoneUsecase.StartReminderScanner(context.Background(), time.Minute, 5*time.Minute)
 	jobUsecase.StartAbandonedHireSweep(context.Background(), 5*time.Minute)
+	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, jobUsecase, milestoneUsecase, 30*time.Second)
 
 	uploadDir := os.Getenv("MEDIA_UPLOAD_DIR")
 	if uploadDir == "" {

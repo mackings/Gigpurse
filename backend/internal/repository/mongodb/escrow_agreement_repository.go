@@ -63,6 +63,24 @@ func (r *escrowAgreementRepository) ListByInitiator(ctx context.Context, userID 
 	return agreements, cursor.Err()
 }
 
+func (r *escrowAgreementRepository) ListPending(ctx context.Context) ([]*domain.EscrowAgreement, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{"status": "PENDING"})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var agreements []*domain.EscrowAgreement
+	for cursor.Next(ctx) {
+		var a domain.EscrowAgreement
+		if err := cursor.Decode(&a); err != nil {
+			return nil, err
+		}
+		agreements = append(agreements, &a)
+	}
+	return agreements, cursor.Err()
+}
+
 func (r *escrowAgreementRepository) ListStalePending(ctx context.Context, olderThan time.Time) ([]*domain.EscrowAgreement, error) {
 	cursor, err := r.collection.Find(ctx, bson.M{
 		"status":     "PENDING",
