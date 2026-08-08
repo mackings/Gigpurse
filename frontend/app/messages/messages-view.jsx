@@ -57,13 +57,23 @@ export default function MessagesView() {
     queryKey: ["contracts"],
     queryFn: () => apiGet("/contracts"),
   });
+  // The two of them can share more than one contract over time (a direct
+  // booking, then later a separate job hire, etc) — "the" contract for a
+  // given action (proposing a new milestone, the mobile status badge) is
+  // whichever one's active, but reading milestones needs every contract
+  // between them or older ones silently vanish from the shared thread the
+  // moment a newer one exists.
+  function contractsWith(counterpartId) {
+    if (!counterpartId || !Array.isArray(myContracts)) return [];
+    return myContracts.filter((c) => c.client_id === counterpartId || c.musician_id === counterpartId);
+  }
   function resolveContractId(counterpartId) {
-    if (!counterpartId || !Array.isArray(myContracts)) return null;
-    const matches = myContracts.filter((c) => c.client_id === counterpartId || c.musician_id === counterpartId);
+    const matches = contractsWith(counterpartId);
     if (!matches.length) return null;
     return (matches.find((c) => c.status === "active") || matches[0]).id;
   }
   const contractId = contractParam || resolveContractId(selectedId);
+  const contractIds = Array.from(new Set([...contractsWith(selectedId).map((c) => c.id), contractParam].filter(Boolean)));
 
   useEffect(() => {
     clearUnreadMessages();
@@ -92,6 +102,7 @@ export default function MessagesView() {
             key={selectedId}
             otherUserId={selectedId}
             contractId={contractId}
+            contractIds={contractIds}
             bookingId={bookingId}
             onBack={() => setManualSelection(null)}
           />

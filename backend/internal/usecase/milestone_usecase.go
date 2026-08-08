@@ -459,6 +459,52 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	return milestone, nil
 }
 
+// RequestRefund lets the client who funded a milestone pull the escrow back
+// before it's released — the single-item, client-initiated counterpart to
+// RefundHeldForContract's dispute-driven sweep below.
+func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenceID string) error {
+	agreement, err := u.escrowRepo.GetByReference(ctx, referenceID)
+	if err != nil {
+		return fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	if agreement.ScopeType != "milestone" {
+		return errors.New("this isn't a milestone escrow agreement")
+	}
+	if agreement.InitiatorUserID != clientID {
+		return errors.New("unauthorized: only the client who paid can request this refund")
+	}
+	if agreement.Status != "ONGOING" || agreement.PayoutStatus != "NONE" || agreement.RefundStatus != "NONE" {
+		return errors.New("this payment isn't refundable — it's already been paid out, refunded, or was never confirmed")
+	}
+	milestone, err := u.milestoneRepo.GetByID(ctx, agreement.ScopeID)
+	if err != nil {
+		return fmt.Errorf("milestone not found: %w", err)
+	}
+	if milestone.Status != "funded" {
+		return errors.New("this milestone isn't currently funded")
+	}
+
+	if err := u.client.RefundTrustCoreAgreement(ctx, referenceID); err != nil {
+		return fmt.Errorf("failed to refund: %w", err)
+	}
+	agreement.RefundStatus = "PENDING"
+	if err := u.escrowRepo.Update(ctx, agreement); err != nil {
+		return fmt.Errorf("failed to record refund: %w", err)
+	}
+	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+		UserID: clientID, Type: "escrow_release", Amount: milestone.Amount,
+		Description: fmt.Sprintf("Refund requested: %s", milestone.Title), Reference: referenceID,
+	})
+	milestone.Status = "refunded"
+	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
+		return fmt.Errorf("failed to update milestone: %w", err)
+	}
+	u.notify(ctx, agreement.CounterpartyUserID, "Milestone payment refunded",
+		fmt.Sprintf("The client requested a refund for milestone '%s' (%s). The payment has been returned to them.", milestone.Title, formatNaira(milestone.Amount)), milestone.ContractID)
+
+	return nil
+}
+
 // RefundHeldForContract refunds every still-`funded` milestone on a
 // contract back to the client — the milestone-side half of a dispute
 // resolving in the client's favor (see DisputeUsecase.ResolveDispute, which

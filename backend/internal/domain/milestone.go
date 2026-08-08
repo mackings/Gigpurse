@@ -96,6 +96,11 @@ type MilestoneUsecase interface {
 	// invoked internally rather than exposed as its own end-user action.
 	RefundHeldForContract(ctx context.Context, contractID string) error
 
+	// RequestRefund is the client-initiated, single-item counterpart to
+	// RefundHeldForContract — gated by clientID, callable directly (e.g.
+	// from the wallet), not just from dispute resolution.
+	RequestRefund(ctx context.Context, clientID, referenceID string) error
+
 	// StartReminderScanner runs in the background for the lifetime of ctx,
 	// periodically re-notifying whoever hasn't responded to a still-`proposed`
 	// milestone. Called once at startup from main.go.

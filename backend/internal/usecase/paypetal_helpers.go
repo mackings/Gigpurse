@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -49,13 +51,56 @@ func (d paypetalDeps) ensureCustomer(ctx context.Context, user *domain.User) (st
 	}
 	customerID, err := d.client.CreateCustomer(ctx, user.Name, user.Email, user.Phone)
 	if err != nil {
-		return "", err
+		// PayPetal has no lookup-by-email/phone endpoint, so "already
+		// exists" (e.g. GigPurse's own record of this customerId was lost —
+		// a local DB reset, most commonly — while the same email/phone's
+		// PayPetal customer still exists from before) can only be resolved
+		// by listing every customer and matching by hand.
+		if !isAlreadyExistsError(err) {
+			return "", err
+		}
+		customerID, err = d.findExistingCustomer(ctx, user)
+		if err != nil {
+			return "", err
+		}
 	}
 	user.PayPetalCustomerID = customerID
 	if err := d.userRepo.Update(ctx, user); err != nil {
 		return "", err
 	}
 	return customerID, nil
+}
+
+func isAlreadyExistsError(err error) bool {
+	var apiErr *paypetal.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.Message), "already exist")
+}
+
+func (d paypetalDeps) findExistingCustomer(ctx context.Context, user *domain.User) (string, error) {
+	customers, err := d.client.ListCustomers(ctx)
+	if err != nil {
+		return "", err
+	}
+	// Email is the only identifier safe to auto-recover on: it's specific to
+	// this user. A phone-only match can belong to a *different* GigPurse
+	// user (two accounts sharing a phone number — PayPetal treats phone as
+	// unique merchant-wide, independent of GigPurse's own per-user model),
+	// so blindly reusing it would silently merge two distinct identities
+	// into one PayPetal customer. Surface that as a clear conflict instead.
+	for _, c := range customers {
+		if user.Email != "" && strings.EqualFold(c.Email, user.Email) {
+			return c.CustomerID, nil
+		}
+	}
+	for _, c := range customers {
+		if user.Phone != "" && c.PhoneNumber == user.Phone {
+			return "", fmt.Errorf("this phone number is already linked to a different PayPetal customer (%s) — use a different phone number", c.Fullname)
+		}
+	}
+	return "", errors.New("paypetal reported this customer already exists, but it couldn't be found in the customer list to reuse")
 }
 
 // requirePayoutAccount gates any flow where user is about to become the

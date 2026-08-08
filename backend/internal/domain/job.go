@@ -132,6 +132,7 @@ type JobRepository interface {
 	Create(ctx context.Context, job *Job) error
 	GetByID(ctx context.Context, id string) (*Job, error)
 	Update(ctx context.Context, job *Job) error
+	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, filter JobFilter) ([]*Job, error)
 
 	CreateApplication(ctx context.Context, app *JobApplication) error
@@ -146,6 +147,8 @@ type JobUsecase interface {
 	PostJob(ctx context.Context, clientID string, input JobPostInput) (*Job, error)
 	UpdateJob(ctx context.Context, clientID, jobID string, input JobPostInput) (*Job, error)
 	CloseJob(ctx context.Context, clientID, jobID string) (*Job, error)
+	DeleteJob(ctx context.Context, clientID, jobID string) error
+	RequestHireRefund(ctx context.Context, clientID, referenceID string) error
 	FundEscrow(ctx context.Context, clientID, jobID string) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]*Job, error)

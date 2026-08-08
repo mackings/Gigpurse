@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -48,6 +49,16 @@ export default function PendingPaymentView() {
         ? "checking"
         : "pending";
   const autoPollingExhausted = finalizeQuery.failureCount >= MAX_AUTO_ATTEMPTS;
+
+  // If this page loaded inside the payment popup (see lib/payment-popup.js),
+  // let the opener know as soon as payment's confirmed and close itself —
+  // the user should never have to notice they were in a separate window.
+  useEffect(() => {
+    if (status !== "confirmed" || !window.opener) return;
+    window.opener.postMessage({ source: "gigpurse-payment", status: "confirmed" }, window.location.origin);
+    const timer = setTimeout(() => window.close(), 1200);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">

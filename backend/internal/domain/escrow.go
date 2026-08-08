@@ -45,4 +45,7 @@ type EscrowAgreementRepository interface {
 	// ListStalePending finds agreements still awaiting payment past a
 	// cutoff, for the abandoned-checkout sweep to revert.
 	ListStalePending(ctx context.Context, olderThan time.Time) ([]*EscrowAgreement, error)
+	// ListByInitiator finds every agreement this user paid into — the
+	// client's wallet page sums these into "currently in escrow".
+	ListByInitiator(ctx context.Context, userID string) ([]*EscrowAgreement, error)
 }

@@ -45,6 +45,8 @@ func (h *JobHandler) HandleJobs(w http.ResponseWriter, r *http.Request) {
 		JWTMiddleware(h.PostJob)(w, r)
 	case http.MethodPut:
 		JWTMiddleware(h.UpdateJob)(w, r)
+	case http.MethodDelete:
+		JWTMiddleware(h.DeleteJob)(w, r)
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
@@ -230,6 +232,26 @@ func (h *JobHandler) UpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondSuccess(w, http.StatusOK, "job updated successfully", job)
+}
+
+func (h *JobHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	userID, role, ok := GetUserFromContext(r.Context())
+	if !ok || role != "client" {
+		respondError(w, http.StatusForbidden, "forbidden", "unauthorized: only clients can delete jobs")
+		return
+	}
+	var req struct {
+		JobID string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.jobUsecase.DeleteJob(r.Context(), userID, req.JobID); err != nil {
+		respondError(w, http.StatusBadRequest, "job_delete_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "job deleted successfully", nil)
 }
 
 func (h *JobHandler) CloseJob(w http.ResponseWriter, r *http.Request) {

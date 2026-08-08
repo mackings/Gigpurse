@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { openPaymentPopup } from "@/lib/payment-popup";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
@@ -21,7 +22,7 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { formatMoney } from "@/lib/utils";
-import { MapPin, Star, Pencil, XCircle, Loader2, Check, UserRound, HandCoins, BookmarkPlus, BookmarkMinus } from "lucide-react";
+import { MapPin, Star, Pencil, XCircle, Trash2, Loader2, Check, UserRound, HandCoins, BookmarkPlus, BookmarkMinus } from "lucide-react";
 import { toast } from "sonner";
 
 function ApplicantRow({ app, jobStatus, contractId, onAccept, isAccepting, onShortlist, onUnshortlist, isTogglingShortlist }) {
@@ -114,6 +115,7 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
   const [editOpen, setEditOpen] = useState(false);
   const [acceptingId, setAcceptingId] = useState(null);
   const [isClosing, setIsClosing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [togglingShortlistId, setTogglingShortlistId] = useState(null);
   const [tab, setTab] = useState("all");
 
@@ -146,11 +148,19 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
       const result = await apiPost("/jobs/applications/accept", { application_id: applicationId });
       queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
-      // Hiring now means paying — redirect to PayPetal's hosted checkout.
-      // The contract itself isn't created until that payment is confirmed
-      // (see FinalizeHire, triggered by the webhook or /contracts/pending).
+      // Hiring now means paying — open PayPetal's hosted checkout in a
+      // popup instead of navigating away. The contract itself isn't created
+      // until that payment is confirmed (see FinalizeHire, triggered by the
+      // webhook or the popup's own poll) — once the popup closes, re-sync so
+      // the confirmed hire shows up without a manual refresh.
       if (result?.payment_url) {
-        window.location.href = result.payment_url;
+        openPaymentPopup(result.payment_url, {
+          onClose: () => {
+            queryClient.invalidateQueries({ queryKey: ["job-applications", job.id] });
+            queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
+            queryClient.invalidateQueries({ queryKey: ["contracts"] });
+          },
+        });
         return;
       }
     } catch (err) {
@@ -202,6 +212,20 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
     }
   }
 
+  async function deleteJob() {
+    setIsDeleting(true);
+    try {
+      await apiDelete("/jobs", { job_id: job.id });
+      toast.success("Draft gig deleted.");
+      queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -247,6 +271,31 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
                         <AlertDialogAction onClick={closeJob} disabled={isClosing} className="gap-1.5">
                           {isClosing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                           Close job
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                {job.status === "pending_funding" && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="outline" className="gap-1.5 text-destructive hover:text-destructive">
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this draft gig?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          It was never published, so this removes it for good — there&apos;s nothing to undo.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={deleteJob} disabled={isDeleting} className="gap-1.5">
+                          {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          Delete
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>

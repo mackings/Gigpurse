@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useRealtime } from "@/lib/RealtimeProvider";
-import { useMilestones } from "@/hooks/use-milestones";
+import { useMilestonesForContracts } from "@/hooks/use-milestones";
 import { useUserInfo } from "@/hooks/use-user-info";
 import { useUserStatus } from "@/hooks/use-user-status";
 import PresenceDot from "@/components/ui/presence-dot";
@@ -19,7 +19,7 @@ import FirstMessageDialog from "@/components/chat/FirstMessageDialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ArrowLeft, ChevronDown, ChevronUp, Info, Loader2, Plus, Send } from "lucide-react";
 
-function MilestonePanel({ contractId }) {
+function MilestonePanel({ contractId, contractIds }) {
   const { user } = useCurrentUser();
   const [expanded, setExpanded] = useState(true);
 
@@ -31,7 +31,10 @@ function MilestonePanel({ contractId }) {
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
   const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
 
-  const { milestones, propose, accept, reject, withdraw, counter, fund, release } = useMilestones(contractId);
+  const { milestones, propose, accept, reject, withdraw, counter, fund, release, refresh } = useMilestonesForContracts(contractIds);
+  // A new milestone has to be proposed against one specific contract —
+  // default to whichever one is currently "primary" (active, or the only one).
+  const proposeToContract = (items) => propose(contractId, items);
 
   if (!contractId || !contract || !user) return null;
 
@@ -55,7 +58,7 @@ function MilestonePanel({ contractId }) {
                   Propose milestone
                 </Button>
               }
-              onCreate={propose}
+              onCreate={proposeToContract}
             />
           </div>
           <MilestoneList
@@ -68,6 +71,7 @@ function MilestonePanel({ contractId }) {
             onCounter={counter}
             onFund={fund}
             onRelease={release}
+            onRefresh={(m) => refresh(m.contract_id)}
           />
         </div>
       )}
@@ -80,17 +84,18 @@ function MilestonePanel({ contractId }) {
 // negotiation would push the whole conversation down and eat the visible
 // chat area. This is shared by the always-on desktop rail and the mobile
 // Sheet so both stay in sync off the same markup.
-function ConversationDetails({ otherUserId, contractId, bookingId }) {
+function ConversationDetails({ otherUserId, contractId, contractIds, bookingId }) {
   return (
     <>
       <BookingRequestPanel otherUserId={otherUserId} bookingId={bookingId} />
-      <MilestonePanel contractId={contractId} />
+      <MilestonePanel contractId={contractId} contractIds={contractIds} />
     </>
   );
 }
 
-export default function ChatWindow({ otherUserId, contractId, bookingId, onBack }) {
+export default function ChatWindow({ otherUserId, contractId, contractIds, bookingId, onBack }) {
   const { user } = useCurrentUser();
+  const queryClient = useQueryClient();
   const { connected, sendChatMessage, pendingSendCount, clearUnreadForPartner } = useRealtime();
   const otherUser = useUserInfo(otherUserId);
   const otherUserLabel = otherUser?.name || (otherUserId ? `User ${otherUserId.slice(-6)}` : "");
@@ -111,7 +116,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
   });
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
   const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
-  const { milestones, accept, reject, withdraw, counter, fund, release } = useMilestones(contractId);
+  const { milestones, accept, reject, withdraw, counter, fund, release, refresh } = useMilestonesForContracts(contractIds);
   // Drives the mobile trigger button's label/state below (lg:hidden — on
   // desktop the milestone panel is an always-visible rail, so there's
   // nothing to point at) — "Booking & escrow" never told either side what
@@ -133,9 +138,21 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
   // The RealtimeProvider's shared socket appends live messages straight into
   // this query's cache (queryKey ["chat-history", otherUserId]), so this is
   // the single source of truth — no local socket, no local message state.
+  //
+  // A background refetch can land here too (e.g. RealtimeProvider re-syncs
+  // on socket reconnect after the machine sleeps). Union it with whatever's
+  // already cached instead of replacing outright — a refetch must only ever
+  // be able to add messages, never drop ones already on screen, in case a
+  // read races a replica/commit lag right after reconnecting.
   const { data: messages, isLoading } = useQuery({
     queryKey: ["chat-history", otherUserId],
-    queryFn: () => apiGet(`/chats/history?user_id=${otherUserId}`),
+    queryFn: async () => {
+      const fresh = await apiGet(`/chats/history?user_id=${otherUserId}`);
+      const cached = queryClient.getQueryData(["chat-history", otherUserId]) || [];
+      const byId = new Map(cached.map((m) => [m.id, m]));
+      for (const m of fresh) byId.set(m.id, m);
+      return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    },
     enabled: !!otherUserId,
   });
 
@@ -252,7 +269,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
                   </div>
                 )}
                 {msg.is_system ? (
-                  msg.milestone_id && msg.contract_id === contractId && milestones.some((m) => m.id === msg.milestone_id) ? (
+                  msg.milestone_id && contractIds?.includes(msg.contract_id) && milestones.some((m) => m.id === msg.milestone_id) ? (
                     <div className="max-w-[92%] sm:max-w-[420px] mx-auto my-2">
                       <MilestoneList
                         milestones={milestones.filter((m) => m.id === msg.milestone_id)}
@@ -264,6 +281,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
                         onCounter={counter}
                         onFund={fund}
                         onRelease={release}
+                        onRefresh={(m) => refresh(m.contract_id)}
                       />
                     </div>
                   ) : (
@@ -322,7 +340,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
         there's no room for a third column, so the same content moves into
         the "Booking & escrow" button's bottom sheet instead. */}
     <aside className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-border overflow-y-auto bg-background">
-      <ConversationDetails otherUserId={otherUserId} contractId={contractId} bookingId={bookingId} />
+      <ConversationDetails otherUserId={otherUserId} contractId={contractId} contractIds={contractIds} bookingId={bookingId} />
     </aside>
 
     <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -332,7 +350,7 @@ export default function ChatWindow({ otherUserId, contractId, bookingId, onBack 
           <SheetDescription>Booking request and milestone details for this conversation</SheetDescription>
         </SheetHeader>
         <div className="overflow-y-auto">
-          <ConversationDetails otherUserId={otherUserId} contractId={contractId} bookingId={bookingId} />
+          <ConversationDetails otherUserId={otherUserId} contractId={contractId} contractIds={contractIds} bookingId={bookingId} />
         </div>
       </SheetContent>
     </Sheet>

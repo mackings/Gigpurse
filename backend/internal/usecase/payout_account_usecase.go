@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -24,10 +25,27 @@ type PayoutAccountUsecase interface {
 
 type payoutAccountUsecase struct {
 	paypetalDeps
+	jobRepo       domain.JobRepository
+	contractRepo  domain.ContractRepository
+	milestoneRepo domain.MilestoneRepository
+	notifRepo     domain.NotificationRepository
 }
 
-func NewPayoutAccountUsecase(client paypetal.API, userRepo domain.UserRepository) PayoutAccountUsecase {
-	return &payoutAccountUsecase{paypetalDeps: paypetalDeps{client: client, userRepo: userRepo}}
+func NewPayoutAccountUsecase(
+	client paypetal.API,
+	userRepo domain.UserRepository,
+	jobRepo domain.JobRepository,
+	contractRepo domain.ContractRepository,
+	milestoneRepo domain.MilestoneRepository,
+	notifRepo domain.NotificationRepository,
+) PayoutAccountUsecase {
+	return &payoutAccountUsecase{
+		paypetalDeps:  paypetalDeps{client: client, userRepo: userRepo},
+		jobRepo:       jobRepo,
+		contractRepo:  contractRepo,
+		milestoneRepo: milestoneRepo,
+		notifRepo:     notifRepo,
+	}
 }
 
 func (u *payoutAccountUsecase) ListBanks(ctx context.Context) ([]paypetal.Bank, error) {
@@ -49,6 +67,7 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	if err != nil {
 		return nil, err
 	}
+	hadNoAccountBefore := user.PayoutAccount == nil
 
 	// Re-resolve the account name server-side rather than trusting whatever
 	// the client echoes back from the earlier Validate call — the
@@ -81,5 +100,60 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	if err := u.userRepo.Update(ctx, user); err != nil {
 		return nil, err
 	}
+
+	// Only worth telling anyone about the first time — every InitiateHire/
+	// Fund attempt that hit requirePayoutAccount before this failed silently
+	// from the client's point of view (no record kept of who tried), so this
+	// tells every client who's currently blocked on this specific musician
+	// rather than just whoever happens to retry on their own.
+	if hadNoAccountBefore {
+		u.notifyUnblockedClients(ctx, user)
+	}
+
 	return user, nil
+}
+
+func (u *payoutAccountUsecase) notifyUnblockedClients(ctx context.Context, musician *domain.User) {
+	if apps, err := u.jobRepo.ListApplicationsByMusician(ctx, musician.ID); err == nil {
+		for _, app := range apps {
+			if app.Status != "pending" && app.Status != "shortlisted" {
+				continue
+			}
+			job, err := u.jobRepo.GetByID(ctx, app.JobID)
+			if err != nil || job.Status != "open" {
+				continue
+			}
+			u.notify(ctx, job.ClientID, "Talent ready to be hired",
+				fmt.Sprintf("%s added a payout account and can now be hired for '%s'.", musician.Name, job.Title))
+		}
+	}
+
+	if contracts, err := u.contractRepo.ListForUser(ctx, musician.ID, "musician"); err == nil {
+		for _, c := range contracts {
+			if c.Status != "active" {
+				continue
+			}
+			milestones, err := u.milestoneRepo.ListByContract(ctx, c.ID)
+			if err != nil {
+				continue
+			}
+			for _, m := range milestones {
+				if m.Status != "accepted" {
+					continue
+				}
+				u.notify(ctx, c.ClientID, "Talent ready to be paid",
+					fmt.Sprintf("%s added a payout account — you can now fund milestone '%s'.", musician.Name, m.Title))
+			}
+		}
+	}
+}
+
+func (u *payoutAccountUsecase) notify(ctx context.Context, userID, title, message string) {
+	_ = u.notifRepo.Create(ctx, &domain.Notification{
+		UserID:    userID,
+		Title:     title,
+		Message:   message,
+		IsRead:    false,
+		CreatedAt: time.Now(),
+	})
 }

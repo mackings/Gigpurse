@@ -43,3 +43,25 @@ func (c *Client) UpdateCustomer(ctx context.Context, customerID, fullname, email
 	}
 	return c.do(ctx, http.MethodPut, "/api/v1/customer/"+customerID, body, nil)
 }
+
+// Customer is one entry from ListCustomers.
+type Customer struct {
+	CustomerID  string `json:"customerId"`
+	Fullname    string `json:"fullname"`
+	Email       string `json:"email"`
+	PhoneNumber string `json:"phoneNumber"`
+}
+
+// ListCustomers returns every customer under the merchant account. PayPetal
+// has no lookup-by-email/phone endpoint, so this is the fallback
+// ensureCustomer uses when CreateCustomer reports "already exists" — it
+// happens whenever GigPurse's own record of a user's customerId was lost
+// (e.g. a local DB reset) while the same email/phone's PayPetal customer
+// still exists from before.
+func (c *Client) ListCustomers(ctx context.Context) ([]Customer, error) {
+	var out []Customer
+	if err := c.do(ctx, http.MethodGet, "/api/v1/customer/all", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

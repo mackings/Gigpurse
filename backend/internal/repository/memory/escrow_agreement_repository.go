@@ -59,6 +59,19 @@ func (r *escrowAgreementRepository) Update(ctx context.Context, a *domain.Escrow
 	return nil
 }
 
+func (r *escrowAgreementRepository) ListByInitiator(ctx context.Context, userID string) ([]*domain.EscrowAgreement, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []*domain.EscrowAgreement
+	for _, a := range r.agreements {
+		if a.InitiatorUserID == userID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
 func (r *escrowAgreementRepository) ListStalePending(ctx context.Context, olderThan time.Time) ([]*domain.EscrowAgreement, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

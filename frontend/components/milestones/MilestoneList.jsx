@@ -7,6 +7,7 @@ import IconBadge from "@/components/ui/icon-badge";
 import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
+import { openPaymentPopup } from "@/lib/payment-popup";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
 
 const STATUS_ICON = {
@@ -25,7 +26,7 @@ const STATUS_COLOR = {
   rejected: "bg-rose-500",
 };
 
-export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onWithdraw, onCounter, onFund, onRelease }) {
+export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onWithdraw, onCounter, onFund, onRelease, onRefresh }) {
   // Tracks "<milestoneId>:<action>" for whichever single button is mid-request,
   // so only that button shows a spinner — its siblings on the same card are
   // merely disabled (not spinning) to block a double-submit race.
@@ -35,11 +36,11 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
     return <p className="text-sm text-muted-foreground">No milestones proposed yet.</p>;
   }
 
-  async function run(action, id, actionName, successMsg) {
-    const key = `${id}:${actionName}`;
+  async function run(action, milestone, actionName, successMsg) {
+    const key = `${milestone.id}:${actionName}`;
     setPendingKey(key);
     try {
-      await action(id);
+      await action(milestone);
       toast.success(successMsg);
     } catch (err) {
       toast.error(err.message);
@@ -48,17 +49,19 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
     }
   }
 
-  // Funding now means paying — redirect to PayPetal's hosted checkout
-  // instead of showing a success toast. The milestone doesn't flip to
-  // "funded" until that payment is confirmed (see FinalizeFund, triggered
-  // by the webhook or a poll when the client returns from checkout).
-  async function handleFund(id) {
-    const key = `${id}:fund`;
+  // Funding now means paying — open PayPetal's hosted checkout in a popup
+  // rather than navigating away, so the client never actually leaves
+  // GigPurse. The milestone doesn't flip to "funded" until that payment is
+  // confirmed (see FinalizeFund, triggered by the webhook or the popup's own
+  // poll) — once the popup closes, re-sync so the new status shows up
+  // without the user needing to manually refresh.
+  async function handleFund(milestone) {
+    const key = `${milestone.id}:fund`;
     setPendingKey(key);
     try {
-      const result = await onFund(id);
+      const result = await onFund(milestone);
       if (result?.payment_url) {
-        window.location.href = result.payment_url;
+        openPaymentPopup(result.payment_url, { onClose: () => onRefresh?.(milestone) });
         return;
       }
     } catch (err) {
@@ -107,7 +110,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                     size="sm"
                     variant="outline"
                     disabled={cardPending}
-                    onClick={() => run(onReject, m.id, "reject", "Milestone rejected.")}
+                    onClick={() => run(onReject, m, "reject", "Milestone rejected.")}
                     className="gap-1.5"
                   >
                     {isPending("reject") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
@@ -115,7 +118,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   </Button>
                   <MilestoneCounterModal
                     current={m}
-                    onCounter={(terms) => onCounter(m.id, terms)}
+                    onCounter={(terms) => onCounter(m, terms)}
                     trigger={
                       <Button size="sm" variant="outline" disabled={cardPending} className="gap-1.5">
                         <RefreshCw className="w-3.5 h-3.5" />
@@ -123,7 +126,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                       </Button>
                     }
                   />
-                  <Button size="sm" disabled={cardPending} onClick={() => run(onAccept, m.id, "accept", "Milestone accepted.")} className="gap-1.5">
+                  <Button size="sm" disabled={cardPending} onClick={() => run(onAccept, m, "accept", "Milestone accepted.")} className="gap-1.5">
                     {isPending("accept") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     Accept
                   </Button>
@@ -134,7 +137,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   size="sm"
                   variant="outline"
                   disabled={cardPending}
-                  onClick={() => run(onWithdraw, m.id, "withdraw", "Milestone withdrawn.")}
+                  onClick={() => run(onWithdraw, m, "withdraw", "Milestone withdrawn.")}
                   className="gap-1.5"
                   title="Made a mistake? Withdraw it and send a corrected one."
                 >
@@ -146,7 +149,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                 <Button
                   size="sm"
                   disabled={cardPending}
-                  onClick={() => handleFund(m.id)}
+                  onClick={() => handleFund(m)}
                   className="gap-1.5"
                 >
                   {isPending("fund") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
@@ -157,7 +160,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                 <Button
                   size="sm"
                   disabled={cardPending}
-                  onClick={() => run(onRelease, m.id, "release", "Payment released to the Talent.")}
+                  onClick={() => run(onRelease, m, "release", "Payment released to the Talent.")}
                   className="gap-1.5"
                 >
                   {isPending("release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}

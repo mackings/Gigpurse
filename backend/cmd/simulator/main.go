@@ -112,8 +112,8 @@ func main() {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo)
-	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, "http://localhost:3000")
+	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowAgreementRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
 
 	userHandler := delivery.NewUserHandler(userUsecase, contractRepo)

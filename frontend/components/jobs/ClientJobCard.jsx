@@ -8,7 +8,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
 import ApplicantsPanel from "@/components/jobs/ApplicantsPanel";
 import { formatMoney } from "@/lib/utils";
-import { Briefcase, ChevronRight, Loader2, MapPin, ShieldCheck } from "lucide-react";
+import { Briefcase, ChevronRight, Loader2, MapPin, Rocket } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_COLOR = {
@@ -23,12 +23,12 @@ const STATUS_COLOR = {
 export default function ClientJobCard({ job }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const queryClient = useQueryClient();
-  const needsFunding = job.status === "pending_funding";
+  const isDraft = job.status === "pending_funding";
 
-  const fundMutation = useMutation({
+  const goLiveMutation = useMutation({
     mutationFn: () => apiPost("/jobs/fund", { job_id: job.id }),
     onSuccess: () => {
-      toast.success("Escrow funded — your gig is now live.");
+      toast.success("Your gig is now live and open to applicants.");
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
     },
     onError: (err) => toast.error(err.message),
@@ -36,7 +36,13 @@ export default function ClientJobCard({ job }) {
 
   return (
     <>
-      <div className="group bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setPanelOpen(true)}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setPanelOpen(true)}
+        className="group bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5 cursor-pointer"
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <IconBadge icon={Briefcase} color={STATUS_COLOR[job.status] || "bg-muted-foreground"} />
@@ -45,7 +51,7 @@ export default function ClientJobCard({ job }) {
                 {job.title}
               </h3>
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                <StatusBadge status={job.status} label={needsFunding ? "Awaiting escrow" : undefined} />
+                <StatusBadge status={job.status} label={isDraft ? "Draft" : undefined} />
                 <span className="text-sm text-muted-foreground flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 shrink-0" />
                   {job.location} · {formatMoney(job.budget)}
@@ -53,21 +59,34 @@ export default function ClientJobCard({ job }) {
               </div>
             </div>
           </div>
-          {needsFunding ? (
-            <Button size="sm" className="gap-1.5 shrink-0" onClick={() => fundMutation.mutate()} disabled={fundMutation.isPending}>
-              {fundMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
-              Fund escrow
-            </Button>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={() => setPanelOpen(true)} className="gap-1 shrink-0">
-              {job.application_count > 0 ? `${job.application_count} applicant${job.application_count === 1 ? "" : "s"}` : "Applicants"}
+          <div className="flex items-center gap-2 shrink-0">
+            {isDraft && (
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goLiveMutation.mutate();
+                }}
+                disabled={goLiveMutation.isPending}
+              >
+                {goLiveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                Go live
+              </Button>
+            )}
+            <span className="flex items-center gap-1 text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+              {isDraft
+                ? "Edit / Delete"
+                : job.application_count > 0
+                  ? `${job.application_count} applicant${job.application_count === 1 ? "" : "s"}`
+                  : "Applicants"}
               <ChevronRight className="w-4 h-4" />
-            </Button>
-          )}
+            </span>
+          </div>
         </div>
       </div>
 
-      {!needsFunding && <ApplicantsPanel job={job} open={panelOpen} onOpenChange={setPanelOpen} />}
+      <ApplicantsPanel job={job} open={panelOpen} onOpenChange={setPanelOpen} />
     </>
   );
 }

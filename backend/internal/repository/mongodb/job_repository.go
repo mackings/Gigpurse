@@ -48,6 +48,11 @@ func (r *jobRepository) Update(ctx context.Context, job *domain.Job) error {
 	return err
 }
 
+func (r *jobRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.jobColl.DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}
+
 func (r *jobRepository) List(ctx context.Context, filter domain.JobFilter) ([]*domain.Job, error) {
 	query := bson.M{}
 

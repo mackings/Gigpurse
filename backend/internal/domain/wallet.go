@@ -50,7 +50,30 @@ type WalletRepository interface {
 	ListTransactions(ctx context.Context, userID string) ([]*Transaction, error)
 }
 
+// EscrowHolding is one payment a client currently has held in escrow —
+// either a whole job hire or a single funded milestone — enriched for
+// display with what it's for and who the other party is. The wallet page
+// sums these into "currently in escrow" and lists them individually, each
+// with its own refund action.
+type EscrowHolding struct {
+	ReferenceID      string    `json:"reference_id"`
+	ScopeType        string    `json:"scope_type"` // "job_hire" | "milestone"
+	Title            string    `json:"title"`
+	CounterpartyName string    `json:"counterparty_name"`
+	Amount           float64   `json:"amount"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
 type WalletUsecase interface {
 	GetWallet(ctx context.Context, userID string) (*WalletSummary, error)
 	ListTransactions(ctx context.Context, userID string) ([]*Transaction, error)
+
+	// ListEscrowHoldings returns every payment this client currently has
+	// held in escrow (paid in, not yet paid out or refunded) — job hires
+	// and funded milestones alike.
+	ListEscrowHoldings(ctx context.Context, userID string) ([]*EscrowHolding, error)
+	// RequestRefund pulls a specific holding back to the client — routed to
+	// jobUsecase.RequestHireRefund or milestoneUsecase.RequestRefund
+	// depending on the holding's scope type.
+	RequestRefund(ctx context.Context, userID, referenceID string) error
 }

@@ -40,6 +40,10 @@ func (f *PayPetalFake) UpdateCustomer(ctx context.Context, customerID, fullname,
 	return nil
 }
 
+func (f *PayPetalFake) ListCustomers(ctx context.Context) ([]paypetal.Customer, error) {
+	return nil, nil
+}
+
 func (f *PayPetalFake) ListBanks(ctx context.Context) ([]paypetal.Bank, error) {
 	return []paypetal.Bank{{Name: "Fake Test Bank", Code: "000"}}, nil
 }

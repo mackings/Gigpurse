@@ -47,7 +47,7 @@ export default function ContractDetailPage() {
   });
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
 
-  const { milestones, propose, accept, reject, withdraw, counter, fund, release } = useMilestones(id);
+  const { milestones, propose, accept, reject, withdraw, counter, fund, release, refresh } = useMilestones(id);
 
   async function handleComplete() {
     setIsCompleting(true);
@@ -161,6 +161,7 @@ export default function ContractDetailPage() {
             onCounter={counter}
             onFund={fund}
             onRelease={release}
+            onRefresh={refresh}
           />
           <p className="text-xs text-muted-foreground mt-4">
             {role === "client"

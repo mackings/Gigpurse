@@ -462,10 +462,10 @@ func newTestApp() *testApp {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo}
-	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL)
+	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalFake, escrowRepo)
-	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalFake, userRepo)
+	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalFake, userRepo, jobRepo, contractRepo, milestoneRepo, notifRepo)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -751,6 +751,13 @@ func (r *memoryJobRepo) Update(ctx context.Context, job *domain.Job) error {
 	defer r.mu.Unlock()
 	cp := *job
 	r.jobs[job.ID] = &cp
+	return nil
+}
+
+func (r *memoryJobRepo) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.jobs, id)
 	return nil
 }
 

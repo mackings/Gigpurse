@@ -183,6 +183,25 @@ func (u *jobUsecase) notify(ctx context.Context, userID, title, message string) 
 	})
 }
 
+// DeleteJob permanently removes a draft job — one that was never published,
+// so it has no applicants, no escrow, and nothing else in the system
+// references it yet. Anything past "pending_funding" has to be closed
+// instead (CloseJob), never deleted, since applicants/contracts/escrow may
+// already point at it.
+func (u *jobUsecase) DeleteJob(ctx context.Context, clientID, jobID string) error {
+	job, err := u.jobRepo.GetByID(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("job not found: %w", err)
+	}
+	if job.ClientID != clientID {
+		return errors.New("unauthorized: only the job's creator can delete it")
+	}
+	if job.Status != "pending_funding" {
+		return errors.New("only a draft gig can be deleted — close it instead")
+	}
+	return u.jobRepo.Delete(ctx, jobID)
+}
+
 // FundEscrow no longer moves any money — PayPetal TrustCore needs both
 // parties to create an agreement, and no musician is known yet at this
 // point (the job isn't even open for applications). This just publishes the
@@ -214,6 +233,51 @@ func (u *jobUsecase) FundEscrow(ctx context.Context, clientID, jobID string) (*d
 	u.notifyMatchingMusicians(ctx, job)
 
 	return job, nil
+}
+
+// RequestHireRefund lets the client who funded a job hire pull the escrow
+// back before the musician's been paid out — mirrors the client-won branch
+// of disputeUsecase.resolveJobEscrow, just triggered directly from the
+// wallet instead of a moderator ruling on a dispute.
+func (u *jobUsecase) RequestHireRefund(ctx context.Context, clientID, referenceID string) error {
+	agreement, err := u.escrowRepo.GetByReference(ctx, referenceID)
+	if err != nil {
+		return fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	if agreement.ScopeType != "job_hire" {
+		return errors.New("this isn't a job-hire escrow agreement")
+	}
+	if agreement.InitiatorUserID != clientID {
+		return errors.New("unauthorized: only the client who paid can request this refund")
+	}
+	if agreement.Status != "ONGOING" || agreement.PayoutStatus != "NONE" || agreement.RefundStatus != "NONE" {
+		return errors.New("this payment isn't refundable — it's already been paid out, refunded, or was never confirmed")
+	}
+
+	if err := u.client.RefundTrustCoreAgreement(ctx, referenceID); err != nil {
+		return fmt.Errorf("failed to refund: %w", err)
+	}
+	agreement.RefundStatus = "PENDING"
+	if err := u.escrowRepo.Update(ctx, agreement); err != nil {
+		return fmt.Errorf("failed to record refund: %w", err)
+	}
+
+	app, err := u.jobRepo.GetApplicationByID(ctx, agreement.ScopeID)
+	if err == nil {
+		if job, err := u.jobRepo.GetByID(ctx, app.JobID); err == nil {
+			_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+				UserID: clientID, Type: "escrow_release", Amount: agreement.AmountNaira,
+				Description: fmt.Sprintf("Refund requested for gig: %s", job.Title), Reference: referenceID,
+			})
+			job.EscrowAmount = 0
+			job.EscrowFunded = false
+			_ = u.jobRepo.Update(ctx, job)
+			u.notify(ctx, agreement.CounterpartyUserID, "Hire payment refunded",
+				fmt.Sprintf("The client requested a refund for '%s' (%s). The payment has been returned to them.", job.Title, formatNaira(agreement.AmountNaira)))
+		}
+	}
+
+	return nil
 }
 
 // notifyMatchingMusicians pushes a "new gig" alert to musicians whose

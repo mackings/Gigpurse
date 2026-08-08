@@ -128,7 +128,16 @@ export function RealtimeProvider({ children }) {
 
     async function connect() {
       const socket = await openRealtimeSocket();
-      if (!socket || stopped) return;
+      if (stopped) return;
+      if (!socket) {
+        // getWsToken can fail transiently (e.g. the session cookie is still
+        // settling right as the machine wakes from sleep) — without a retry
+        // here the socket dies silently for the rest of the session, which
+        // is what actually causes chat/notifications to go stale after a
+        // long sleep. Retry on the same cadence as a dropped connection.
+        reconnectTimer = setTimeout(connect, 2000);
+        return;
+      }
       socketRef.current = socket;
 
       socket.onopen = () => {
@@ -137,6 +146,11 @@ export function RealtimeProvider({ children }) {
           socket.send(pendingQueueRef.current.shift());
         }
         setPendingSendCount(0);
+        // The socket may have been down for an unknown stretch (sleep,
+        // network blip) — anything sent while it was dead never arrived as
+        // a live push. Re-sync open conversations now; the queryFn merges
+        // by id rather than replacing, so this can only add messages.
+        queryClient.invalidateQueries({ queryKey: ["chat-history"] });
       };
 
       socket.onclose = () => {

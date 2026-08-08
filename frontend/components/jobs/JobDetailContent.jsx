@@ -80,10 +80,10 @@ export default function JobDetailContent({
   const isClosed = job.status !== "open";
   const skills = job.skills?.length ? job.skills : [job.instrument, job.genre].filter(Boolean);
 
-  const fundMutation = useMutation({
+  const goLiveMutation = useMutation({
     mutationFn: () => apiPost("/jobs/fund", { job_id: job.id }),
     onSuccess: () => {
-      toast.success("Escrow funded — your gig is now live.");
+      toast.success("Your gig is now live and open to applicants.");
       queryClient.invalidateQueries({ queryKey: ["job", job.id] });
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
     },
@@ -135,12 +135,8 @@ export default function JobDetailContent({
         <div>
           {isOwner ? (
             job.status === "pending_funding" ? (
-              <Button className="w-full" onClick={() => fundMutation.mutate()} disabled={fundMutation.isPending}>
-                {fundMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  `Fund escrow (${formatMoney(job.budget)}) to publish`
-                )}
+              <Button className="w-full" onClick={() => goLiveMutation.mutate()} disabled={goLiveMutation.isPending}>
+                {goLiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Go live"}
               </Button>
             ) : (
               <p className="text-sm text-muted-foreground">This is your gig posting.</p>
