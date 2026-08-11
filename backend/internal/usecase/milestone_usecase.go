@@ -122,6 +122,18 @@ func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID s
 		return nil, errors.New("unauthorized: only the client can propose a new milestone — the talent can counter, accept, or reject one")
 	}
 
+	// Proposing new work reopens a contract the client had marked
+	// completed (or that got cancelled) — treated as "there's more to do
+	// here" rather than requiring a whole separate contract for it.
+	reopened := contract.Status != "active"
+	if reopened {
+		contract.Status = "active"
+		contract.UpdatedAt = time.Now()
+		if err := u.contractRepo.Update(ctx, contract); err != nil {
+			return nil, fmt.Errorf("failed to reopen contract: %w", err)
+		}
+	}
+
 	existing, err := u.milestoneRepo.ListByContract(ctx, contractID)
 	if err != nil {
 		return nil, err
@@ -151,6 +163,14 @@ func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID s
 		created = append(created, m)
 	}
 
+	if reopened {
+		proposerName := "The client"
+		if proposerUser, err := u.userRepo.GetByID(ctx, proposerID); err == nil && proposerUser.Name != "" {
+			proposerName = proposerUser.Name
+		}
+		u.notify(ctx, counterpart, "Contract reopened",
+			fmt.Sprintf("%s proposed a new milestone on '%s' — the contract is active again.", proposerName, contract.Title), contractID)
+	}
 	u.notify(ctx, counterpart, "New milestone proposed",
 		fmt.Sprintf("A new milestone was proposed: review it in your contract chat."), contractID)
 
