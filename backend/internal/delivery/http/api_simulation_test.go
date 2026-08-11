@@ -378,20 +378,23 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxs)
 	foundPayment := false
 	for _, tx := range musicianTxs {
-		if tx.Type == "payment_received" && tx.Amount == 100 && tx.Reference == fundStart.Reference {
+		// 90, not the milestone's agreed 100 — GigPurse's 10% commission
+		// means only the talent's net take-home is ever actually escrowed
+		// and released (see pricing.go).
+		if tx.Type == "payment_received" && tx.Amount == 90 && tx.Reference == fundStart.Reference {
 			foundPayment = true
 		}
 	}
 	if !foundPayment {
-		t.Fatalf("expected a payment_received transaction of 100 referencing the milestone's escrow agreement, got %#v", musicianTxs)
+		t.Fatalf("expected a payment_received transaction of 90 (100 minus 10%% commission) referencing the milestone's escrow agreement, got %#v", musicianTxs)
 	}
 
 	var musicianWallet domain.WalletSummary
 	client.get("/wallet", musicianToken, http.StatusOK, &musicianWallet)
-	// Just this milestone — job hires no longer collect anything upfront,
-	// so there's no job-level escrow to also show up here.
-	if musicianWallet.TotalEarned != 100 {
-		t.Fatalf("expected musician total_earned 100 (this milestone only), got %v", musicianWallet.TotalEarned)
+	// Just this milestone's net take-home — job hires no longer collect
+	// anything upfront, so there's no job-level escrow to also show up here.
+	if musicianWallet.TotalEarned != 90 {
+		t.Fatalf("expected musician total_earned 90 (this milestone's take-home only), got %v", musicianWallet.TotalEarned)
 	}
 
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)

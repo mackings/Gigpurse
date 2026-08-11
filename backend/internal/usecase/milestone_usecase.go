@@ -348,13 +348,23 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		return "", "", fmt.Errorf("failed to register musician with payment provider: %w", err)
 	}
 
+	// milestone.Amount is the agreed price — what the talent expects for
+	// this piece of work. GigPurse's cut can't be deducted from the
+	// release (PayPetal always releases the full escrowed amount), so only
+	// the talent's net take-home is actually escrowed; GigPurse's combined
+	// commission + service fee rides along as a separate merchantCharge
+	// billed to the client on top of it. See pricing.go for the split.
+	talentAmount := TalentTakeHome(milestone.Amount)
+	platformFee := PlatformFee(milestone.Amount)
+
 	reference := "milestone:" + milestoneID
 	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
 		ReferenceID:            reference,
 		InitiatorCustomerID:    clientCustomerID,
 		CounterpartyCustomerID: musicianCustomerID,
 		Currency:               "NGN",
-		AmountKobo:             paypetal.NairaToKobo(milestone.Amount),
+		AmountKobo:             paypetal.NairaToKobo(talentAmount),
+		MerchantChargeKobo:     paypetal.NairaToKobo(platformFee),
 		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
 		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
 	})
@@ -371,7 +381,8 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		CounterpartyCustomerID: musicianCustomerID,
 		InitiatorUserID:        contract.ClientID,
 		CounterpartyUserID:     contract.MusicianID,
-		AmountNaira:            milestone.Amount,
+		AmountNaira:            talentAmount,
+		PlatformFeeNaira:       platformFee,
 		TrustCoreTransactionID: result.TransactionID,
 		Status:                 result.Status,
 		PayoutStatus:           "NONE",
@@ -423,8 +434,10 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 		return nil, err
 	}
 
+	// The client's actual charge is amount + platform fee — milestone.Amount
+	// is just the agreed price, not what left their payment method.
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: agreement.InitiatorUserID, Type: "escrow_hold", Amount: milestone.Amount,
+		UserID: agreement.InitiatorUserID, Type: "escrow_hold", Amount: agreement.AmountNaira + agreement.PlatformFeeNaira,
 		Description: fmt.Sprintf("Escrow funded: %s", milestone.Title), Reference: reference,
 	})
 	u.notify(ctx, agreement.CounterpartyUserID, "Escrow funded",
@@ -451,17 +464,23 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	if err := u.client.CompleteTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
 		return nil, fmt.Errorf("failed to release payment: %w", err)
 	}
-	if agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference); err == nil {
-		agreement.PayoutStatus = "PENDING"
-		_ = u.escrowRepo.Update(ctx, agreement)
+	// agreement.AmountNaira is what's actually released here — the talent's
+	// take-home after GigPurse's commission, already smaller than
+	// milestone.Amount (see pricing.go). The client's platform fee isn't
+	// part of this release; it was already collected as part of funding.
+	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
+	if err != nil {
+		return nil, fmt.Errorf("escrow agreement not found: %w", err)
 	}
+	agreement.PayoutStatus = "PENDING"
+	_ = u.escrowRepo.Update(ctx, agreement)
 
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: contract.ClientID, Type: "escrow_release", Amount: milestone.Amount,
+		UserID: contract.ClientID, Type: "escrow_release", Amount: agreement.AmountNaira,
 		Description: fmt.Sprintf("Payment released: %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: contract.MusicianID, Type: "payment_received", Amount: milestone.Amount,
+		UserID: contract.MusicianID, Type: "payment_received", Amount: agreement.AmountNaira,
 		Description: fmt.Sprintf("Payment received: %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 
@@ -474,7 +493,7 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	// landed, so this notification is deliberately phrased as "initiated,"
 	// not "paid."
 	u.notify(ctx, contract.MusicianID, "Payment released",
-		fmt.Sprintf("Payment for milestone '%s' (%s) has been sent to your bank account.", milestone.Title, formatNaira(milestone.Amount)), contractID)
+		fmt.Sprintf("Payment for milestone '%s' (%s) has been sent to your bank account.", milestone.Title, formatNaira(agreement.AmountNaira)), contractID)
 
 	return milestone, nil
 }
@@ -511,8 +530,11 @@ func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenc
 	if err := u.escrowRepo.Update(ctx, agreement); err != nil {
 		return fmt.Errorf("failed to record refund: %w", err)
 	}
+	// PayPetal's refund returns "the escrowed amount" — agreement.AmountNaira
+	// — to the client; GigPurse's platform fee was collected separately as a
+	// merchantCharge at funding time and isn't reversed by this call.
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: clientID, Type: "escrow_release", Amount: milestone.Amount,
+		UserID: clientID, Type: "escrow_release", Amount: agreement.AmountNaira,
 		Description: fmt.Sprintf("Refund requested: %s", milestone.Title), Reference: referenceID,
 	})
 	milestone.Status = "refunded"
@@ -520,7 +542,7 @@ func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenc
 		return fmt.Errorf("failed to update milestone: %w", err)
 	}
 	u.notify(ctx, agreement.CounterpartyUserID, "Milestone payment refunded",
-		fmt.Sprintf("The client requested a refund for milestone '%s' (%s). The payment has been returned to them.", milestone.Title, formatNaira(milestone.Amount)), milestone.ContractID)
+		fmt.Sprintf("The client requested a refund for milestone '%s' (%s). The payment has been returned to them.", milestone.Title, formatNaira(agreement.AmountNaira)), milestone.ContractID)
 
 	return nil
 }
@@ -550,7 +572,7 @@ func (u *milestoneUsecase) RefundHeldForContract(ctx context.Context, contractID
 		agreement.RefundStatus = "PENDING"
 		_ = u.escrowRepo.Update(ctx, agreement)
 		_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-			UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: milestone.Amount,
+			UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: agreement.AmountNaira,
 			Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
 		})
 		milestone.Status = "refunded"

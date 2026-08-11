@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
@@ -9,6 +11,18 @@ import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
 import { openPaymentPopup } from "@/lib/payment-popup";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
+
+// GigPurse's cut isn't deducted from the milestone amount shown — it can't
+// be (PayPetal has no partial-release), so it rides along as an additional
+// charge to the client / a smaller release to the talent. Worth surfacing
+// right where "Fund escrow" appears, or the checkout total looks wrong.
+function usePricing() {
+  const { data } = useQuery({ queryKey: ["pricing"], queryFn: () => apiGet("/pricing"), staleTime: Infinity });
+  return {
+    talentRate: data?.talent_commission_rate ?? 0.1,
+    clientRate: data?.client_service_fee_rate ?? 0.05,
+  };
+}
 
 const STATUS_ICON = {
   proposed: Clock,
@@ -31,6 +45,7 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
   // so only that button shows a spinner — its siblings on the same card are
   // merely disabled (not spinning) to block a double-submit race.
   const [pendingKey, setPendingKey] = useState(null);
+  const { talentRate, clientRate } = usePricing();
 
   if (!milestones.length) {
     return <p className="text-sm text-muted-foreground">No milestones proposed yet.</p>;
@@ -98,7 +113,10 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   {formatMoney(m.amount)}
                   {m.due_date && ` · due ${new Date(m.due_date).toLocaleDateString()}`}
                   {m.status === "proposed" && (isProposer ? " · awaiting their response" : " · they proposed this")}
-                  {m.status === "accepted" && " · pending funding — not active until the client funds escrow"}
+                  {m.status === "accepted" &&
+                    (role === "client"
+                      ? ` · you'll pay ${formatMoney(m.amount * (1 + clientRate))} (includes ${Math.round(clientRate * 100)}% platform fee) — not active until funded`
+                      : ` · you'll receive ${formatMoney(m.amount * (1 - talentRate))} after ${Math.round(talentRate * 100)}% platform fee — pending funding`)}
                 </p>
               </div>
             </div>

@@ -139,6 +139,7 @@ func main() {
 	mediaHandler := delivery.NewMediaHandler(uploadDir, publicURL)
 	pushHandler := delivery.NewPushHandler(pushSubRepo, vapidPublicKey)
 	linkPreviewHandler := delivery.NewLinkPreviewHandler()
+	pricingHandler := delivery.NewPricingHandler()
 	payoutAccountHandler := delivery.NewPayoutAccountHandler(payoutAccountUsecase)
 	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(paypetalClient, escrowAgreementRepo, jobUsecase, milestoneUsecase, notifRepo)
 
@@ -166,6 +167,7 @@ func main() {
 	mediaHandler.RegisterRoutes(mux)
 	pushHandler.RegisterRoutes(mux)
 	linkPreviewHandler.RegisterRoutes(mux)
+	pricingHandler.RegisterRoutes(mux)
 	payoutAccountHandler.RegisterRoutes(mux)
 	// Deliberately outside JWTMiddleware — PayPetal isn't a logged-in
 	// GigPurse user. See PayPetalWebhookHandler for why the payload itself

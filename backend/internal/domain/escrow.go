@@ -24,9 +24,17 @@ type EscrowAgreement struct {
 	InitiatorCustomerID    string `json:"-" bson:"initiator_customer_id"`
 	CounterpartyCustomerID string `json:"-" bson:"counterparty_customer_id"`
 
-	InitiatorUserID    string  `json:"initiator_user_id" bson:"initiator_user_id"`
-	CounterpartyUserID string  `json:"counterparty_user_id" bson:"counterparty_user_id"`
-	AmountNaira        float64 `json:"amount" bson:"amount_naira"`
+	InitiatorUserID    string `json:"initiator_user_id" bson:"initiator_user_id"`
+	CounterpartyUserID string `json:"counterparty_user_id" bson:"counterparty_user_id"`
+	// AmountNaira is what's actually escrowed and released to the
+	// counterparty on completion — the agreed price minus GigPurse's
+	// commission (see usecase.TalentTakeHome). PlatformFeeNaira is
+	// GigPurse's cut, billed to the initiator on top of AmountNaira as a
+	// PayPetal merchantCharge (see usecase.PlatformFee) — captured here at
+	// creation time rather than recomputed later, so a past agreement's
+	// numbers stay accurate even if the rates change going forward.
+	AmountNaira      float64 `json:"amount" bson:"amount_naira"`
+	PlatformFeeNaira float64 `json:"platform_fee" bson:"platform_fee_naira"`
 
 	TrustCoreTransactionID string `json:"-" bson:"trustcore_transaction_id"`
 

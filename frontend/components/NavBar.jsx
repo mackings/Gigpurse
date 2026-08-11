@@ -35,6 +35,7 @@ import {
   Handshake,
   ShieldAlert,
   ShieldCheck,
+  Tag,
 } from "lucide-react";
 
 export default function NavBar() {
@@ -92,6 +93,12 @@ export default function NavBar() {
             >
               Browse Talent
             </Link>
+            <Link
+              href="/pricing"
+              className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent font-medium transition-colors"
+            >
+              Pricing
+            </Link>
 
             {!isLoading && (
               <>
@@ -141,6 +148,12 @@ export default function NavBar() {
                           <Link href={profileHref}>
                             <UserCog className="w-4 h-4 mr-2" />
                             Profile
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/pricing">
+                            <Tag className="w-4 h-4 mr-2" />
+                            Pricing
                           </Link>
                         </DropdownMenuItem>
                         {isTalent && (
@@ -233,6 +246,14 @@ export default function NavBar() {
             >
               <Search className="w-4 h-4" />
               Browse Talent
+            </Link>
+            <Link
+              href="/pricing"
+              className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Tag className="w-4 h-4" />
+              Pricing
             </Link>
 
             {isAuthenticated ? (
