@@ -41,6 +41,16 @@ type ChatMessage struct {
 	// the thread to find the milestones panel.
 	ContractID  string `json:"contract_id,omitempty" bson:"contract_id,omitempty"`
 	MilestoneID string `json:"milestone_id,omitempty" bson:"milestone_id,omitempty"`
+
+	// Read marks a 1:1 message (RecvID set) as opened by its recipient —
+	// only meaningful outside dispute rooms, which fan out to multiple
+	// participants and have no single reader. Set by MarkConversationRead
+	// when the recipient loads that conversation's history.
+	Read bool `json:"read,omitempty" bson:"read,omitempty"`
+	// ReminderEmailSentAt marks that StartUnreadEmailScanner already sent a
+	// digest email covering this message, so a later scan doesn't send a
+	// second one for the same still-unread message.
+	ReminderEmailSentAt *time.Time `json:"-" bson:"reminder_email_sent_at,omitempty"`
 }
 
 type ChatRepository interface {
@@ -48,10 +58,29 @@ type ChatRepository interface {
 	GetChatHistory(ctx context.Context, user1, user2 string) ([]*ChatMessage, error)
 	GetRecentChats(ctx context.Context, userID string) ([]*ChatMessage, error)
 	ListByDispute(ctx context.Context, disputeID string) ([]*ChatMessage, error)
+
+	// MarkConversationRead flips Read to true on every unread message sent
+	// by senderID to recvID — called when recvID loads that conversation.
+	MarkConversationRead(ctx context.Context, recvID, senderID string) error
+	// ListUnreadOlderThan returns 1:1 messages (RecvID set — dispute-room
+	// messages are excluded, they have no single reader) that are still
+	// unread, haven't already had a reminder email sent for them, and were
+	// sent before cutoff. Powers StartUnreadEmailScanner.
+	ListUnreadOlderThan(ctx context.Context, cutoff time.Time) ([]*ChatMessage, error)
+	// MarkReminderEmailSent stamps ReminderEmailSentAt on every given
+	// message ID so the next scan doesn't email about them again.
+	MarkReminderEmailSent(ctx context.Context, ids []string) error
 }
 
 type ChatUsecase interface {
 	SendMessage(ctx context.Context, senderID, recvID, content string) (*ChatMessage, error)
 	GetChatHistory(ctx context.Context, user1, user2 string) ([]*ChatMessage, error)
 	GetRecentChats(ctx context.Context, userID string) ([]*ChatMessage, error)
+
+	// StartUnreadEmailScanner runs in the background for the lifetime of
+	// ctx, periodically emailing anyone with a message that's sat unread
+	// longer than staleAfter — one digest per recipient, not one per
+	// message. A new message never emails immediately; this is the only
+	// path that does. Called once at startup from main.go.
+	StartUnreadEmailScanner(ctx context.Context, checkInterval, staleAfter time.Duration)
 }

@@ -52,7 +52,11 @@ export default function BookingModal({ targetUserId, targetName, trigger, onSent
       setForm(emptyForm);
       onSent?.();
     } catch (err) {
-      toast.error(err.message);
+      if (err.code === "payout_account_required") {
+        toast.error("Add a payout account before sending a booking request — it's what any future dispute refund would be paid back to.");
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -15,7 +15,7 @@ import (
 // paypetal_helpers.go and the webhook handler.
 type EscrowAgreement struct {
 	ID          string `json:"id" bson:"_id"`
-	ReferenceID string `json:"reference_id" bson:"reference_id"` // "job-hire:{applicationID}" or "milestone:{milestoneID}"
+	ReferenceID string `json:"reference_id" bson:"reference_id"` // "job-hire:{applicationID}" or "ms:{milestoneID}"
 	ScopeType   string `json:"scope_type" bson:"scope_type"`     // "job_hire" | "milestone"
 	ScopeID     string `json:"scope_id" bson:"scope_id"`
 	ContractID  string `json:"contract_id,omitempty" bson:"contract_id,omitempty"`

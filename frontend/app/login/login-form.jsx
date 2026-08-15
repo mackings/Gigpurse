@@ -31,7 +31,12 @@ export default function LoginForm() {
       queryClient.setQueryData(["profile", "me"], user);
       // Talent land on the job board — their entry point for browsing,
       // saving, and applying to gigs — rather than the stats dashboard.
-      const dashboard = user.role === "musician" ? "/jobs" : "/dashboard/client";
+      // Moderators only have access to the disputes queue; admins get the
+      // full dashboard. Mirrors the same branching in NavBar.jsx.
+      let dashboard = "/dashboard/client";
+      if (user.role === "musician") dashboard = "/jobs";
+      else if (user.role === "moderator") dashboard = "/admin/disputes";
+      else if (user.role === "admin") dashboard = "/admin";
       router.push(next || dashboard);
     } catch (err) {
       toast.error(err.message);

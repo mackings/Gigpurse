@@ -6,7 +6,18 @@ import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
-import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2, Undo2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2, Undo2, Ban, BellRing, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
 import { openPaymentPopup } from "@/lib/payment-popup";
@@ -30,6 +41,8 @@ const STATUS_ICON = {
   funded: Lock,
   released: CheckCircle2,
   rejected: X,
+  cancelled: Ban,
+  disputed: ShieldAlert,
 };
 
 const STATUS_COLOR = {
@@ -38,9 +51,24 @@ const STATUS_COLOR = {
   funded: "bg-violet-500",
   released: "bg-emerald-500",
   rejected: "bg-rose-500",
+  cancelled: "bg-muted-foreground",
+  disputed: "bg-rose-500",
 };
 
-export default function MilestoneList({ milestones, role, currentUserId, onAccept, onReject, onWithdraw, onCounter, onFund, onRelease, onRefresh }) {
+export default function MilestoneList({
+  milestones,
+  role,
+  currentUserId,
+  onAccept,
+  onReject,
+  onWithdraw,
+  onCounter,
+  onFund,
+  onRelease,
+  onCancel,
+  onRequestRelease,
+  onRefresh,
+}) {
   // Tracks "<milestoneId>:<action>" for whichever single button is mid-request,
   // so only that button shows a spinner — its siblings on the same card are
   // merely disabled (not spinning) to block a double-submit race.
@@ -113,7 +141,11 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   {formatMoney(m.amount)}
                   {m.due_date && ` · due ${new Date(m.due_date).toLocaleDateString()}`}
                   {m.status === "proposed" && (isProposer ? " · awaiting their response" : " · they proposed this")}
-                  {m.status === "accepted" &&
+                  {m.status === "accepted" && m.dispute_id &&
+                    (role === "client"
+                      ? ` · you'll pay ${formatMoney(m.amount)}, no platform fee — this is a moderator-ordered settlement — not active until funded`
+                      : ` · you'll receive the full ${formatMoney(m.amount)}, no platform fee — pending funding`)}
+                  {m.status === "accepted" && !m.dispute_id &&
                     (role === "client"
                       ? ` · you'll pay ${formatMoney(m.amount * (1 + clientRate))} (includes ${Math.round(clientRate * 100)}% platform fee) — not active until funded`
                       : ` · you'll receive ${formatMoney(m.amount * (1 - talentRate))} after ${Math.round(talentRate * 100)}% platform fee — pending funding`)}
@@ -184,6 +216,59 @@ export default function MilestoneList({ milestones, role, currentUserId, onAccep
                   {isPending("release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                   Release payment
                 </Button>
+              )}
+              {role === "musician" && m.status === "funded" && !m.dispute_id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cardPending || !!m.release_requested_at}
+                  onClick={() => run(onRequestRelease, m, "request-release", "Release requested — the client has 48h to act before it auto-releases.")}
+                  className="gap-1.5"
+                  title={m.release_requested_at ? "Already requested — auto-releases if the client doesn't act within 48h" : "Ask the client to release this payment"}
+                >
+                  {isPending("request-release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5" />}
+                  {m.release_requested_at ? "Release requested" : "Request release"}
+                </Button>
+              )}
+              {(m.status === "accepted" || m.status === "funded") && !m.dispute_id && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={cardPending} className="gap-1.5 text-muted-foreground hover:text-destructive">
+                      <Ban className="w-3.5 h-3.5" />
+                      Cancel
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel this milestone?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {m.status === "funded"
+                          ? `'${m.title}' is already funded — cancelling it opens a dispute instead of cancelling outright. A moderator will decide how the ${formatMoney(m.amount)} held in escrow gets settled.`
+                          : `'${m.title}' hasn't been funded yet, so this cancels it outright — no dispute, just a notification to the other party.`}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Never mind</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() =>
+                          run(onCancel, m, "cancel", m.status === "funded" ? "Milestone cancelled — a dispute has been opened." : "Milestone cancelled.")
+                        }
+                        className="gap-1.5"
+                      >
+                        {m.status === "funded" ? "Cancel & open dispute" : "Cancel milestone"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              {m.dispute_id && m.status === "disputed" && (
+                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Pending dispute resolution
+                </span>
+              )}
+              {m.dispute_id && m.status === "accepted" && (
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Ordered by dispute resolution</span>
               )}
             </div>
           </div>

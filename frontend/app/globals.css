@@ -67,11 +67,14 @@
   --border: oklch(0.92 0 0);
   --input: oklch(0.92 0 0);
   --ring: oklch(0.64 0.19 41);
-  --chart-1: oklch(0.64 0.19 41);
-  --chart-2: oklch(0.6 0.13 220);
-  --chart-3: oklch(0.556 0 0);
-  --chart-4: oklch(0.439 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Categorical chart palette — validated via the dataviz skill's
+     validate_palette.js (6/6 checks pass; contrast WARN mitigated by
+     always pairing marks with direct labels/legend, never color alone). */
+  --chart-1: #e65812;
+  --chart-2: #0ea5e9;
+  --chart-3: #10b981;
+  --chart-4: #8b5cf6;
+  --chart-5: oklch(0.556 0 0);
   --radius: 0.75rem;
   --sidebar: oklch(0.99 0 0);
   --sidebar-foreground: oklch(0.17 0 0);
@@ -102,11 +105,14 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.74 0.19 55);
-  --chart-1: oklch(0.74 0.19 55);
-  --chart-2: oklch(0.65 0.15 220);
-  --chart-3: oklch(0.556 0 0);
-  --chart-4: oklch(0.439 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Retuned from --primary's dark-mode hue — same family, lightness
+     lowered to sit in the validator's dark-mode band (L 0.48-0.67) rather
+     than the UI-chrome primary's L 0.74. See the light-mode comment above. */
+  --chart-1: #e85e00;
+  --chart-2: #0097cd;
+  --chart-3: #04ab62;
+  --chart-4: #a170eb;
+  --chart-5: oklch(0.556 0 0);
   --sidebar: oklch(0.19 0 0);
   --sidebar-foreground: oklch(0.97 0 0);
   --sidebar-primary: oklch(0.74 0.19 55);

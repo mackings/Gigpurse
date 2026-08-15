@@ -85,6 +85,21 @@ func (r *milestoneRepository) Update(ctx context.Context, m *domain.Milestone) e
 	return err
 }
 
+// CompareAndSwapStatus relies on MongoDB's own per-document atomicity —
+// the {_id, status: expectedStatus} filter and the $set happen as one
+// indivisible operation server-side, so two concurrent callers can never
+// both match and both "win."
+func (r *milestoneRepository) CompareAndSwapStatus(ctx context.Context, id, expectedStatus, newStatus string) (bool, error) {
+	result, err := r.collection.UpdateOne(ctx,
+		bson.M{"_id": id, "status": expectedStatus},
+		bson.M{"$set": bson.M{"status": newStatus, "updated_at": time.Now()}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return result.ModifiedCount == 1, nil
+}
+
 func (r *milestoneRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
 	return err

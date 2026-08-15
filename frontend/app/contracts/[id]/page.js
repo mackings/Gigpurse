@@ -9,12 +9,23 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useMilestones } from "@/hooks/use-milestones";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import MilestoneList from "@/components/milestones/MilestoneList";
 import CreateMilestonesModal from "@/components/milestones/CreateMilestonesModal";
 import DisputeModal from "@/components/disputes/DisputeModal";
 import ReviewFormModal from "@/components/reviews/ReviewFormModal";
 import { formatMoney } from "@/lib/utils";
-import { ArrowLeft, Loader2, MessageCircle, Plus, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Ban, Loader2, MessageCircle, Plus, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ContractDetailPage() {
@@ -24,6 +35,7 @@ export default function ContractDetailPage() {
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
   // Captured once at mount, independent of `searchParams` — the page's own
   // loading gate below delays CreateMilestonesModal's actual mount until
   // after the contract/user data resolves, by which point the cleanup
@@ -47,7 +59,7 @@ export default function ContractDetailPage() {
   });
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
 
-  const { milestones, propose, accept, reject, withdraw, counter, fund, release, refresh } = useMilestones(id);
+  const { milestones, propose, accept, reject, withdraw, counter, fund, release, cancel, requestRelease, refresh } = useMilestones(id);
 
   async function handleComplete() {
     setIsCompleting(true);
@@ -59,6 +71,20 @@ export default function ContractDetailPage() {
       toast.error(err.message);
     } finally {
       setIsCompleting(false);
+    }
+  }
+
+  async function handleEndContract() {
+    setIsEnding(true);
+    try {
+      const result = await apiPost("/contracts/end", { contract_id: id });
+      toast.success(result.status === "disputed" ? "Contract ended — a dispute has been opened for the funded milestone(s)." : "Contract ended.");
+      queryClient.invalidateQueries({ queryKey: ["contracts", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["milestones", id] });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setIsEnding(false);
     }
   }
 
@@ -115,6 +141,32 @@ export default function ContractDetailPage() {
                 {isCompleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Mark complete
               </Button>
+            )}
+            {contract.status === "active" && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={isEnding} className="gap-1.5 text-muted-foreground hover:text-destructive">
+                    <Ban className="w-3.5 h-3.5" />
+                    End contract
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End this contract?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The other party will be notified. If any milestone is currently funded, this opens a dispute instead of
+                      ending it outright — a moderator will decide how that money gets settled. Any milestone that&apos;s
+                      only been accepted (not yet funded) is cancelled with no dispute.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Never mind</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleEndContract} className="gap-1.5">
+                      End contract
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
             {contract.status === "completed" && (
               <ReviewFormModal
@@ -175,6 +227,8 @@ export default function ContractDetailPage() {
               onCounter={counter}
               onFund={fund}
               onRelease={release}
+              onCancel={cancel}
+              onRequestRelease={requestRelease}
               onRefresh={refresh}
             />
             <p className="text-xs text-muted-foreground mt-4">

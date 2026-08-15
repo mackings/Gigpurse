@@ -2,8 +2,9 @@ import Link from "next/link";
 import { backendFetch } from "@/lib/backend";
 import { Button } from "@/components/ui/button";
 import IconBadge from "@/components/ui/icon-badge";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { formatMoney } from "@/lib/utils";
-import { Ban, CheckCircle2, HandCoins, Percent, ShieldCheck, Wallet } from "lucide-react";
+import { Ban, CheckCircle2, HandCoins, Minus, ShieldCheck, Wallet } from "lucide-react";
 
 export const metadata = {
   title: "Pricing — GigPurse",
@@ -23,6 +24,107 @@ async function getPricing() {
   }
 }
 
+// Grouped like Upwork's "Key Features" table, but for GigPurse's real,
+// single-rate, two-sided structure — a feature applies to whichever side
+// (or both) actually gets it, not "Basic vs Plus" tiers that don't exist.
+const FEATURE_GROUPS = [
+  {
+    title: "Find the right match",
+    rows: [
+      {
+        name: "Marketplace access",
+        detail: "Browse every verified talent profile or open gig on the platform, no cost to look around.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Ratings & reviews after every contract",
+        detail: "Both sides leave a review once a contract completes, building a track record either can point to.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Post a gig or apply directly",
+        detail: "Clients post as many gigs as they like; talent applies with a proposal and price bid — neither costs anything.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Direct booking requests",
+        detail: "Skip the job post entirely and book someone you already know the fit for.",
+        client: true,
+        talent: true,
+      },
+    ],
+  },
+  {
+    title: "Get paid, safely",
+    rows: [
+      {
+        name: "Secure escrow on every milestone",
+        detail: "Funds sit with our payment partner the moment a milestone is funded — never released without the client's go-ahead.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Milestone-based payments",
+        detail: "Break a contract into milestones and pay only for approved work, not the whole budget upfront.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Fast bank payouts",
+        detail: "Once a milestone is released, payout goes straight to your linked bank account.",
+        client: false,
+        talent: true,
+      },
+      {
+        name: "Auto-release after 48h",
+        detail: "Request release on a funded milestone, and it pays out automatically if the client doesn't respond within 48 hours.",
+        client: false,
+        talent: true,
+      },
+      {
+        name: "Moderator-reviewed dispute resolution",
+        detail: "If something goes wrong, a moderator reviews the case and decides how funds are settled — not either party alone.",
+        client: true,
+        talent: true,
+      },
+    ],
+  },
+  {
+    title: "Stay in sync",
+    rows: [
+      {
+        name: "Real-time in-app messaging",
+        detail: "Message your client or talent directly, with milestone cards you can act on right inside the chat.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Contract workspace",
+        detail: "Every milestone, payment, and status update for a contract lives in one place.",
+        client: true,
+        talent: true,
+      },
+      {
+        name: "Notifications for every update",
+        detail: "In-app and email alerts the moment a booking, milestone, or message needs your attention.",
+        client: true,
+        talent: true,
+      },
+    ],
+  },
+];
+
+function FeatureCell({ included }) {
+  return included ? (
+    <CheckCircle2 className="w-[18px] h-[18px] text-primary shrink-0" strokeWidth={2} />
+  ) : (
+    <Minus className="w-[18px] h-[18px] text-muted-foreground/30 shrink-0" strokeWidth={2} />
+  );
+}
+
 export default async function PricingPage() {
   const { talent_commission_rate: talentRate, client_service_fee_rate: clientRate } = await getPricing();
 
@@ -33,7 +135,7 @@ export default async function PricingPage() {
 
   return (
     <div className="min-h-screen bg-background py-16 px-4">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <div className="text-center">
           <h1 className="text-3xl sm:text-4xl font-bold text-foreground tracking-tight">Simple, transparent pricing</h1>
           <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
@@ -42,33 +144,118 @@ export default async function PricingPage() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4 mt-10">
-          <div className="bg-card rounded-2xl border border-border p-6">
-            <IconBadge icon={HandCoins} color="bg-primary" />
-            <h2 className="font-semibold text-foreground text-lg mt-4">For talent</h2>
-            <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">
-              Keep {Math.round((1 - talentRate) * 100)}%
-            </p>
-            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-              GigPurse takes a {Math.round(talentRate * 100)}% commission when a milestone is released to you —
-              that&apos;s the only fee you&apos;ll ever see. No cost to create a profile, apply to gigs, or list your work.
-            </p>
+        {/* Two cards, Upwork's card layout — but the two sides of GigPurse's
+            actual marketplace, not competing tiers. */}
+        <div className="grid sm:grid-cols-2 gap-5 mt-10">
+          <div className="bg-card rounded-2xl border border-border p-6 flex flex-col">
+            <IconBadge icon={ShieldCheck} color="bg-violet-500" />
+            <h2 className="text-2xl font-bold text-foreground mt-4">For clients</h2>
+            <p className="text-sm text-muted-foreground mt-1">Hire talent for any gig, big or small</p>
+
+            <Button asChild size="lg" className="mt-5" variant="outline">
+              <Link href="/role-selection">Get started for free</Link>
+            </Button>
+
+            <div className="border-t border-border mt-6 pt-5">
+              <p className="text-3xl font-bold text-foreground tabular-nums">+{Math.round(clientRate * 100)}%</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                service fee, added on top of what you agree with talent
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                For example, a {formatMoney(exampleAgreedPrice)} milestone costs {formatMoney(clientTotal)} in total.
+              </p>
+            </div>
+
+            <ul className="text-sm text-foreground space-y-2.5 mt-6">
+              {["Post unlimited gigs, free", "Pay only for approved work", "Escrow protection on every milestone", "Moderator support if a dispute comes up"].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          <div className="bg-card rounded-2xl border border-border p-6">
-            <IconBadge icon={ShieldCheck} color="bg-violet-500" />
-            <h2 className="font-semibold text-foreground text-lg mt-4">For clients</h2>
-            <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">
-              +{Math.round(clientRate * 100)}% service fee
-            </p>
-            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-              On top of the price you agree with your talent, GigPurse adds a {Math.round(clientRate * 100)}%
-              service fee to cover secure escrow, payment processing, and dispute support if anything goes wrong.
-            </p>
+          <div className="bg-card rounded-2xl border-2 border-primary p-6 flex flex-col relative">
+            <span className="absolute -top-3 right-6 bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-full">
+              MOST COMMON
+            </span>
+            <IconBadge icon={HandCoins} color="bg-primary" />
+            <h2 className="text-2xl font-bold text-foreground mt-4">For talent</h2>
+            <p className="text-sm text-muted-foreground mt-1">Get booked and paid for your work</p>
+
+            <Button asChild size="lg" className="mt-5">
+              <Link href="/role-selection">Get started for free</Link>
+            </Button>
+
+            <div className="border-t border-border mt-6 pt-5">
+              <p className="text-3xl font-bold text-foreground tabular-nums">Keep {Math.round((1 - talentRate) * 100)}%</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {Math.round(talentRate * 100)}% commission, only charged when you&apos;re paid
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                A {formatMoney(exampleAgreedPrice)} milestone pays out {formatMoney(talentTakeHome)} to your bank account.
+              </p>
+            </div>
+
+            <ul className="text-sm text-foreground space-y-2.5 mt-6">
+              {["Free profile, portfolio, and applications", "No fee unless you actually get paid", "Fast bank payouts on release", "Auto-release after 48h of silence"].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        <div className="bg-card rounded-2xl border border-border p-6 mt-4">
+        {/* Key Features — Upwork's grouped, expandable comparison table,
+            reworked as Client vs Talent instead of Basic vs Plus. */}
+        <div className="mt-16">
+          <h2 className="text-2xl font-bold text-foreground">Key features</h2>
+
+          <div className="mt-6 rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <div className="min-w-[560px]">
+                <div className="grid grid-cols-[1fr_88px_88px] items-center px-5 py-4 border-b border-border bg-muted/30">
+                  <span />
+                  <span className="text-sm font-semibold text-foreground text-center">Client</span>
+                  <span className="text-sm font-semibold text-foreground text-center">Talent</span>
+                </div>
+
+                {FEATURE_GROUPS.map((group) => (
+                  <div key={group.title}>
+                    <div className="px-5 pt-5 pb-1">
+                      <p className="text-sm font-semibold text-foreground">{group.title}</p>
+                    </div>
+                    <Accordion type="multiple">
+                      {group.rows.map((row) => (
+                        <AccordionItem key={row.name} value={row.name} className="px-5">
+                          <AccordionTrigger className="hover:no-underline py-3">
+                            <div className="grid grid-cols-[1fr_88px_88px] items-center flex-1 gap-2 pr-2">
+                              <span className="text-sm text-foreground text-left">{row.name}</span>
+                              <span className="flex justify-center">
+                                <FeatureCell included={row.client} />
+                              </span>
+                              <span className="flex justify-center">
+                                <FeatureCell included={row.talent} />
+                              </span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <p className="text-sm text-muted-foreground pr-8">{row.detail}</p>
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-2xl border border-border p-6 mt-16">
           <h2 className="font-semibold text-foreground mb-4">A worked example</h2>
           <p className="text-sm text-muted-foreground mb-5">
             Say a client and talent agree on a {formatMoney(exampleAgreedPrice)} milestone:
@@ -137,10 +324,6 @@ export default async function PricingPage() {
         </div>
 
         <div className="text-center mt-10">
-          <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 rounded-full px-3 py-1 mb-4">
-            <Percent className="w-3 h-3" />
-            Rates shown reflect what&apos;s actually charged on every payment
-          </div>
           <div className="flex items-center justify-center gap-3">
             <Button asChild size="lg">
               <Link href="/role-selection">Get started</Link>

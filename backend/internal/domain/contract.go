@@ -14,7 +14,7 @@ type Contract struct {
 	Description string    `json:"description,omitempty" bson:"description,omitempty"`
 	Price       float64   `json:"price" bson:"price"`
 	Source      string    `json:"source" bson:"source"` // "job" or "direct_hire"
-	Status      string    `json:"status" bson:"status"` // "active", "completed", "cancelled"
+	Status      string    `json:"status" bson:"status"` // "active", "completed", "cancelled", "disputed"
 	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" bson:"updated_at"`
 

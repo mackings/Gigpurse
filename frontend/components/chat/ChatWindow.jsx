@@ -31,7 +31,7 @@ function MilestonePanel({ contractId, contractIds }) {
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
   const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
 
-  const { milestones, propose, accept, reject, withdraw, counter, fund, release, refresh } = useMilestonesForContracts(contractIds);
+  const { milestones, propose, accept, reject, withdraw, counter, fund, release, cancel, requestRelease, refresh } = useMilestonesForContracts(contractIds);
   // A new milestone has to be proposed against one specific contract —
   // default to whichever one is currently "primary" (active, or the only one).
   const proposeToContract = (items) => propose(contractId, items);
@@ -71,6 +71,8 @@ function MilestonePanel({ contractId, contractIds }) {
             onCounter={counter}
             onFund={fund}
             onRelease={release}
+            onCancel={cancel}
+            onRequestRelease={requestRelease}
             onRefresh={(m) => refresh(m.contract_id)}
           />
         </div>
@@ -116,7 +118,7 @@ export default function ChatWindow({ otherUserId, contractId, contractIds, booki
   });
   const contract = Array.isArray(contracts) ? contracts[0] : contracts;
   const role = contract && user ? (user.id === contract.client_id ? "client" : "musician") : null;
-  const { milestones, accept, reject, withdraw, counter, fund, release, refresh } = useMilestonesForContracts(contractIds);
+  const { milestones, accept, reject, withdraw, counter, fund, release, cancel, requestRelease, refresh } = useMilestonesForContracts(contractIds);
   // Drives the mobile trigger button's label/state below (lg:hidden — on
   // desktop the milestone panel is an always-visible rail, so there's
   // nothing to point at) — "Booking & escrow" never told either side what
@@ -281,6 +283,8 @@ export default function ChatWindow({ otherUserId, contractId, contractIds, booki
                         onCounter={counter}
                         onFund={fund}
                         onRelease={release}
+                        onCancel={cancel}
+                        onRequestRelease={requestRelease}
                         onRefresh={(m) => refresh(m.contract_id)}
                       />
                     </div>

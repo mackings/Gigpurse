@@ -100,6 +100,16 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected public musician lookup to return %q, got %#v", musicianUser.ID, musicianByID)
 	}
 
+	// A client needs a payout account on file before posting/hiring too —
+	// it's the only place PayPetal can send money if a dispute later refunds
+	// them. Set up ahead of the first job post, same as the musician's below.
+	client.post("/payout-account/validate", clientToken, map[string]any{
+		"bank_code": "000", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account", clientToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+
 	var job domain.Job
 	client.post("/jobs", clientToken, map[string]any{
 		"title":            "Afrobeats guitar session",
@@ -314,18 +324,18 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected at least 4 dispute messages, got %d: %#v", len(disputeMessages), disputeMessages)
 	}
 
+	// This contract has nothing funded at this point (it was already marked
+	// complete above, before any milestone existed), so talent_amount must
+	// be 0 — there's no escrow in scope to award anything from. Dispute
+	// resolution's actual money-moving effect (partial settlement included)
+	// is exercised below, at the milestone level.
 	var resolved domain.Dispute
 	client.post("/admin/disputes/resolve", adminToken, map[string]any{
-		"dispute_id": dispute.ID, "winner_id": musicianUser.ID, "resolution": "Resolved after review",
+		"dispute_id": dispute.ID, "resolution": "Resolved after review", "talent_amount": 0,
 	}, http.StatusOK, &resolved)
-	if resolved.WinnerID != musicianUser.ID || resolved.Status != "resolved" {
-		t.Fatalf("expected dispute resolved in favor of musician, got %#v", resolved)
+	if resolved.Status != "resolved" {
+		t.Fatalf("expected dispute status resolved, got %#v", resolved)
 	}
-	// No job-level escrow to resolve here anymore — job hires no longer
-	// collect anything upfront (see jobUsecase.AcceptApplication), so
-	// resolveJobEscrow is correctly a no-op for this contract. Dispute
-	// resolution's actual money-moving effect is exercised below, at the
-	// milestone level, which is the only place payment happens now.
 
 	client.get("/wallet", clientToken, http.StatusOK, nil)
 	client.get("/wallet/transactions", clientToken, http.StatusOK, nil)
@@ -397,6 +407,109 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected musician total_earned 90 (this milestone's take-home only), got %v", musicianWallet.TotalEarned)
 	}
 
+	// --- Cancellation & dispute-mediated partial settlement ---
+
+	// A contract with no funded milestones ends cleanly, no dispute — the
+	// direct-hire contract has none proposed on it at all.
+	var endedCleanly domain.Contract
+	client.post("/contracts/end", clientToken, map[string]any{"contract_id": acceptedDirectHire.ContractID}, http.StatusOK, &endedCleanly)
+	if endedCleanly.Status != "cancelled" {
+		t.Fatalf("expected contract with nothing funded to cancel cleanly, got status %q", endedCleanly.Status)
+	}
+
+	// Fund a second milestone on contracts[0], then have the talent pull it
+	// back — this is the "funded, so it opens a dispute instead" path.
+	var secondProposed []domain.Milestone
+	client.post("/milestones", clientToken, map[string]any{
+		"contract_id": contracts[0].ID,
+		"milestones":  []map[string]any{{"title": "Second milestone", "amount": 200}},
+	}, http.StatusCreated, &secondProposed)
+	secondMilestoneID := secondProposed[0].ID
+	client.post("/milestones/accept", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": secondMilestoneID}, http.StatusOK, nil)
+
+	var secondFundStart struct {
+		Reference string `json:"reference"`
+	}
+	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": secondMilestoneID}, http.StatusOK, &secondFundStart)
+	app.paypetal.SimulatePaymentCompleted(secondFundStart.Reference)
+	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": secondFundStart.Reference}, http.StatusOK, nil)
+
+	var cancelled domain.Milestone
+	client.post("/milestones/cancel", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": secondMilestoneID}, http.StatusOK, &cancelled)
+	if cancelled.Status != "disputed" {
+		t.Fatalf("expected pulling a funded milestone to leave it disputed, got %q", cancelled.Status)
+	}
+
+	var openDisputes []domain.Dispute
+	client.get("/admin/disputes?status=open", adminToken, http.StatusOK, &openDisputes)
+	var milestoneDispute domain.Dispute
+	for _, d := range openDisputes {
+		if d.MilestoneID == secondMilestoneID {
+			milestoneDispute = d
+		}
+	}
+	if milestoneDispute.ID == "" {
+		t.Fatalf("expected an auto-opened dispute scoped to the pulled milestone, got %#v", openDisputes)
+	}
+	client.post("/disputes/join", adminToken, map[string]any{"dispute_id": milestoneDispute.ID}, http.StatusOK, nil)
+
+	// Partial ruling: the escrowed take-home is 180 (200 minus 10% commission)
+	// — award the talent 100 of it. The rest goes back to the client, and a
+	// new settlement milestone should appear for exactly the awarded amount.
+	var partialResolved domain.Dispute
+	client.post("/admin/disputes/resolve", adminToken, map[string]any{
+		"dispute_id": milestoneDispute.ID, "resolution": "Partial: some work was delivered", "talent_amount": 100,
+	}, http.StatusOK, &partialResolved)
+	if partialResolved.TalentAmountNaira != 100 {
+		t.Fatalf("expected dispute to record a talent_amount of 100, got %v", partialResolved.TalentAmountNaira)
+	}
+
+	var afterResolve []domain.Milestone
+	client.get("/milestones?contract_id="+contracts[0].ID, clientToken, http.StatusOK, &afterResolve)
+	var original, settlement *domain.Milestone
+	for i := range afterResolve {
+		if afterResolve[i].ID == secondMilestoneID {
+			original = &afterResolve[i]
+		}
+		if afterResolve[i].Title == "Dispute settlement" {
+			settlement = &afterResolve[i]
+		}
+	}
+	if original == nil || original.Status != "refunded" {
+		t.Fatalf("expected the original disputed milestone refunded, got %#v", original)
+	}
+	if settlement == nil || settlement.Amount != 100 || settlement.Status != "accepted" {
+		t.Fatalf("expected a new 'Dispute settlement' milestone for 100, accepted and awaiting funding, got %#v", settlement)
+	}
+
+	// The client funds the settlement milestone exactly like any other —
+	// but it should auto-release the moment it's funded, no separate
+	// Release click, since the moderator already ruled on it.
+	var settlementFundStart struct {
+		Reference string `json:"reference"`
+	}
+	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": settlement.ID}, http.StatusOK, &settlementFundStart)
+	app.paypetal.SimulatePaymentCompleted(settlementFundStart.Reference)
+	var settlementFinalized domain.Milestone
+	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": settlementFundStart.Reference}, http.StatusOK, &settlementFinalized)
+	if settlementFinalized.Status != "released" {
+		t.Fatalf("expected the settlement milestone to auto-release on funding, got %q", settlementFinalized.Status)
+	}
+
+	var musicianTxsAfterSettlement []domain.Transaction
+	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxsAfterSettlement)
+	foundSettlementPayment := false
+	for _, tx := range musicianTxsAfterSettlement {
+		// The full 100 — a dispute settlement is exempt from commission
+		// (see milestoneUsecase.Fund), unlike the earlier 90-of-100 payment.
+		if tx.Type == "payment_received" && tx.Amount == 100 && tx.Reference == settlementFundStart.Reference {
+			foundSettlementPayment = true
+		}
+	}
+	if !foundSettlementPayment {
+		t.Fatalf("expected a commission-free payment_received of 100 for the settlement, got %#v", musicianTxsAfterSettlement)
+	}
+
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)
 	client.get("/admin/users", adminToken, http.StatusOK, nil)
 	client.get("/admin/jobs", adminToken, http.StatusOK, nil)
@@ -404,6 +517,136 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 
 	if clientUser.ID == "" || musicianUser.ID == "" || adminUser.ID == "" {
 		t.Fatal("expected seeded users to have IDs")
+	}
+}
+
+// TestFinalizeFund_ConcurrentCallsAreSerialized reproduces, against the
+// real HTTP server (not just the in-process usecase), the exact race
+// found during live sandbox testing: PayPetal's webhook and GigPurse's own
+// reconciler both call POST /milestones/fund/finalize for the same
+// reference within moments of each other. Before the CompareAndSwapStatus
+// guard, both calls slipped past the plain status check, double-recorded
+// the funding transaction, and one silently stomped the other's status
+// update. This fires many concurrent finalize calls and asserts exactly
+// one funding transaction was recorded and the milestone ends up "funded"
+// — not reverted, not duplicated.
+func TestFinalizeFund_ConcurrentCallsAreSerialized(t *testing.T) {
+	t.Setenv("JWT_SECRET", "api-simulation-secret")
+
+	app := newTestApp()
+	server := httptest.NewServer(app.mux)
+	defer server.Close()
+
+	client := &apiClient{t: t, baseURL: server.URL, http: server.Client()}
+
+	clientUser := client.signup("race-client@example.com", "password123", "client", "Race Client")
+	musicianUser := client.signup("race-musician@example.com", "password123", "musician", "Race Musician")
+	client.verifyEmail(app, clientUser.ID, "race-client@example.com", "111111")
+	client.verifyEmail(app, musicianUser.ID, "race-musician@example.com", "222222")
+	clientToken := client.login("race-client@example.com", "password123")
+	musicianToken := client.login("race-musician@example.com", "password123")
+
+	client.post("/payout-account/validate", musicianToken, map[string]any{
+		"bank_code": "000", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account", musicianToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account/validate", clientToken, map[string]any{
+		"bank_code": "000", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account", clientToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+
+	var job domain.Job
+	client.post("/jobs", clientToken, map[string]any{
+		"title": "Race condition test gig", "description": "Testing concurrent finalize", "instrument": "Guitar",
+		"genre": "Test", "location": "Lagos", "budget": 5000, "experience_level": "intermediate",
+		"duration": "less_than_1_week", "project_type": "one_time", "skills": []string{},
+	}, http.StatusCreated, &job)
+	client.post("/jobs/fund", clientToken, map[string]any{"job_id": job.ID}, http.StatusOK, nil)
+
+	var application domain.JobApplication
+	client.post("/jobs/apply", musicianToken, map[string]any{
+		"job_id": job.ID, "proposal": "I'll do it", "price_bid": 5000,
+	}, http.StatusCreated, &application)
+
+	var contract domain.Contract
+	client.post("/jobs/applications/accept", clientToken, map[string]any{"application_id": application.ID}, http.StatusOK, &contract)
+
+	var proposed []domain.Milestone
+	client.post("/milestones", clientToken, map[string]any{
+		"contract_id": contract.ID,
+		"milestones":  []map[string]any{{"title": "Race milestone", "amount": 5000}},
+	}, http.StatusCreated, &proposed)
+	milestoneID := proposed[0].ID
+	client.post("/milestones/accept", musicianToken, map[string]any{"contract_id": contract.ID, "milestone_id": milestoneID}, http.StatusOK, nil)
+
+	var fundStart struct {
+		PaymentURL string `json:"payment_url"`
+		Reference  string `json:"reference"`
+	}
+	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contract.ID, "milestone_id": milestoneID}, http.StatusOK, &fundStart)
+	app.paypetal.SimulatePaymentCompleted(fundStart.Reference)
+
+	const concurrentCalls = 20
+	var wg sync.WaitGroup
+	statuses := make([]int, concurrentCalls)
+	for i := 0; i < concurrentCalls; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body, _ := json.Marshal(map[string]any{"reference": fundStart.Reference})
+			req, err := http.NewRequest(http.MethodPost, server.URL+"/milestones/fund/finalize", bytes.NewReader(body))
+			if err != nil {
+				t.Errorf("build request %d: %v", i, err)
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+clientToken)
+			resp, err := server.Client().Do(req)
+			if err != nil {
+				t.Errorf("request %d failed: %v", i, err)
+				return
+			}
+			defer resp.Body.Close()
+			statuses[i] = resp.StatusCode
+		}(i)
+	}
+	wg.Wait()
+
+	for i, code := range statuses {
+		if code != http.StatusOK {
+			t.Errorf("concurrent finalize call %d: expected 200, got %d", i, code)
+		}
+	}
+
+	var finalMilestones []domain.Milestone
+	client.get("/milestones?contract_id="+contract.ID, clientToken, http.StatusOK, &finalMilestones)
+	var final *domain.Milestone
+	for i := range finalMilestones {
+		if finalMilestones[i].ID == milestoneID {
+			final = &finalMilestones[i]
+		}
+	}
+	if final == nil {
+		t.Fatal("milestone vanished")
+	}
+	if final.Status != "funded" {
+		t.Fatalf("expected milestone to end up \"funded\" after %d concurrent finalize calls, got %q", concurrentCalls, final.Status)
+	}
+
+	var clientTxs []domain.Transaction
+	client.get("/wallet/transactions", clientToken, http.StatusOK, &clientTxs)
+	holdCount := 0
+	for _, tx := range clientTxs {
+		if tx.Type == "escrow_hold" && tx.Reference == fundStart.Reference {
+			holdCount++
+		}
+	}
+	if holdCount != 1 {
+		t.Fatalf("expected exactly 1 escrow_hold transaction after %d concurrent finalize calls, got %d", concurrentCalls, holdCount)
 	}
 }
 
@@ -432,13 +675,13 @@ func newTestApp() *testApp {
 	const testFrontendBaseURL = "https://gigpurse.test"
 
 	userUsecase := usecase.NewUserUsecaseWithVerification(userRepo, resetRepo, emailVerifyRepo, hub)
-	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo, paypetalFake, escrowRepo, testFrontendBaseURL)
+	jobUsecase := usecase.NewJobUsecase(jobRepo, userRepo, contractRepo, notifRepo, walletRepo, reviewRepo, paypetalFake, escrowRepo, milestoneRepo, testFrontendBaseURL)
 	chatUsecase := usecase.NewChatUsecase(chatRepo, userRepo, notifRepo)
 	contractUsecase := usecase.NewContractUsecase(contractRepo, jobRepo, notifRepo, userRepo, walletRepo, paypetalFake, escrowRepo)
 	reviewUsecase := usecase.NewReviewUsecase(reviewRepo, contractRepo, notifRepo)
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
-	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo}
+	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo, milestones: milestoneRepo, escrow: escrowRepo, jobUsecase: jobUsecase}
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalFake, escrowRepo)
@@ -457,14 +700,14 @@ func newTestApp() *testApp {
 	delivery.NewUserHandler(userUsecase, contractRepo).RegisterRoutes(mux)
 	delivery.NewJobHandler(jobUsecase).RegisterRoutes(mux)
 	delivery.NewChatHandler(chatUsecase, disputeUsecase, hub).RegisterRoutes(mux)
-	delivery.NewContractHandler(contractUsecase).RegisterRoutes(mux)
+	delivery.NewContractHandler(contractUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewReviewHandler(reviewUsecase).RegisterRoutes(mux)
 	delivery.NewNotificationHandler(notifUsecase).RegisterRoutes(mux)
 	delivery.NewDisputeHandler(disputeUsecase, hub).RegisterRoutes(mux)
 	delivery.NewDashboardHandler(dashboardUsecase).RegisterRoutes(mux)
 	delivery.NewAdminHandler(adminUsecase).RegisterRoutes(mux)
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
-	delivery.NewMilestoneHandler(milestoneUsecase).RegisterRoutes(mux)
+	delivery.NewMilestoneHandler(milestoneUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
 
 	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake}
@@ -903,6 +1146,46 @@ func (r *memoryChatRepo) ListByDispute(ctx context.Context, disputeID string) ([
 	return out, nil
 }
 
+func (r *memoryChatRepo) MarkConversationRead(ctx context.Context, recvID, senderID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, msg := range r.messages {
+		if msg.SenderID == senderID && msg.RecvID == recvID {
+			msg.Read = true
+		}
+	}
+	return nil
+}
+
+func (r *memoryChatRepo) ListUnreadOlderThan(ctx context.Context, cutoff time.Time) ([]*domain.ChatMessage, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := []*domain.ChatMessage{}
+	for _, msg := range r.messages {
+		if !msg.Read && msg.ReminderEmailSentAt == nil && msg.RecvID != "" && msg.Timestamp.Before(cutoff) {
+			cp := *msg
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func (r *memoryChatRepo) MarkReminderEmailSent(ctx context.Context, ids []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	now := time.Now()
+	for _, msg := range r.messages {
+		if idSet[msg.ID] {
+			msg.ReminderEmailSentAt = &now
+		}
+	}
+	return nil
+}
+
 func (r *memoryChatRepo) count() int64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -1269,11 +1552,14 @@ func (r *memoryDisputeRepo) count() int64 {
 }
 
 type memoryAdminUsecase struct {
-	users     *memoryUserRepo
-	jobs      *memoryJobRepo
-	chats     *memoryChatRepo
-	contracts *memoryContractRepo
-	disputes  *memoryDisputeRepo
+	users      *memoryUserRepo
+	jobs       *memoryJobRepo
+	chats      *memoryChatRepo
+	contracts  *memoryContractRepo
+	disputes   *memoryDisputeRepo
+	milestones domain.MilestoneRepository
+	escrow     domain.EscrowAgreementRepository
+	jobUsecase domain.JobUsecase
 }
 
 func (u *memoryAdminUsecase) GetAnalytics(ctx context.Context) (*domain.AdminAnalytics, error) {
@@ -1294,9 +1580,262 @@ func (u *memoryAdminUsecase) ListAllJobs(ctx context.Context) ([]*domain.Job, er
 	return u.jobs.List(ctx, domain.JobFilter{})
 }
 
+func (u *memoryAdminUsecase) GetJobDetail(ctx context.Context, jobID string) (*domain.AdminJobDetail, error) {
+	job, err := u.jobs.GetByID(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	apps, err := u.jobUsecase.ListJobApplications(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	detail := &domain.AdminJobDetail{Job: job, Applications: apps}
+
+	contract, err := u.contracts.GetByJobID(ctx, jobID)
+	if err != nil || contract == nil {
+		return detail, nil
+	}
+	detail.Contract = contract
+
+	milestones, err := u.milestones.ListByContract(ctx, contract.ID)
+	if err != nil {
+		return detail, nil
+	}
+	for _, m := range milestones {
+		summary := &domain.AdminMilestoneSummary{
+			ID: m.ID, Title: m.Title, Amount: m.Amount, Status: m.Status,
+			DueDate: m.DueDate, CreatedAt: m.CreatedAt,
+		}
+		if m.EscrowReference != "" {
+			if agreement, err := u.escrow.GetByReference(ctx, m.EscrowReference); err == nil {
+				summary.EscrowStatus = agreement.Status
+				summary.PayoutStatus = agreement.PayoutStatus
+				summary.RefundStatus = agreement.RefundStatus
+				summary.PlatformFee = agreement.PlatformFeeNaira
+			}
+		}
+		detail.Milestones = append(detail.Milestones, summary)
+	}
+	return detail, nil
+}
+
 func (u *memoryAdminUsecase) DeleteJobListing(ctx context.Context, jobID string) error {
 	u.jobs.delete(jobID)
 	return nil
+}
+
+func (u *memoryAdminUsecase) InviteModerator(ctx context.Context, email, name string) (*domain.User, error) {
+	if existing, err := u.users.GetByEmail(ctx, email); err == nil && existing != nil {
+		return nil, fmt.Errorf("a user with this email already exists (role: %s)", existing.Role)
+	}
+	user := &domain.User{Email: email, Role: "moderator", Name: name, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := u.users.Create(ctx, user); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (u *memoryAdminUsecase) ListModerators(ctx context.Context) ([]*domain.User, error) {
+	var out []*domain.User
+	for _, user := range u.users.listAll() {
+		if user.Role == "moderator" || user.Role == "revoked_moderator" {
+			out = append(out, user)
+		}
+	}
+	return out, nil
+}
+
+func (u *memoryAdminUsecase) SetModeratorStatus(ctx context.Context, userID string, active bool) error {
+	user, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if active {
+		user.Role = "moderator"
+	} else {
+		user.Role = "revoked_moderator"
+	}
+	return u.users.Update(ctx, user)
+}
+
+// engagementFake is a low-fidelity stand-in for admin_usecase.go's real
+// per-user Mongo aggregations — good enough to satisfy domain.AdminUsecase
+// and return plausible, non-crashing data. Nothing in this suite currently
+// asserts on specific engagement numbers, so exact parity with the real
+// aggregation logic isn't required here.
+func (u *memoryAdminUsecase) engagementFor(ctx context.Context, user *domain.User, windowDays int, role string) *domain.EngagementSummary {
+	since := time.Now().AddDate(0, 0, -windowDays)
+	var last time.Time
+	var windowCount, allTimeCount int64
+	bump := func(t time.Time) {
+		if t.After(last) {
+			last = t
+		}
+		allTimeCount++
+		if !t.Before(since) {
+			windowCount++
+		}
+	}
+
+	if role == "musician" {
+		apps, _ := u.jobs.ListApplicationsByMusician(ctx, user.ID)
+		for _, a := range apps {
+			bump(a.CreatedAt)
+		}
+	}
+	contracts, _ := u.contracts.ListForUser(ctx, user.ID, role)
+	var gigs int64
+	for _, c := range contracts {
+		bump(c.CreatedAt)
+		if c.Status == "completed" {
+			gigs++
+		}
+	}
+	hires, _ := u.contracts.ListDirectHireRequestsForUser(ctx, user.ID, role, "")
+	for _, h := range hires {
+		bump(h.CreatedAt)
+	}
+	for _, m := range u.chats.messages {
+		if m.SenderID == user.ID {
+			bump(m.Timestamp)
+		}
+	}
+
+	var financial float64
+	if role == "client" {
+		agreements, _ := u.escrow.ListByInitiator(ctx, user.ID)
+		for _, a := range agreements {
+			if a.Status != "PENDING" {
+				financial += a.AmountNaira + a.PlatformFeeNaira
+			}
+		}
+	}
+
+	summary := &domain.EngagementSummary{
+		UserID: user.ID, Name: user.Name, Email: user.Email, JoinedAt: user.CreatedAt,
+		EngagementCount: windowCount, GigsCount: gigs, FinancialTotal: financial,
+	}
+	if !last.IsZero() {
+		summary.LastEngagedAt = &last
+	}
+	if role == "client" {
+		months := time.Since(user.CreatedAt).Hours() / 24 / 30
+		if months < 1 {
+			months = 1
+		}
+		summary.AvgEngagementPerMonth = float64(allTimeCount) / months
+	}
+	return summary
+}
+
+func (u *memoryAdminUsecase) ListTalentEngagement(ctx context.Context, windowDays int) ([]*domain.EngagementSummary, error) {
+	var out []*domain.EngagementSummary
+	for _, user := range u.users.listAll() {
+		if user.Role == "musician" {
+			out = append(out, u.engagementFor(ctx, user, windowDays, "musician"))
+		}
+	}
+	return out, nil
+}
+
+func (u *memoryAdminUsecase) ListClientEngagement(ctx context.Context, windowDays int) ([]*domain.EngagementSummary, error) {
+	var out []*domain.EngagementSummary
+	for _, user := range u.users.listAll() {
+		if user.Role == "client" {
+			out = append(out, u.engagementFor(ctx, user, windowDays, "client"))
+		}
+	}
+	return out, nil
+}
+
+// TestMemoryChatRepo_MarkConversationRead verifies the real repository
+// (not a test stub) used by the running app: marking a conversation read
+// only flips messages actually sent by that specific sender to that
+// specific recipient, leaving everything else untouched.
+func TestMemoryChatRepo_MarkConversationRead(t *testing.T) {
+	repo := newMemoryChatRepo()
+	ctx := context.Background()
+
+	msgs := []*domain.ChatMessage{
+		{SenderID: "a", RecvID: "b", Content: "hi from a", Timestamp: time.Now()},
+		{SenderID: "a", RecvID: "b", Content: "hi again", Timestamp: time.Now()},
+		{SenderID: "b", RecvID: "a", Content: "reply from b", Timestamp: time.Now()},
+		{SenderID: "c", RecvID: "b", Content: "unrelated sender", Timestamp: time.Now()},
+	}
+	for _, m := range msgs {
+		if err := repo.SaveMessage(ctx, m); err != nil {
+			t.Fatalf("save message: %v", err)
+		}
+	}
+
+	if err := repo.MarkConversationRead(ctx, "b", "a"); err != nil {
+		t.Fatalf("mark conversation read: %v", err)
+	}
+
+	history, err := repo.GetChatHistory(ctx, "a", "b")
+	if err != nil {
+		t.Fatalf("get chat history: %v", err)
+	}
+	for _, m := range history {
+		if m.SenderID == "a" && m.RecvID == "b" && !m.Read {
+			t.Fatalf("expected a->b message to be marked read: %#v", m)
+		}
+		if m.SenderID == "b" && m.RecvID == "a" && m.Read {
+			t.Fatalf("expected b->a message to remain unread (b hasn't read a's messages, only the reverse): %#v", m)
+		}
+	}
+
+	fromC, err := repo.GetChatHistory(ctx, "b", "c")
+	if err != nil {
+		t.Fatalf("get chat history: %v", err)
+	}
+	for _, m := range fromC {
+		if m.Read {
+			t.Fatalf("expected the unrelated c->b message to remain unread: %#v", m)
+		}
+	}
+}
+
+// TestMemoryChatRepo_UnreadDigestFlow exercises ListUnreadOlderThan and
+// MarkReminderEmailSent together: a stale unread message should surface
+// once, and stop surfacing once reminded — the exact idempotency
+// StartUnreadEmailScanner depends on to avoid re-emailing every tick.
+func TestMemoryChatRepo_UnreadDigestFlow(t *testing.T) {
+	repo := newMemoryChatRepo()
+	ctx := context.Background()
+
+	old := time.Now().Add(-48 * time.Hour)
+	recent := time.Now()
+
+	stale := &domain.ChatMessage{SenderID: "a", RecvID: "b", Content: "old and unread", Timestamp: old}
+	fresh := &domain.ChatMessage{SenderID: "a", RecvID: "b", Content: "just sent", Timestamp: recent}
+	if err := repo.SaveMessage(ctx, stale); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := repo.SaveMessage(ctx, fresh); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	cutoff := time.Now().Add(-24 * time.Hour)
+	unread, err := repo.ListUnreadOlderThan(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("list unread: %v", err)
+	}
+	if len(unread) != 1 || unread[0].ID != stale.ID {
+		t.Fatalf("expected only the stale message, got %#v", unread)
+	}
+
+	if err := repo.MarkReminderEmailSent(ctx, []string{stale.ID}); err != nil {
+		t.Fatalf("mark reminder sent: %v", err)
+	}
+
+	unreadAgain, err := repo.ListUnreadOlderThan(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("list unread again: %v", err)
+	}
+	if len(unreadAgain) != 0 {
+		t.Fatalf("expected the reminded message to stop appearing, got %#v", unreadAgain)
+	}
 }
 
 func TestMain(m *testing.M) {

@@ -67,6 +67,11 @@ export default function NavBar() {
   const canSeeAdminLink = user?.role === "admin" || user?.role === "moderator";
   const adminHref = user?.role === "moderator" ? "/admin/disputes" : "/admin";
   const adminLabel = user?.role === "moderator" ? "Disputes queue" : "Admin dashboard";
+  // Admin/moderator are staff accounts, not client/talent ones — they don't
+  // have bookings, a wallet, a portfolio, or a company profile, so none of
+  // that nav belongs to them. Their whole nav collapses to "go to the admin
+  // area" plus account basics.
+  const isStaff = canSeeAdminLink;
 
   async function handleLogout() {
     await apiLogout();
@@ -79,7 +84,7 @@ export default function NavBar() {
     <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-md border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
-          <Link href={isAuthenticated ? dashboardUrl : "/"} className="flex items-center gap-2.5">
+          <Link href={isAuthenticated ? (isStaff ? adminHref : dashboardUrl) : "/"} className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Disc3 className="w-4 h-4 text-primary-foreground" strokeWidth={2.25} />
             </div>
@@ -104,29 +109,40 @@ export default function NavBar() {
               <>
                 {isAuthenticated ? (
                   <div className="flex items-center gap-1 ml-2">
-                    <Link href={dashboardUrl}>
-                      <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
-                        {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
-                        {isTalent ? "Find Gigs" : "Dashboard"}
-                      </Button>
-                    </Link>
+                    {isStaff ? (
+                      <Link href={adminHref}>
+                        <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
+                          <ShieldCheck className="w-4 h-4" />
+                          {adminLabel}
+                        </Button>
+                      </Link>
+                    ) : (
+                      <>
+                        <Link href={dashboardUrl}>
+                          <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
+                            {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
+                            {isTalent ? "Find Gigs" : "Dashboard"}
+                          </Button>
+                        </Link>
 
-                    <Link href="/messages">
-                      <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
-                        <MessageCircle className="w-4 h-4" />
-                        {unreadMessageCount > 0 && (
-                          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
-                            {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
-                          </span>
-                        )}
-                      </Button>
-                    </Link>
+                        <Link href="/messages">
+                          <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
+                            <MessageCircle className="w-4 h-4" />
+                            {unreadMessageCount > 0 && (
+                              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                                {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                              </span>
+                            )}
+                          </Button>
+                        </Link>
 
-                    <Link href="/wallet">
-                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-                        <Wallet className="w-4 h-4" />
-                      </Button>
-                    </Link>
+                        <Link href="/wallet">
+                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                            <Wallet className="w-4 h-4" />
+                          </Button>
+                        </Link>
+                      </>
+                    )}
 
                     <NotificationBell className="text-muted-foreground hover:text-foreground" />
                     <ThemeToggle className="text-muted-foreground hover:text-foreground" />
@@ -144,12 +160,14 @@ export default function NavBar() {
                           <p className="text-xs text-primary capitalize mt-0.5 font-medium">{isTalent ? "Talent" : user?.role}</p>
                         </div>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href={profileHref}>
-                            <UserCog className="w-4 h-4 mr-2" />
-                            Profile
-                          </Link>
-                        </DropdownMenuItem>
+                        {!isStaff && (
+                          <DropdownMenuItem asChild>
+                            <Link href={profileHref}>
+                              <UserCog className="w-4 h-4 mr-2" />
+                              Profile
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem asChild>
                           <Link href="/pricing">
                             <Tag className="w-4 h-4 mr-2" />
@@ -180,19 +198,23 @@ export default function NavBar() {
                             </Link>
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem asChild>
-                          <Link href="/profile/bookings">
-                            <CalendarCheck className="w-4 h-4 mr-2" />
-                            Bookings
-                          </Link>
-                        </DropdownMenuItem>
+                        {!isStaff && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/profile/bookings">
+                              <CalendarCheck className="w-4 h-4 mr-2" />
+                              Bookings
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href="/disputes">
-                            <ShieldAlert className="w-4 h-4 mr-2" />
-                            Disputes
-                          </Link>
-                        </DropdownMenuItem>
+                        {!isStaff && (
+                          <DropdownMenuItem asChild>
+                            <Link href="/disputes">
+                              <ShieldAlert className="w-4 h-4 mr-2" />
+                              Disputes
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
                         {canSeeAdminLink && (
                           <DropdownMenuItem asChild>
                             <Link href={adminHref}>
@@ -258,43 +280,56 @@ export default function NavBar() {
 
             {isAuthenticated ? (
               <>
-                <Link
-                  href={dashboardUrl}
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
-                  {isTalent ? "Find Gigs" : "Dashboard"}
-                </Link>
-                <Link
-                  href="/messages"
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  Messages
-                  {unreadMessageCount > 0 && (
-                    <span className="ml-auto w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
-                      {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
-                    </span>
-                  )}
-                </Link>
-                <Link
-                  href="/wallet"
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <Wallet className="w-4 h-4" />
-                  Wallet
-                </Link>
-                <Link
-                  href={profileHref}
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <UserCog className="w-4 h-4" />
-                  Profile
-                </Link>
+                {isStaff ? (
+                  <Link
+                    href={adminHref}
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    {adminLabel}
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href={dashboardUrl}
+                      className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      {isTalent ? <Briefcase className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
+                      {isTalent ? "Find Gigs" : "Dashboard"}
+                    </Link>
+                    <Link
+                      href="/messages"
+                      className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      Messages
+                      {unreadMessageCount > 0 && (
+                        <span className="ml-auto w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+                          {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                        </span>
+                      )}
+                    </Link>
+                    <Link
+                      href="/wallet"
+                      className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <Wallet className="w-4 h-4" />
+                      Wallet
+                    </Link>
+                    <Link
+                      href={profileHref}
+                      className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <UserCog className="w-4 h-4" />
+                      Profile
+                    </Link>
+                  </>
+                )}
                 {isTalent && (
                   <Link
                     href="/profile/portfolio"
@@ -325,30 +360,24 @@ export default function NavBar() {
                     Contracts
                   </Link>
                 )}
-                <Link
-                  href="/profile/bookings"
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <CalendarCheck className="w-4 h-4" />
-                  Bookings
-                </Link>
-                <Link
-                  href="/disputes"
-                  className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  Disputes
-                </Link>
-                {canSeeAdminLink && (
+                {!isStaff && (
                   <Link
-                    href={adminHref}
+                    href="/profile/bookings"
                     className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    <ShieldCheck className="w-4 h-4" />
-                    {adminLabel}
+                    <CalendarCheck className="w-4 h-4" />
+                    Bookings
+                  </Link>
+                )}
+                {!isStaff && (
+                  <Link
+                    href="/disputes"
+                    className="flex items-center gap-2 p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <ShieldAlert className="w-4 h-4" />
+                    Disputes
                   </Link>
                 )}
                 <button

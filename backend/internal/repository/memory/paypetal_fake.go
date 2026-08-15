@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"gigpurse/internal/paypetal"
 )
@@ -78,6 +79,12 @@ func (f *PayPetalFake) CreateTrustCoreAgreement(ctx context.Context, in paypetal
 }
 
 func (f *PayPetalFake) GetTrustCoreAgreement(ctx context.Context, reference string) (*paypetal.AgreementState, error) {
+	// A real PayPetal round-trip takes real network time — long enough for
+	// two concurrent finalize attempts (a webhook and a reconciler sweep,
+	// say) to both read state before either has written anything back.
+	// Without this, an in-memory fake responds instantly and a concurrency
+	// test can't reliably open that window, letting a real race hide.
+	time.Sleep(5 * time.Millisecond)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a, ok := f.agreements[reference]
@@ -94,6 +101,14 @@ func (f *PayPetalFake) CompleteTrustCoreAgreement(ctx context.Context, reference
 	a, ok := f.agreements[reference]
 	if !ok {
 		return &paypetal.APIError{HTTPStatus: 400, Code: "agreement_not_found", Message: "no agreement found for reference " + reference}
+	}
+	// Mirrors real PayPetal: a second completion call on an already-paying
+	// agreement is rejected, not silently accepted — confirmed live against
+	// their sandbox during the concurrent-FinalizeFund investigation. A
+	// caller-side test relying on this fake to catch a reintroduced race
+	// needs this to be realistic, not a no-op.
+	if a.PayoutStatus == "COMPLETED" || a.PayoutStatus == "PENDING" {
+		return &paypetal.APIError{HTTPStatus: 400, Code: "payout_in_progress", Message: "A payout for this agreement is already in progress."}
 	}
 	a.PayoutStatus = "COMPLETED"
 	return nil

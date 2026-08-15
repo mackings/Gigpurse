@@ -5,6 +5,7 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useUserInfo } from "@/hooks/use-user-info";
 import { useDisputeChat } from "@/hooks/use-dispute-chat";
 import { formatMessageTime, formatDayDivider } from "@/lib/format-time";
+import { formatMoney } from "@/lib/utils";
 import { apiUpload } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -297,7 +298,13 @@ export default function DisputeChatRoom({ disputeId, onBack }) {
 
       {isResolved ? (
         <div className="p-3 sm:p-4 border-t border-border text-sm text-center text-muted-foreground bg-muted/30">
-          This dispute is resolved{dispute.winner_id && ` in favor of ${nameFor(dispute.winner_id)}`}. The conversation is closed.
+          This dispute is resolved
+          {dispute.winner_id
+            ? ` in favor of ${nameFor(dispute.winner_id)}`
+            : dispute.talent_amount > 0
+              ? ` — ${musicianInfo?.name || "the talent"} awarded ${formatMoney(dispute.talent_amount)}`
+              : " — client refunded in full"}
+          . The conversation is closed.
         </div>
       ) : isBlocked ? (
         <div className="p-3 sm:p-4 border-t border-border text-sm text-center text-muted-foreground bg-muted/30">

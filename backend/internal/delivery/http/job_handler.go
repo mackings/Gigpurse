@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/usecase"
 )
 
 type JobHandler struct {
@@ -179,6 +181,14 @@ func (h *JobHandler) PostJob(w http.ResponseWriter, r *http.Request) {
 		Skills:          req.Skills,
 	})
 	if err != nil {
+		if errors.Is(err, usecase.ErrPaymentRequired) {
+			respondError(w, http.StatusConflict, "payment_required", err.Error())
+			return
+		}
+		if errors.Is(err, usecase.ErrPayoutAccountRequired) {
+			respondError(w, http.StatusConflict, "payout_account_required", err.Error())
+			return
+		}
 		respondError(w, http.StatusBadRequest, "job_create_failed", err.Error())
 		return
 	}
@@ -408,6 +418,14 @@ func (h *JobHandler) AcceptApplication(w http.ResponseWriter, r *http.Request) {
 
 	contract, err := h.jobUsecase.AcceptApplication(r.Context(), userID, req.ApplicationID)
 	if err != nil {
+		if errors.Is(err, usecase.ErrPaymentRequired) {
+			respondError(w, http.StatusConflict, "payment_required", err.Error())
+			return
+		}
+		if errors.Is(err, usecase.ErrPayoutAccountRequired) {
+			respondError(w, http.StatusConflict, "payout_account_required", err.Error())
+			return
+		}
 		respondError(w, http.StatusBadRequest, "hire_failed", err.Error())
 		return
 	}

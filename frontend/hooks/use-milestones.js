@@ -61,6 +61,18 @@ export function useMilestones(contractId) {
     return m;
   }
 
+  async function cancel(milestone) {
+    const m = await apiPost("/milestones/cancel", { contract_id: contractId, milestone_id: milestone.id });
+    invalidate();
+    return m;
+  }
+
+  async function requestRelease(milestone) {
+    const res = await apiPost("/milestones/request-release", { contract_id: contractId, milestone_id: milestone.id });
+    invalidate();
+    return res;
+  }
+
   return {
     milestones: query.data || [],
     isLoading: query.isLoading,
@@ -71,6 +83,8 @@ export function useMilestones(contractId) {
     counter,
     fund,
     release,
+    cancel,
+    requestRelease,
     // Exposed so a caller can re-sync after something happens outside this
     // hook's own mutations — e.g. a payment popup closing once PayPetal
     // confirms funding, which this hook has no way to know about on its own.
@@ -154,6 +168,18 @@ export function useMilestonesForContracts(contractIds) {
     return m;
   }
 
+  async function cancel(milestone) {
+    const m = await apiPost("/milestones/cancel", { contract_id: milestone.contract_id, milestone_id: milestone.id });
+    invalidate(milestone.contract_id);
+    return m;
+  }
+
+  async function requestRelease(milestone) {
+    const res = await apiPost("/milestones/request-release", { contract_id: milestone.contract_id, milestone_id: milestone.id });
+    invalidate(milestone.contract_id);
+    return res;
+  }
+
   return {
     milestones,
     isLoading: results.some((r) => r.isLoading),
@@ -164,6 +190,8 @@ export function useMilestonesForContracts(contractIds) {
     counter,
     fund,
     release,
+    cancel,
+    requestRelease,
     // Takes the contractId to re-sync, since this hook spans several.
     refresh: invalidate,
   };

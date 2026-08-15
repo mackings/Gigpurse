@@ -26,7 +26,7 @@ export default function PendingPaymentView() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const reference = searchParams.get("reference");
-  const isMilestone = reference?.startsWith("milestone:");
+  const isMilestone = reference?.startsWith("ms:");
   const finalizeURL = isMilestone ? "/milestones/fund/finalize" : "/jobs/hire/finalize";
 
   const finalizeQuery = useQuery({

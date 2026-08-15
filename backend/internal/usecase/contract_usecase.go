@@ -163,6 +163,12 @@ func (u *contractUsecase) CreateDirectHireRequest(ctx context.Context, initiator
 	if counterpart.Role != "musician" {
 		return nil, errors.New("direct hire target must be a musician")
 	}
+	// See job_usecase.go's PostJob for why: a dispute-ordered refund only
+	// ever moves money back to the client, and PayPetal needs a payout
+	// account on file for that.
+	if err := u.requirePayoutAccount(initiator); err != nil {
+		return nil, err
+	}
 	clientID, musicianID := initiatorID, counterpartID
 
 	now := time.Now()
@@ -313,7 +319,6 @@ func (u *contractUsecase) CounterDirectHireRequest(ctx context.Context, userID, 
 }
 
 func (u *contractUsecase) notifyAndEmail(ctx context.Context, userID, title, message, link string) {
-	// Create In-App Notification
 	notif := &domain.Notification{
 		UserID:    userID,
 		Title:     title,
@@ -324,6 +329,9 @@ func (u *contractUsecase) notifyAndEmail(ctx context.Context, userID, title, mes
 	}
 	_ = u.notifRepo.Create(ctx, notif)
 
-	// Mock Email Sending (Email Notification Feature)
-	log.Printf("[EMAIL OUTBOX] To User %s: Subject: %s | Message: %s", userID, title, message)
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notifyAndEmail: email to %s failed: %v", user.Email, err)
+		}
+	}
 }

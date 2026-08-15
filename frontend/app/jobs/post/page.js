@@ -53,7 +53,13 @@ export default function PostJob() {
       toast.success("Gig details saved — publish it to start receiving applications.");
       setPostedJob(job);
     } catch (err) {
-      toast.error(err.message);
+      if (err.code === "payment_required") {
+        toast.error("You have a dispute settlement waiting to be paid — check your contracts and fund it before posting a new gig.");
+      } else if (err.code === "payout_account_required") {
+        toast.error("Add a payout account before posting a gig — it's what any future dispute refund would be paid back to.");
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"time"
 
 	"gigpurse/internal/domain"
 
@@ -85,6 +86,49 @@ func (r *chatRepository) ListByDispute(ctx context.Context, disputeID string) ([
 		messages = append(messages, &msg)
 	}
 	return messages, cursor.Err()
+}
+
+func (r *chatRepository) MarkConversationRead(ctx context.Context, recvID, senderID string) error {
+	_, err := r.collection.UpdateMany(ctx,
+		bson.M{"sender_id": senderID, "recv_id": recvID, "read": bson.M{"$ne": true}},
+		bson.M{"$set": bson.M{"read": true}},
+	)
+	return err
+}
+
+func (r *chatRepository) ListUnreadOlderThan(ctx context.Context, cutoff time.Time) ([]*domain.ChatMessage, error) {
+	query := bson.M{
+		"read":                   bson.M{"$ne": true},
+		"reminder_email_sent_at": bson.M{"$exists": false},
+		"timestamp":              bson.M{"$lt": cutoff},
+		"recv_id":                bson.M{"$exists": true, "$ne": ""},
+	}
+	cursor, err := r.collection.Find(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	messages := []*domain.ChatMessage{}
+	for cursor.Next(ctx) {
+		var msg domain.ChatMessage
+		if err := cursor.Decode(&msg); err != nil {
+			return nil, err
+		}
+		messages = append(messages, &msg)
+	}
+	return messages, cursor.Err()
+}
+
+func (r *chatRepository) MarkReminderEmailSent(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := r.collection.UpdateMany(ctx,
+		bson.M{"_id": bson.M{"$in": ids}},
+		bson.M{"$set": bson.M{"reminder_email_sent_at": time.Now()}},
+	)
+	return err
 }
 
 func (r *chatRepository) GetRecentChats(ctx context.Context, userID string) ([]*domain.ChatMessage, error) {

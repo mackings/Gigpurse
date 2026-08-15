@@ -173,15 +173,15 @@ func (h *DisputeHandler) ResolveDispute(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var req struct {
-		DisputeID  string `json:"dispute_id"`
-		WinnerID   string `json:"winner_id"`
-		Resolution string `json:"resolution"`
+		DisputeID    string  `json:"dispute_id"`
+		Resolution   string  `json:"resolution"`
+		TalentAmount float64 `json:"talent_amount"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
-	dispute, err := h.disputeUsecase.ResolveDispute(r.Context(), userID, req.DisputeID, req.WinnerID, req.Resolution)
+	dispute, err := h.disputeUsecase.ResolveDispute(r.Context(), userID, req.DisputeID, req.Resolution, req.TalentAmount)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "dispute_resolve_failed", err.Error())
 		return

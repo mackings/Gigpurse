@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -104,6 +105,11 @@ func (u *milestoneUsecase) notify(ctx context.Context, userID, title, message, c
 		ContractID: contractID,
 		CreatedAt:  time.Now(),
 	})
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notify: email to %s failed: %v", user.Email, err)
+		}
+	}
 }
 
 func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID string, items []domain.MilestoneInput) ([]*domain.Milestone, error) {
@@ -120,6 +126,9 @@ func (u *milestoneUsecase) Propose(ctx context.Context, contractID, proposerID s
 	}
 	if proposerID != contract.ClientID {
 		return nil, errors.New("unauthorized: only the client can propose a new milestone — the talent can counter, accept, or reject one")
+	}
+	if contract.Status == "disputed" {
+		return nil, errors.New("this contract has a dispute pending resolution — new milestones can't be proposed until it's resolved")
 	}
 
 	// Proposing new work reopens a contract the client had marked
@@ -354,17 +363,38 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	// the talent's net take-home is actually escrowed; GigPurse's combined
 	// commission + service fee rides along as a separate merchantCharge
 	// billed to the client on top of it. See pricing.go for the split.
+	//
+	// A "Dispute settlement" milestone (DisputeID set) is exempt — GigPurse
+	// already took its cut on the original funding this is making up for,
+	// so charging commission again on the makeup payment would double-dip
+	// on a situation that already went wrong. The talent gets the full
+	// moderator-awarded amount.
 	talentAmount := TalentTakeHome(milestone.Amount)
 	platformFee := PlatformFee(milestone.Amount)
+	if milestone.DisputeID != "" {
+		talentAmount = milestone.Amount
+		platformFee = 0
+	}
 
-	reference := "milestone:" + milestoneID
+	var merchantChargeKobo string
+	if platformFee > 0 {
+		merchantChargeKobo = paypetal.NairaToKobo(platformFee)
+	}
+
+	// PayPetal's hosted checkout prepends its own "MCH-" prefix before
+	// generating a bank-transfer virtual account, and rejects anything past
+	// 35 chars at that point (confirmed live: "milestone:" + a 24-char
+	// Mongo ID is 34 chars, +4 for "MCH-" = 38, over the limit — every
+	// bank-transfer milestone payment 400'd on PayPetal's /pay/create-account
+	// step). Keep this prefix short enough to leave headroom.
+	reference := "ms:" + milestoneID
 	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
 		ReferenceID:            reference,
 		InitiatorCustomerID:    clientCustomerID,
 		CounterpartyCustomerID: musicianCustomerID,
 		Currency:               "NGN",
 		AmountKobo:             paypetal.NairaToKobo(talentAmount),
-		MerchantChargeKobo:     paypetal.NairaToKobo(platformFee),
+		MerchantChargeKobo:     merchantChargeKobo,
 		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
 		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
 	})
@@ -412,8 +442,8 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 	if err != nil {
 		return nil, fmt.Errorf("milestone not found: %w", err)
 	}
-	if milestone.Status == "funded" {
-		return milestone, nil // already finalized
+	if milestone.Status == "funded" || milestone.Status == "released" {
+		return milestone, nil // already finalized (released covers a settlement milestone's auto-release below)
 	}
 
 	state, err := u.client.GetTrustCoreAgreement(ctx, reference)
@@ -424,15 +454,26 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 		return nil, fmt.Errorf("payment not yet confirmed (status: %s)", state.Status)
 	}
 
+	// Claim this milestone before recording anything — PayPetal's webhook
+	// and GigPurse's own reconciler sweep can both reach this point for the
+	// same payment within moments of each other (confirmed live: both read
+	// "accepted" before either had written "funded", then both proceeded
+	// to double-record the funding transaction, and one silently stomped
+	// the other's later "released" back down to "funded"). Only the
+	// winner of this atomic swap records anything below.
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "accepted", "funded")
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		return u.milestoneRepo.GetByID(ctx, milestone.ID)
+	}
+	milestone.Status = "funded"
+
 	agreement.Status = state.Status
 	agreement.PayoutStatus = state.PayoutStatus
 	agreement.RefundStatus = state.RefundStatus
 	_ = u.escrowRepo.Update(ctx, agreement)
-
-	milestone.Status = "funded"
-	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
-		return nil, err
-	}
 
 	// The client's actual charge is amount + platform fee — milestone.Amount
 	// is just the agreed price, not what left their payment method.
@@ -442,6 +483,16 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 	})
 	u.notify(ctx, agreement.CounterpartyUserID, "Escrow funded",
 		fmt.Sprintf("Escrow funded for milestone '%s' (%s).", milestone.Title, formatNaira(milestone.Amount)), milestone.ContractID)
+
+	// A "Dispute settlement" milestone has nothing left to adjudicate — a
+	// moderator already ruled on whether the work was done, so it pays out
+	// the instant the client funds it rather than waiting on a separate
+	// Release click that could just never come.
+	if milestone.DisputeID != "" {
+		if released, err := u.Release(ctx, milestone.ContractID, milestone.ID, agreement.InitiatorUserID); err == nil {
+			return released, nil
+		}
+	}
 
 	return milestone, nil
 }
@@ -457,12 +508,65 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	if milestone.Status != "funded" {
 		return nil, errors.New("milestone is not funded yet")
 	}
+	return u.releaseMilestone(ctx, contract, milestone)
+}
+
+// ReleaseDisputed is Release's ungated counterpart for a moderator's
+// full-release ruling — the milestone is "disputed" by then (see
+// MarkDisputed), not "funded", so Release's own client-facing gate would
+// reject it. Deliberately not exposed on any HTTP route: allowing a client
+// to call the "funded" version on a disputed milestone directly would be
+// harmless (they're just paying early), but allowing them to reach
+// RequestRefund's equivalent on a disputed milestone would let them
+// self-refund and bypass the moderator entirely — so this stays internal,
+// same as RefundMilestone/CancelAccepted/MarkDisputed.
+func (u *milestoneUsecase) ReleaseDisputed(ctx context.Context, contractID, milestoneID string) (*domain.Milestone, error) {
+	contract, err := u.contractRepo.GetByID(ctx, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("contract not found: %w", err)
+	}
+	milestone, err := u.milestoneRepo.GetByID(ctx, milestoneID)
+	if err != nil || milestone.ContractID != contractID {
+		return nil, errors.New("milestone not found")
+	}
+	if milestone.Status != "disputed" {
+		return nil, fmt.Errorf("milestone is %s, not disputed", milestone.Status)
+	}
+	return u.releaseMilestone(ctx, contract, milestone)
+}
+
+// releaseMilestone is Release/ReleaseDisputed's shared core once status has
+// already been validated by the caller.
+func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domain.Contract, milestone *domain.Milestone) (*domain.Milestone, error) {
 	if milestone.EscrowReference == "" {
 		return nil, errors.New("milestone has no escrow agreement on file")
 	}
 
+	// Claim the release before calling PayPetal, not after — a client's
+	// manual Release click can race FinalizeFund's own auto-release for a
+	// dispute settlement milestone, and without this, both calls reach
+	// PayPetal. Confirmed live: PayPetal's second call came back
+	// "payout_in_progress," but by then our own status write had already
+	// been lost to the other call's overwrite, leaving the milestone stuck
+	// at "funded" with no release transaction ever recorded for the talent.
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "funded", "released")
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		return u.milestoneRepo.GetByID(ctx, milestone.ID)
+	}
+
 	if err := u.client.CompleteTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
-		return nil, fmt.Errorf("failed to release payment: %w", err)
+		if !isPayoutInProgress(err) {
+			// Real failure — release the claim so this can be retried
+			// (by the client clicking again, or the next reconciler pass).
+			_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "released", "funded")
+			return nil, fmt.Errorf("failed to release payment: %w", err)
+		}
+		// An earlier attempt already put this payout in motion on
+		// PayPetal's side — that's a real success, not an error, so fall
+		// through and record it as one.
 	}
 	// agreement.AmountNaira is what's actually released here — the talent's
 	// take-home after GigPurse's commission, already smaller than
@@ -485,15 +589,12 @@ func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID,
 	})
 
 	milestone.Status = "released"
-	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
-		return nil, err
-	}
 	// PayPetal debits its wallet and queues the bank transfer asynchronously
 	// — the `trustcore.payment.completed` webhook confirms it actually
 	// landed, so this notification is deliberately phrased as "initiated,"
 	// not "paid."
 	u.notify(ctx, contract.MusicianID, "Payment released",
-		fmt.Sprintf("Payment for milestone '%s' (%s) has been sent to your bank account.", milestone.Title, formatNaira(agreement.AmountNaira)), contractID)
+		fmt.Sprintf("Payment for milestone '%s' (%s) has been sent to your bank account.", milestone.Title, formatNaira(agreement.AmountNaira)), contract.ID)
 
 	return milestone, nil
 }
@@ -557,27 +658,145 @@ func (u *milestoneUsecase) RefundHeldForContract(ctx context.Context, contractID
 	if err != nil {
 		return err
 	}
-
 	for _, milestone := range milestones {
-		if milestone.Status != "funded" || milestone.EscrowReference == "" {
+		if milestone.Status != "funded" {
 			continue
 		}
-		agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
-		if err != nil {
-			continue
-		}
-		if err := u.client.RefundTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
-			continue
-		}
-		agreement.RefundStatus = "PENDING"
-		_ = u.escrowRepo.Update(ctx, agreement)
-		_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-			UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: agreement.AmountNaira,
-			Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
-		})
-		milestone.Status = "refunded"
-		_ = u.milestoneRepo.Update(ctx, milestone)
+		_ = u.RefundMilestone(ctx, milestone.ID)
 	}
+	return nil
+}
+
+// RefundMilestone is RefundHeldForContract's single-milestone counterpart —
+// ungated by design (the caller has already authorized the acting user; see
+// RefundHeldForContract's own doc comment for why).
+func (u *milestoneUsecase) RefundMilestone(ctx context.Context, milestoneID string) error {
+	milestone, err := u.milestoneRepo.GetByID(ctx, milestoneID)
+	if err != nil {
+		return fmt.Errorf("milestone not found: %w", err)
+	}
+	// Accepts "disputed" too — by the time ResolveDispute calls this, a
+	// dispute-scoped milestone has already been flipped to "disputed" (see
+	// MarkDisputed). Safe only because this method is never reachable from
+	// any HTTP route directly — RequestRefund is the client-facing,
+	// "funded"-only equivalent, and stays that way so a client can't
+	// self-refund a disputed milestone and bypass the moderator.
+	if (milestone.Status != "funded" && milestone.Status != "disputed") || milestone.EscrowReference == "" {
+		return nil
+	}
+	// Same claim-before-calling-PayPetal guard as releaseMilestone — no
+	// known live trigger for a concurrent double-refund today, but this
+	// closes the same class of race rather than leaving it for the next
+	// caller who adds one.
+	startingStatus := milestone.Status
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, startingStatus, "refunded")
+	if err != nil {
+		return err
+	}
+	if !won {
+		return nil
+	}
+	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
+	if err != nil {
+		return err
+	}
+	if err := u.client.RefundTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
+		_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "refunded", startingStatus)
+		return err
+	}
+	agreement.RefundStatus = "PENDING"
+	_ = u.escrowRepo.Update(ctx, agreement)
+	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
+		UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: agreement.AmountNaira,
+		Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
+	})
+	return nil
+}
+
+// CancelAccepted cancels a still-`accepted` milestone — ungated (caller
+// already authorized), no dispute involved since no money moved yet.
+func (u *milestoneUsecase) CancelAccepted(ctx context.Context, milestoneID string) error {
+	milestone, err := u.milestoneRepo.GetByID(ctx, milestoneID)
+	if err != nil {
+		return fmt.Errorf("milestone not found: %w", err)
+	}
+	if milestone.Status != "accepted" {
+		return fmt.Errorf("milestone is %s, not accepted", milestone.Status)
+	}
+	milestone.Status = "cancelled"
+	return u.milestoneRepo.Update(ctx, milestone)
+}
+
+// MarkDisputed locks a `funded` milestone out of Release/RequestRefund while
+// the dispute CancelMilestone just opened on it (disputeID) is pending.
+// Ungated for the same reason as CancelAccepted.
+func (u *milestoneUsecase) MarkDisputed(ctx context.Context, milestoneID, disputeID string) error {
+	milestone, err := u.milestoneRepo.GetByID(ctx, milestoneID)
+	if err != nil {
+		return fmt.Errorf("milestone not found: %w", err)
+	}
+	if milestone.Status != "funded" {
+		return fmt.Errorf("milestone is %s, not funded", milestone.Status)
+	}
+	milestone.Status = "disputed"
+	milestone.DisputeID = disputeID
+	return u.milestoneRepo.Update(ctx, milestone)
+}
+
+// CreateSettlementMilestone is how ResolveDispute pays out a partial award
+// — see its doc comment on the MilestoneUsecase interface for why this
+// reuses the ordinary Fund/FinalizeFund flow instead of a parallel payment
+// path. Skips the usual propose/accept dance (status starts at "accepted")
+// since a dispute ruling doesn't need the talent's separate buy-in.
+func (u *milestoneUsecase) CreateSettlementMilestone(ctx context.Context, contractID, disputeID, resolverID string, amountNaira float64) (*domain.Milestone, error) {
+	if amountNaira <= 0 {
+		return nil, errors.New("settlement amount must be greater than zero")
+	}
+	existing, err := u.milestoneRepo.ListByContract(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	m := &domain.Milestone{
+		ContractID: contractID,
+		Title:      "Dispute settlement",
+		Amount:     amountNaira,
+		Status:     "accepted",
+		ProposedBy: resolverID,
+		DisputeID:  disputeID,
+		Order:      len(existing),
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if err := u.milestoneRepo.Create(ctx, m); err != nil {
+		return nil, err
+	}
+	if contract, err := u.contractRepo.GetByID(ctx, contractID); err == nil {
+		u.notify(ctx, contract.ClientID, "Payment required",
+			fmt.Sprintf("A moderator ordered a %s payment to settle a dispute — fund it to continue using GigPurse.", formatNaira(amountNaira)), contractID)
+	}
+	return m, nil
+}
+
+// RequestRelease lets the talent ask for a `funded` milestone to be paid
+// out — StartAutoReleaseScanner pays it after 48h of client silence.
+func (u *milestoneUsecase) RequestRelease(ctx context.Context, contractID, milestoneID, talentID string) error {
+	contract, milestone, _, err := u.loadForTransition(ctx, contractID, milestoneID, talentID)
+	if err != nil {
+		return err
+	}
+	if talentID != contract.MusicianID {
+		return errors.New("unauthorized: only the talent can request a release")
+	}
+	if milestone.Status != "funded" {
+		return errors.New("milestone is not funded yet")
+	}
+	now := time.Now()
+	milestone.ReleaseRequestedAt = &now
+	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
+		return err
+	}
+	u.notify(ctx, contract.ClientID, "Release requested",
+		fmt.Sprintf("The talent asked you to release '%s' (%s) — it auto-releases in 48h if you don't act.", milestone.Title, formatNaira(milestone.Amount)), contractID)
 	return nil
 }
 
@@ -640,5 +859,54 @@ func (u *milestoneUsecase) sendDueReminders(ctx context.Context, nudgeAfter time
 		reminderTime := now
 		m.LastReminderAt = &reminderTime
 		_ = u.milestoneRepo.Update(ctx, m)
+	}
+}
+
+// autoReleaseAfter is how long a client has to act (release, refund, or
+// dispute) after the talent requests a release before the system releases
+// it for them.
+const autoReleaseAfter = 48 * time.Hour
+
+// StartAutoReleaseScanner runs in the background for the lifetime of ctx,
+// releasing any `funded` milestone whose RequestRelease window has elapsed
+// with no client response. Same shape as StartReminderScanner.
+func (u *milestoneUsecase) StartAutoReleaseScanner(ctx context.Context, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				u.releaseDueMilestones(ctx)
+			}
+		}
+	}()
+}
+
+func (u *milestoneUsecase) releaseDueMilestones(ctx context.Context) {
+	funded, err := u.milestoneRepo.ListByStatus(ctx, "funded")
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, m := range funded {
+		if m.ReleaseRequestedAt == nil || now.Sub(*m.ReleaseRequestedAt) < autoReleaseAfter {
+			continue
+		}
+		contract, err := u.contractRepo.GetByID(ctx, m.ContractID)
+		if err != nil {
+			continue
+		}
+		// Release is normally client-gated; the system is acting on the
+		// client's behalf here because their 48h window lapsed, so it calls
+		// through with the client's own ID exactly like dispute resolution
+		// already does for a full-release ruling.
+		if _, err := u.Release(ctx, m.ContractID, m.ID, contract.ClientID); err != nil {
+			continue
+		}
+		u.notify(ctx, contract.ClientID, "Milestone auto-released",
+			fmt.Sprintf("'%s' was automatically released to the talent after 48h with no response from you.", m.Title), m.ContractID)
 	}
 }

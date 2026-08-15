@@ -77,11 +77,77 @@ func (u *chatUsecase) SendMessage(ctx context.Context, senderID, recvID, content
 }
 
 func (u *chatUsecase) GetChatHistory(ctx context.Context, user1, user2 string) ([]*domain.ChatMessage, error) {
+	// user1 is the requester loading this thread — mark whatever user2 sent
+	// them as read now that they're actually looking at it. Fire-and-forget,
+	// same convention as every other notify/audit side effect in this
+	// codebase; a failed mark-as-read shouldn't block showing the messages.
+	_ = u.chatRepo.MarkConversationRead(ctx, user1, user2)
 	return u.chatRepo.GetChatHistory(ctx, user1, user2)
 }
 
 func (u *chatUsecase) GetRecentChats(ctx context.Context, userID string) ([]*domain.ChatMessage, error) {
 	return u.chatRepo.GetRecentChats(ctx, userID)
+}
+
+// StartUnreadEmailScanner mirrors milestoneUsecase.StartReminderScanner's
+// shape exactly — a ticker firing sendUnreadDigests, stopped when ctx is
+// cancelled.
+func (u *chatUsecase) StartUnreadEmailScanner(ctx context.Context, checkInterval, staleAfter time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				u.sendUnreadDigests(ctx, staleAfter)
+			}
+		}
+	}()
+}
+
+// sendUnreadDigests emails anyone with a message that's sat unread longer
+// than staleAfter — one email per recipient covering every sender they
+// haven't replied to, not one email per message, so five unread messages
+// from the same person don't produce five emails.
+func (u *chatUsecase) sendUnreadDigests(ctx context.Context, staleAfter time.Duration) {
+	stale, err := u.chatRepo.ListUnreadOlderThan(ctx, time.Now().Add(-staleAfter))
+	if err != nil || len(stale) == 0 {
+		return
+	}
+
+	byRecipient := make(map[string][]*domain.ChatMessage)
+	for _, msg := range stale {
+		byRecipient[msg.RecvID] = append(byRecipient[msg.RecvID], msg)
+	}
+
+	for recvID, msgs := range byRecipient {
+		recipient, err := u.userRepo.GetByID(ctx, recvID)
+		if err != nil || recipient.Email == "" {
+			continue
+		}
+
+		senderNames := make(map[string]bool)
+		var ids []string
+		for _, msg := range msgs {
+			ids = append(ids, msg.ID)
+			if sender, err := u.userRepo.GetByID(ctx, msg.SenderID); err == nil && sender.Name != "" {
+				senderNames[sender.Name] = true
+			}
+		}
+		names := make([]string, 0, len(senderNames))
+		for name := range senderNames {
+			names = append(names, name)
+		}
+
+		subject := "You have unread messages on GigPurse"
+		body := fmt.Sprintf("You have unread messages from %s. Log in to GigPurse to read them.", strings.Join(names, ", "))
+		if err := sendEmailFn(recipient.Email, subject, body); err != nil {
+			continue
+		}
+		_ = u.chatRepo.MarkReminderEmailSent(ctx, ids)
+	}
 }
 
 // Simple Words Filtering System (profanity + bypass prevention)

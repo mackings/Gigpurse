@@ -2,28 +2,58 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/usecase"
 )
 
 type ContractHandler struct {
 	contractUsecase domain.ContractUsecase
+	disputeUsecase  domain.DisputeUsecase
 }
 
-func NewContractHandler(cu domain.ContractUsecase) *ContractHandler {
+func NewContractHandler(cu domain.ContractUsecase, du domain.DisputeUsecase) *ContractHandler {
 	return &ContractHandler{
 		contractUsecase: cu,
+		disputeUsecase:  du,
 	}
 }
 
 func (h *ContractHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/contracts", JWTMiddleware(h.HandleContracts))
 	mux.HandleFunc("/contracts/complete", JWTMiddleware(h.CompleteContract))
+	mux.HandleFunc("/contracts/end", JWTMiddleware(h.EndContract))
 	mux.HandleFunc("/direct-hires", JWTMiddleware(h.HandleDirectHires))
 	mux.HandleFunc("/direct-hires/respond", JWTMiddleware(h.RespondToDirectHire))
 	mux.HandleFunc("/direct-hires/counter", JWTMiddleware(h.CounterDirectHire))
+}
+
+func (h *ContractHandler) EndContract(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req struct {
+		ContractID string `json:"contract_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	contract, err := h.disputeUsecase.EndContract(r.Context(), userID, req.ContractID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "contract_end_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "contract ended successfully", contract)
 }
 
 // parseEventDate parses an optional RFC3339 date string; empty is not an error.
@@ -150,6 +180,10 @@ func (h *ContractHandler) HandleDirectHires(w http.ResponseWriter, r *http.Reque
 			Title: req.Title, Description: req.Description, Location: req.Location, EventDate: eventDate, Price: req.Price,
 		})
 		if err != nil {
+			if errors.Is(err, usecase.ErrPayoutAccountRequired) {
+				respondError(w, http.StatusConflict, "payout_account_required", err.Error())
+				return
+			}
 			respondError(w, http.StatusBadRequest, "direct_hire_create_failed", err.Error())
 			return
 		}

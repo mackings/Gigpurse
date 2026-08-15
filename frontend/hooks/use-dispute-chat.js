@@ -39,9 +39,10 @@ export function useDisputeChat(disputeId) {
     return dispute;
   }
 
-  async function resolve(winnerId, resolution) {
-    const dispute = await apiPost("/admin/disputes/resolve", { dispute_id: disputeId, winner_id: winnerId, resolution });
+  async function resolve(resolution, talentAmount) {
+    const dispute = await apiPost("/admin/disputes/resolve", { dispute_id: disputeId, resolution, talent_amount: talentAmount });
     invalidate();
+    queryClient.invalidateQueries({ queryKey: ["milestones"] });
     return dispute;
   }
 

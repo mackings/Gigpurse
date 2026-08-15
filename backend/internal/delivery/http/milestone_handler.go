@@ -11,10 +11,11 @@ import (
 
 type MilestoneHandler struct {
 	milestoneUsecase domain.MilestoneUsecase
+	disputeUsecase   domain.DisputeUsecase
 }
 
-func NewMilestoneHandler(mu domain.MilestoneUsecase) *MilestoneHandler {
-	return &MilestoneHandler{milestoneUsecase: mu}
+func NewMilestoneHandler(mu domain.MilestoneUsecase, du domain.DisputeUsecase) *MilestoneHandler {
+	return &MilestoneHandler{milestoneUsecase: mu, disputeUsecase: du}
 }
 
 func (h *MilestoneHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -26,6 +27,53 @@ func (h *MilestoneHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/milestones/fund", JWTMiddleware(h.Fund))
 	mux.HandleFunc("/milestones/fund/finalize", JWTMiddleware(h.FinalizeFund))
 	mux.HandleFunc("/milestones/release", JWTMiddleware(h.Release))
+	mux.HandleFunc("/milestones/cancel", JWTMiddleware(h.Cancel))
+	mux.HandleFunc("/milestones/request-release", JWTMiddleware(h.RequestRelease))
+}
+
+func (h *MilestoneHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req milestoneActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	milestone, err := h.disputeUsecase.CancelMilestone(r.Context(), userID, req.ContractID, req.MilestoneID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "milestone_cancel_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "milestone cancelled successfully", milestone)
+}
+
+func (h *MilestoneHandler) RequestRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req milestoneActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.milestoneUsecase.RequestRelease(r.Context(), req.ContractID, req.MilestoneID, userID); err != nil {
+		respondError(w, http.StatusBadRequest, "milestone_request_release_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "release requested successfully", map[string]string{"milestone_id": req.MilestoneID})
 }
 
 func (h *MilestoneHandler) HandleMilestones(w http.ResponseWriter, r *http.Request) {

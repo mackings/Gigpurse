@@ -59,17 +59,26 @@ func (u *disputeUsecase) OpenDispute(ctx context.Context, userID, contractID, re
 	if contract.ClientID != userID && contract.MusicianID != userID {
 		return nil, errors.New("unauthorized: only contract participants can open disputes")
 	}
+	return u.openDispute(ctx, userID, contract, reason, "")
+}
 
+// openDispute is the shared record-creation step behind both a
+// user-initiated OpenDispute and the automatic disputes EndContract/
+// CancelMilestone trigger when money's already moved — milestoneID scopes
+// resolution to one milestone (set by CancelMilestone) or leaves it empty
+// to mean "every funded milestone on the contract" (OpenDispute, EndContract).
+func (u *disputeUsecase) openDispute(ctx context.Context, userID string, contract *domain.Contract, reason, milestoneID string) (*domain.Dispute, error) {
 	now := time.Now()
 	dispute := &domain.Dispute{
-		ContractID: contractID,
-		ClientID:   contract.ClientID,
-		MusicianID: contract.MusicianID,
-		OpenedByID: userID,
-		Reason:     reason,
-		Status:     "open",
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ContractID:  contract.ID,
+		ClientID:    contract.ClientID,
+		MusicianID:  contract.MusicianID,
+		OpenedByID:  userID,
+		Reason:      reason,
+		Status:      "open",
+		MilestoneID: milestoneID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := u.disputeRepo.Create(ctx, dispute); err != nil {
 		return nil, fmt.Errorf("failed to create dispute: %w", err)
@@ -91,12 +100,191 @@ func (u *disputeUsecase) OpenDispute(ctx context.Context, userID, contractID, re
 	return dispute, nil
 }
 
+// EndContract lets either party end a contract at any time — see
+// CancelMilestone for the single-milestone equivalent. Any milestone still
+// just "accepted" (nothing funded) cancels outright; any "funded" one means
+// real money is on the line, so the contract goes "disputed" and one
+// dispute opens (unscoped — covers every funded milestone) instead.
+func (u *disputeUsecase) EndContract(ctx context.Context, userID, contractID string) (*domain.Contract, error) {
+	contract, err := u.contractRepo.GetByID(ctx, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("contract not found: %w", err)
+	}
+	if contract.ClientID != userID && contract.MusicianID != userID {
+		return nil, errors.New("unauthorized: not a participant on this contract")
+	}
+	ender, counterpart, err := u.namesFor(ctx, contract, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	milestones, err := u.milestonesFor(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	var fundedIDs []string
+	for _, m := range milestones {
+		switch m.Status {
+		case "accepted":
+			if err := u.milestoneUsecase.CancelAccepted(ctx, m.ID); err != nil {
+				log.Printf("EndContract %s: cancelling milestone %s failed: %v", contractID, m.ID, err)
+			}
+		case "funded":
+			fundedIDs = append(fundedIDs, m.ID)
+		}
+	}
+
+	if len(fundedIDs) > 0 {
+		contract.Status = "disputed"
+		if err := u.contractRepo.Update(ctx, contract); err != nil {
+			return nil, fmt.Errorf("failed to update contract: %w", err)
+		}
+		reason := fmt.Sprintf("%s ended the contract while a milestone was funded — pending resolution.", ender)
+		dispute, err := u.openDispute(ctx, userID, contract, reason, "")
+		if err != nil {
+			return nil, err
+		}
+		// Mark every funded milestone disputed so ResolveDispute's scope
+		// filter (and the frontend's Release/RequestRefund gating) sees the
+		// same "disputed" status regardless of whether EndContract or
+		// CancelMilestone is what put it under dispute.
+		for _, id := range fundedIDs {
+			if err := u.milestoneUsecase.MarkDisputed(ctx, id, dispute.ID); err != nil {
+				log.Printf("EndContract %s: marking milestone %s disputed failed: %v", contractID, id, err)
+			}
+		}
+		return contract, nil
+	}
+
+	contract.Status = "cancelled"
+	if err := u.contractRepo.Update(ctx, contract); err != nil {
+		return nil, fmt.Errorf("failed to update contract: %w", err)
+	}
+	u.notify(ctx, u.otherParty(contract, userID), "Contract ended",
+		fmt.Sprintf("%s ended the contract '%s'.", ender, contract.Title), "/contracts/"+contractID)
+	_ = counterpart
+	return contract, nil
+}
+
+// CancelMilestone pulls one milestone instead of the whole contract — see
+// EndContract for the same accepted-vs-funded split applied to a single item.
+func (u *disputeUsecase) CancelMilestone(ctx context.Context, userID, contractID, milestoneID string) (*domain.Milestone, error) {
+	contract, err := u.contractRepo.GetByID(ctx, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("contract not found: %w", err)
+	}
+	if contract.ClientID != userID && contract.MusicianID != userID {
+		return nil, errors.New("unauthorized: not a participant on this contract")
+	}
+	milestones, err := u.milestonesFor(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	var milestone *domain.Milestone
+	for _, m := range milestones {
+		if m.ID == milestoneID {
+			milestone = m
+			break
+		}
+	}
+	if milestone == nil {
+		return nil, errors.New("milestone not found on this contract")
+	}
+
+	canceller, _, err := u.namesFor(ctx, contract, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	switch milestone.Status {
+	case "accepted":
+		if err := u.milestoneUsecase.CancelAccepted(ctx, milestone.ID); err != nil {
+			return nil, err
+		}
+		u.notify(ctx, u.otherParty(contract, userID), "Milestone cancelled",
+			fmt.Sprintf("%s cancelled the milestone '%s'.", canceller, milestone.Title), "/contracts/"+contractID)
+		milestone.Status = "cancelled"
+		return milestone, nil
+	case "funded":
+		reason := fmt.Sprintf("%s pulled the funded milestone '%s' — pending resolution.", canceller, milestone.Title)
+		dispute, err := u.openDispute(ctx, userID, contract, reason, milestone.ID)
+		if err != nil {
+			return nil, err
+		}
+		// MarkDisputed first, while the repo's own copy is still genuinely
+		// "funded" — the in-memory test repo returns shared pointers, so
+		// setting milestone.Status here before MarkDisputed re-fetches
+		// would make its own funded-only check see "disputed" already.
+		if err := u.milestoneUsecase.MarkDisputed(ctx, milestone.ID, dispute.ID); err != nil {
+			log.Printf("CancelMilestone %s: marking milestone disputed failed: %v", milestoneID, err)
+		}
+		milestone.Status = "disputed"
+		return milestone, nil
+	default:
+		return nil, fmt.Errorf("a %s milestone can't be cancelled this way", milestone.Status)
+	}
+}
+
+// HasOutstandingSettlement reports whether this client has an unfunded
+// "Dispute settlement" milestone waiting anywhere — see ResolveDispute for
+// how those get created. Used to block new job posts/hires until they pay
+// what a moderator already ordered.
+func (u *disputeUsecase) HasOutstandingSettlement(ctx context.Context, clientID string) (bool, error) {
+	contracts, err := u.contractRepo.ListForUser(ctx, clientID, "client")
+	if err != nil {
+		return false, err
+	}
+	for _, c := range contracts {
+		milestones, err := u.milestonesFor(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		for _, m := range milestones {
+			if m.Status == "accepted" && m.DisputeID != "" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// namesFor resolves the acting user's display name and the other party's,
+// for the plain-language notifications EndContract/CancelMilestone send.
+func (u *disputeUsecase) namesFor(ctx context.Context, contract *domain.Contract, actingUserID string) (actorName, otherName string, err error) {
+	actor, err := u.userRepo.GetByID(ctx, actingUserID)
+	if err != nil {
+		return "", "", fmt.Errorf("user not found: %w", err)
+	}
+	otherID := u.otherParty(contract, actingUserID)
+	other, err := u.userRepo.GetByID(ctx, otherID)
+	if err != nil {
+		return actor.Name, "", nil
+	}
+	return actor.Name, other.Name, nil
+}
+
+func (u *disputeUsecase) otherParty(contract *domain.Contract, userID string) string {
+	if userID == contract.ClientID {
+		return contract.MusicianID
+	}
+	return contract.ClientID
+}
+
 func (u *disputeUsecase) ListUserDisputes(ctx context.Context, userID string) ([]*domain.Dispute, error) {
 	return u.disputeRepo.ListForUser(ctx, userID)
 }
 
 func (u *disputeUsecase) ListAllDisputes(ctx context.Context, status string) ([]*domain.Dispute, error) {
-	return u.disputeRepo.List(ctx, status)
+	disputes, err := u.disputeRepo.List(ctx, status)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range disputes {
+		if contract, err := u.contractRepo.GetByID(ctx, d.ContractID); err == nil {
+			d.ContractTitle = contract.Title
+		}
+	}
+	return disputes, nil
 }
 
 func (u *disputeUsecase) GetDispute(ctx context.Context, requesterID, disputeID string) (*domain.Dispute, error) {
@@ -224,12 +412,19 @@ func (u *disputeUsecase) ListDisputeMessages(ctx context.Context, requesterID, d
 	return u.chatRepo.ListByDispute(ctx, disputeID)
 }
 
-// ResolveDispute requires a winner and sweeps any escrow still held against
-// the dispute's contract to whichever side won — every still-`funded`
-// milestone, plus job-level escrow for a job-sourced contract that never
-// used milestones (see jobRepo/walletRepo usage below, which mirrors
-// jobUsecase.CloseJob's refund path exactly, just routable to either side).
-func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, disputeID, winnerID, resolution string) (*domain.Dispute, error) {
+// ResolveDispute settles the dispute for talentAmountNaira — 0 refunds the
+// client in full, the full in-scope funded amount releases it all to the
+// talent, anything in between refunds the client in full (the only
+// settlement PayPetal itself supports) and creates a new "Dispute
+// settlement" milestone for the awarded amount, which the client funds
+// through the ordinary Fund flow. Scope is dispute.MilestoneID (one
+// milestone) if set, else every currently `funded` milestone on the
+// contract. Also settles job-level escrow for a job-sourced contract that
+// never used milestones (see resolveJobEscrow) — that path stays binary
+// since it has no milestone/partial concept at all.
+const settlementEpsilon = 0.01
+
+func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, disputeID, resolution string, talentAmountNaira float64) (*domain.Dispute, error) {
 	if disputeID == "" || resolution == "" {
 		return nil, errors.New("dispute_id and resolution are required")
 	}
@@ -237,59 +432,113 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 	if err != nil {
 		return nil, err
 	}
-	if winnerID != dispute.ClientID && winnerID != dispute.MusicianID {
-		return nil, errors.New("winner_id must be one of the two parties on this dispute")
+	if dispute.Status != "open" {
+		return nil, errors.New("this dispute is already resolved")
 	}
+
+	allMilestones, err := u.milestonesFor(ctx, dispute.ContractID)
+	if err != nil {
+		return nil, err
+	}
+	var inScope []*domain.Milestone
+	var totalFunded float64
+	for _, m := range allMilestones {
+		// EndContract/CancelMilestone both mark a milestone "disputed" the
+		// moment its dispute opens (see MarkDisputed) — it's never still
+		// "funded" by the time a moderator resolves it.
+		if m.Status != "disputed" {
+			continue
+		}
+		if dispute.MilestoneID != "" && m.ID != dispute.MilestoneID {
+			continue
+		}
+		inScope = append(inScope, m)
+		// The bound is what's actually sitting in escrow (the talent's
+		// take-home after commission), not milestone.Amount — the agreed
+		// price is bigger than that by GigPurse's cut, which was never
+		// escrowed in the first place and so isn't available to award.
+		if m.EscrowReference != "" {
+			if agreement, err := u.escrowRepo.GetByReference(ctx, m.EscrowReference); err == nil {
+				totalFunded += agreement.AmountNaira
+			}
+		}
+	}
+	if talentAmountNaira < 0 || talentAmountNaira > totalFunded+settlementEpsilon {
+		return nil, fmt.Errorf("talent_amount must be between 0 and %.2f (the amount actually held in escrow for this dispute)", totalFunded)
+	}
+
+	fullRelease := talentAmountNaira >= totalFunded-settlementEpsilon && totalFunded > 0
+	partial := !fullRelease && talentAmountNaira > settlementEpsilon
 
 	dispute.Status = "resolved"
 	dispute.Resolution = resolution
-	dispute.WinnerID = winnerID
+	dispute.TalentAmountNaira = talentAmountNaira
 	dispute.UpdatedAt = time.Now()
 	if err := u.disputeRepo.Update(ctx, dispute); err != nil {
 		return nil, fmt.Errorf("failed to resolve dispute: %w", err)
 	}
 
-	clientWon := winnerID == dispute.ClientID
-	if err := u.milestoneUsecase.RefundHeldForContract(ctx, dispute.ContractID); clientWon && err != nil {
-		log.Printf("dispute %s: milestone refund sweep failed: %v", disputeID, err)
-	} else if !clientWon {
-		// Musician won — any funded-but-unreleased milestone should pay out
-		// to them instead of sitting in escrow indefinitely. There's no
-		// bulk "release" usecase method (Release is per-milestone and
-		// caller-gated to the client), so this walks the list directly.
-		if milestones, err := u.milestonesFor(ctx, dispute.ContractID); err == nil {
-			for _, m := range milestones {
-				if m.Status == "funded" {
-					if _, err := u.milestoneUsecase.Release(ctx, dispute.ContractID, m.ID, dispute.ClientID); err != nil {
-						log.Printf("dispute %s: milestone %s release failed: %v", disputeID, m.ID, err)
-					}
-				}
+	if fullRelease {
+		for _, m := range inScope {
+			if _, err := u.milestoneUsecase.ReleaseDisputed(ctx, dispute.ContractID, m.ID); err != nil {
+				log.Printf("dispute %s: milestone %s release failed: %v", disputeID, m.ID, err)
+			}
+		}
+	} else {
+		// Full refund and partial both start the same way: everything
+		// funded goes back to the client first, since that's the only
+		// direction PayPetal actually settles in one call.
+		for _, m := range inScope {
+			if err := u.milestoneUsecase.RefundMilestone(ctx, m.ID); err != nil {
+				log.Printf("dispute %s: milestone %s refund failed: %v", disputeID, m.ID, err)
+			}
+		}
+		if partial {
+			if _, err := u.milestoneUsecase.CreateSettlementMilestone(ctx, dispute.ContractID, dispute.ID, resolverID, talentAmountNaira); err != nil {
+				log.Printf("dispute %s: creating settlement milestone failed: %v", disputeID, err)
 			}
 		}
 	}
 
-	u.resolveJobEscrow(ctx, dispute, clientWon)
+	// Legacy job-level (pre-milestone, whole-budget-upfront) escrow has no
+	// partial concept — anything above a token amount counts as "talent won"
+	// for that portion specifically.
+	u.resolveJobEscrow(ctx, dispute, talentAmountNaira <= settlementEpsilon)
 
-	winnerLabel := "the client"
-	if !clientWon {
-		winnerLabel = "the talent"
+	var summary string
+	switch {
+	case fullRelease:
+		summary = fmt.Sprintf("%s — full amount released to the talent.", resolution)
+	case partial:
+		summary = fmt.Sprintf("%s — client refunded in full; talent awarded %s, which the client must now pay separately.", resolution, formatNaira(talentAmountNaira))
+	default:
+		summary = fmt.Sprintf("%s — client refunded in full.", resolution)
 	}
-	summary := fmt.Sprintf("%s — ruled in favor of %s. Any held escrow has been settled accordingly.", resolution, winnerLabel)
 	u.notify(ctx, dispute.ClientID, "Dispute Resolved", summary, "/messages?dispute="+disputeID)
 	u.notify(ctx, dispute.MusicianID, "Dispute Resolved", summary, "/messages?dispute="+disputeID)
 	_ = u.chatRepo.SaveMessage(ctx, &domain.ChatMessage{
 		DisputeID: disputeID,
 		SenderID:  resolverID,
 		IsSystem:  true,
-		Content:   fmt.Sprintf("Dispute resolved in favor of %s. %s", winnerLabel, resolution),
+		Content:   fmt.Sprintf("Dispute resolved. %s", summary),
 		Timestamp: time.Now(),
 	})
 
 	return dispute, nil
 }
 
+// milestonesFor fetches every milestone on a contract. MilestoneUsecase.List
+// gates on the requester being a participant, so this passes the contract's
+// own ClientID — always a valid participant on their own contract — rather
+// than an empty string, which would fail that check every time (this is
+// internal, already-authorized dispute-resolution code, not acting on
+// behalf of a specific end user).
 func (u *disputeUsecase) milestonesFor(ctx context.Context, contractID string) ([]*domain.Milestone, error) {
-	return u.milestoneUsecase.List(ctx, contractID, "")
+	contract, err := u.contractRepo.GetByID(ctx, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("contract not found: %w", err)
+	}
+	return u.milestoneUsecase.List(ctx, contractID, contract.ClientID)
 }
 
 // resolveJobEscrow handles the case where the contract came straight from a
@@ -351,5 +600,9 @@ func (u *disputeUsecase) notify(ctx context.Context, userID, title, message, lin
 		CreatedAt: time.Now(),
 	}
 	_ = u.notifRepo.Create(ctx, notif)
-	log.Printf("[EMAIL OUTBOX] To User %s: Subject: %s | Message: %s", userID, title, message)
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notify: email to %s failed: %v", user.Email, err)
+		}
+	}
 }

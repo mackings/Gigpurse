@@ -221,15 +221,16 @@ func (u *userUsecase) VerifyEmail(ctx context.Context, email, code string) error
 }
 
 // RequestModeratorLogin sends a one-time code to an email so its owner can
-// go moderate a dispute — no signup or pre-existing staff account required,
-// just proof of inbox ownership (reusing the same code infrastructure as
-// signup verification), since this grants access to two people's private
-// dispute conversation and the power to settle their escrow. A brand-new
-// email is silently provisioned a minimal moderator identity on first use.
-// An email already registered as a client/musician is a silent no-op
-// instead — a party to a booking moderating disputes (possibly their own)
-// would be a conflict of interest, and this also keeps the endpoint from
-// leaking which emails are registered.
+// go moderate a dispute — no password required, just proof of inbox
+// ownership (reusing the same code infrastructure as signup verification),
+// since this grants access to two people's private dispute conversation and
+// the power to settle their escrow. The account itself must already exist
+// with role "moderator" or "admin" — created only via an admin's explicit
+// invite (see AdminUsecase.InviteModerator) or admin signup. Any other
+// email (unregistered, or registered as client/musician) is a silent no-op,
+// both to avoid a conflict of interest (a party to a booking moderating
+// disputes, possibly their own) and to keep this endpoint from leaking
+// which emails are registered.
 func (u *userUsecase) RequestModeratorLogin(ctx context.Context, email string) error {
 	if email == "" {
 		return errors.New("email is required")
@@ -238,18 +239,7 @@ func (u *userUsecase) RequestModeratorLogin(ctx context.Context, email string) e
 		return errors.New("email verification is not configured")
 	}
 	user, err := u.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		user = &domain.User{
-			Email:     email,
-			Role:      "moderator",
-			Name:      strings.SplitN(email, "@", 2)[0],
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		if err := u.userRepo.Create(ctx, user); err != nil {
-			return fmt.Errorf("failed to provision moderator identity: %w", err)
-		}
-	} else if user.Role != "admin" && user.Role != "moderator" {
+	if err != nil || (user.Role != "admin" && user.Role != "moderator") {
 		return nil
 	}
 	return u.sendEmailVerification(ctx, user)
@@ -317,7 +307,7 @@ func (u *userUsecase) sendEmailVerification(ctx context.Context, user *domain.Us
 	}
 	subject := "Verify your Gigpurse email"
 	body := fmt.Sprintf("Your Gigpurse verification code is %s. It expires in 15 minutes.", code)
-	if err := sendEmail(user.Email, subject, body); err != nil {
+	if err := sendEmailFn(user.Email, subject, body); err != nil {
 		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Code: %s | Error: %v", user.Email, subject, code, err)
 		return err
 	}
@@ -360,7 +350,7 @@ func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) er
 
 	subject := "Reset your Gigpurse password"
 	body := fmt.Sprintf("Use this password reset token: %s. It expires in 30 minutes.", token)
-	if err := sendEmail(email, subject, body); err != nil {
+	if err := sendEmailFn(email, subject, body); err != nil {
 		log.Printf("[EMAIL OUTBOX FAILED] To %s: Subject: %s | Token: %s | Error: %v", email, subject, token, err)
 		return err
 	}
@@ -580,6 +570,12 @@ func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+// sendEmailFn is a package-level indirection over sendEmail so tests (in
+// package usecase, no live email provider available) can substitute a
+// capturing stub instead of asserting on log output. Every call site across
+// every usecase goes through this var, never sendEmail directly.
+var sendEmailFn = sendEmail
 
 func sendEmail(to, subject, body string) error {
 	if resendConfigured() {

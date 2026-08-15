@@ -20,14 +20,32 @@ type Dispute struct {
 	ModeratorID string `json:"moderator_id,omitempty" bson:"moderator_id,omitempty"`
 
 	Resolution string `json:"resolution,omitempty" bson:"resolution,omitempty"`
-	// WinnerID is the ClientID or MusicianID of whoever the moderator ruled
-	// in favor of — resolving requires picking exactly one, since a dispute
-	// is adversarial by nature (this also decides which side any held
-	// escrow moves to on resolution).
+	// WinnerID is set only on disputes resolved before partial settlement
+	// existed — kept so old resolved disputes still display correctly.
+	// Current resolutions record TalentAmountNaira instead, which captures
+	// full-refund (0), full-release (== funded amount), and partial (in
+	// between) in one number rather than a binary winner.
 	WinnerID string `json:"winner_id,omitempty" bson:"winner_id,omitempty"`
+	// TalentAmountNaira is how much of the disputed funded amount the
+	// moderator awarded the talent — 0 means a full refund to the client,
+	// the full funded amount means a full release, anything in between is
+	// a partial settlement (see DisputeUsecase.ResolveDispute for how that
+	// gets executed, since PayPetal itself has no partial-settlement call).
+	TalentAmountNaira float64 `json:"talent_amount,omitempty" bson:"talent_amount,omitempty"`
+
+	// MilestoneID scopes a dispute to one specific milestone — set when a
+	// single milestone withdrawal (not a whole contract ending) triggered
+	// it, so resolution only touches that milestone rather than sweeping
+	// every funded milestone on the contract.
+	MilestoneID string `json:"milestone_id,omitempty" bson:"milestone_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
+
+	// ContractTitle is computed at query time only (never persisted) — the
+	// admin dispute list shows this instead of the raw ContractID so a
+	// moderator can tell disputes apart at a glance.
+	ContractTitle string `json:"contract_title,omitempty" bson:"-"`
 }
 
 type DisputeRepository interface {
@@ -43,12 +61,31 @@ type DisputeUsecase interface {
 	ListUserDisputes(ctx context.Context, userID string) ([]*Dispute, error)
 	ListAllDisputes(ctx context.Context, status string) ([]*Dispute, error)
 	GetDispute(ctx context.Context, requesterID, disputeID string) (*Dispute, error)
-	// ResolveDispute requires a winnerID (the dispute's ClientID or
-	// MusicianID) — resolving also sweeps any escrow still held against the
-	// dispute's contract (funded milestones, and job-level escrow for a
-	// job-sourced contract with no milestones) to the winner, or back to the
-	// client if the client won.
-	ResolveDispute(ctx context.Context, resolverID, disputeID, winnerID, resolution string) (*Dispute, error)
+	// ResolveDispute takes how much of the disputed funded amount the
+	// talent gets — 0 refunds the client in full, the full funded amount
+	// releases it all to the talent, anything in between refunds the
+	// client in full immediately (the only settlement PayPetal itself
+	// supports) and creates a new "Dispute settlement" milestone for that
+	// amount that the client must separately fund. Scope is the dispute's
+	// MilestoneID if set, else every currently `funded` milestone on the
+	// contract.
+	ResolveDispute(ctx context.Context, resolverID, disputeID, resolution string, talentAmountNaira float64) (*Dispute, error)
+
+	// EndContract lets either party end a contract outright. Any
+	// not-yet-funded milestone just cancels. Any `funded` milestone means
+	// real money is on the line, so instead the contract goes "disputed"
+	// and a dispute opens automatically (scoped to every funded milestone)
+	// rather than letting the money hang in limbo.
+	EndContract(ctx context.Context, userID, contractID string) (*Contract, error)
+	// CancelMilestone is EndContract's single-milestone counterpart —
+	// pulling one milestone instead of the whole contract. `accepted`
+	// cancels cleanly; `funded` opens a dispute scoped to just this one.
+	CancelMilestone(ctx context.Context, userID, contractID, milestoneID string) (*Milestone, error)
+	// HasOutstandingSettlement reports whether this client has an unfunded
+	// "Dispute settlement" milestone waiting on them anywhere — used to
+	// block new activity (posting jobs, hiring) until they pay what a
+	// moderator already ordered.
+	HasOutstandingSettlement(ctx context.Context, clientID string) (bool, error)
 
 	// JoinDispute lets a moderator/admin attach themselves to a dispute's
 	// chat room — this is what unblocks messaging between the two original

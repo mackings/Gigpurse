@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -143,4 +144,9 @@ func (u *payoutAccountUsecase) notify(ctx context.Context, userID, title, messag
 		IsRead:    false,
 		CreatedAt: time.Now(),
 	})
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notify: email to %s failed: %v", user.Email, err)
+		}
+	}
 }

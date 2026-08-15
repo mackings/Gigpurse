@@ -79,6 +79,19 @@ func isAlreadyExistsError(err error) bool {
 	return strings.Contains(strings.ToLower(apiErr.Message), "already exist")
 }
 
+// isPayoutInProgress recognizes PayPetal's response to a second completion
+// call on an agreement whose payout is already running — confirmed live
+// when a race let two concurrent FinalizeFund calls both attempt the same
+// release. Not a real failure: an earlier attempt already succeeded on
+// PayPetal's side, so this should be treated as success, not reverted.
+func isPayoutInProgress(err error) bool {
+	var apiErr *paypetal.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.Code == "payout_in_progress"
+}
+
 func (d paypetalDeps) findExistingCustomer(ctx context.Context, user *domain.User) (string, error) {
 	customers, err := d.client.ListCustomers(ctx)
 	if err != nil {

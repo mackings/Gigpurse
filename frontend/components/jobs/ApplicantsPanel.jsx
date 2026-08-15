@@ -154,7 +154,13 @@ export default function ApplicantsPanel({ job, open, onOpenChange }) {
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
     } catch (err) {
-      toast.error(err.message);
+      if (err.code === "payment_required") {
+        toast.error("You have a dispute settlement waiting to be paid — check your contracts and fund it before hiring.");
+      } else if (err.code === "payout_account_required") {
+        toast.error("Add a payout account before hiring — it's what any future dispute refund would be paid back to.");
+      } else {
+        toast.error(err.message);
+      }
     } finally {
       setAcceptingId(null);
     }

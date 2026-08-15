@@ -21,6 +21,7 @@ type jobUsecase struct {
 	walletRepo      domain.WalletRepository
 	reviewRepo      domain.ReviewRepository
 	escrowRepo      domain.EscrowAgreementRepository
+	milestoneRepo   domain.MilestoneRepository
 	frontendBaseURL string
 }
 
@@ -33,6 +34,7 @@ func NewJobUsecase(
 	reviewRepo domain.ReviewRepository,
 	paypetalClient paypetal.API,
 	escrowRepo domain.EscrowAgreementRepository,
+	milestoneRepo domain.MilestoneRepository,
 	frontendBaseURL string,
 ) domain.JobUsecase {
 	return &jobUsecase{
@@ -43,9 +45,40 @@ func NewJobUsecase(
 		walletRepo:      walletRepo,
 		reviewRepo:      reviewRepo,
 		escrowRepo:      escrowRepo,
+		milestoneRepo:   milestoneRepo,
 		frontendBaseURL: frontendBaseURL,
 	}
 }
+
+// hasOutstandingSettlement duplicates DisputeUsecase.HasOutstandingSettlement's
+// check (not shared directly — jobUsecase has no disputeUsecase dependency,
+// and adding one would force reordering main.go's construction sequence for
+// one small guard). Same query, small enough that keeping it separate here
+// is simpler than restructuring wiring order.
+func (u *jobUsecase) hasOutstandingSettlement(ctx context.Context, clientID string) (bool, error) {
+	contracts, err := u.contractRepo.ListForUser(ctx, clientID, "client")
+	if err != nil {
+		return false, err
+	}
+	for _, c := range contracts {
+		milestones, err := u.milestoneRepo.ListByContract(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+		for _, m := range milestones {
+			if m.Status == "accepted" && m.DisputeID != "" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// ErrPaymentRequired signals the client has a "Dispute settlement" milestone
+// still unfunded somewhere — a moderator already ordered this payment, so
+// new job posts/hires are blocked until it's paid. See
+// DisputeUsecase.HasOutstandingSettlement / MilestoneUsecase.CreateSettlementMilestone.
+var ErrPaymentRequired = errors.New("payment required: fund the pending dispute settlement before posting new jobs")
 
 func (u *jobUsecase) PostJob(ctx context.Context, clientID string, input domain.JobPostInput) (*domain.Job, error) {
 	if input.Title == "" || input.Description == "" || input.Budget <= 0 {
@@ -59,6 +92,19 @@ func (u *jobUsecase) PostJob(ctx context.Context, clientID string, input domain.
 	}
 	if user.Role != "client" {
 		return nil, errors.New("only clients can post jobs")
+	}
+	if blocked, err := u.hasOutstandingSettlement(ctx, clientID); err == nil && blocked {
+		return nil, ErrPaymentRequired
+	}
+	// A refund (full or partial, via a dispute) only ever moves money back to
+	// the client — PayPetal needs a payout account on file for that, same as
+	// talent needs one to ever receive a milestone release. Required upfront,
+	// before any contract exists, rather than discovered mid-dispute: a
+	// missing account here used to fail RefundMilestone silently deep inside
+	// ResolveDispute, leaving a milestone stuck "disputed" forever with no
+	// error surfaced to anyone (confirmed live against PayPetal's sandbox).
+	if err := u.requirePayoutAccount(user); err != nil {
+		return nil, err
 	}
 
 	newJob := &domain.Job{
@@ -181,6 +227,11 @@ func (u *jobUsecase) notify(ctx context.Context, userID, title, message string) 
 		IsRead:    false,
 		CreatedAt: time.Now(),
 	})
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notify: email to %s failed: %v", user.Email, err)
+		}
+	}
 }
 
 // DeleteJob permanently removes a draft job — one that was never published,
@@ -600,6 +651,18 @@ func (u *jobUsecase) AcceptApplication(ctx context.Context, clientID, applicatio
 	}
 	if job.ClientID != clientID {
 		return nil, errors.New("unauthorized: only the job creator can accept applications")
+	}
+	if blocked, err := u.hasOutstandingSettlement(ctx, clientID); err == nil && blocked {
+		return nil, ErrPaymentRequired
+	}
+	client, err := u.userRepo.GetByID(ctx, clientID)
+	if err != nil {
+		return nil, fmt.Errorf("client not found: %w", err)
+	}
+	// See the matching check in PostJob for why: a refund can only reach the
+	// client if they already have a payout account on file.
+	if err := u.requirePayoutAccount(client); err != nil {
+		return nil, err
 	}
 	if job.Status != "open" {
 		return nil, errors.New("job is no longer open")
@@ -1035,5 +1098,9 @@ func (u *jobUsecase) notifyAndEmail(ctx context.Context, userID, title, message,
 		CreatedAt: time.Now(),
 	}
 	_ = u.notifRepo.Create(ctx, notif)
-	log.Printf("[EMAIL OUTBOX] To User %s: Subject: %s | Message: %s", userID, title, message)
+	if user, err := u.userRepo.GetByID(ctx, userID); err == nil && user.Email != "" {
+		if err := sendEmailFn(user.Email, title, message); err != nil {
+			log.Printf("notifyAndEmail: email to %s failed: %v", user.Email, err)
+		}
+	}
 }
