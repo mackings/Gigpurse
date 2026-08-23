@@ -319,6 +319,19 @@ func (u *userUsecase) sendEmailVerification(ctx context.Context, user *domain.Us
 	return nil
 }
 
+func (u *userUsecase) DevForceVerifyEmail(ctx context.Context, email string) error {
+	if os.Getenv("ALLOW_DEV_VERIFY") != "true" {
+		return errors.New("dev email verification is disabled")
+	}
+	user, err := u.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+	user.EmailVerified = true
+	user.UpdatedAt = time.Now()
+	return u.userRepo.Update(ctx, user)
+}
+
 func (u *userUsecase) RequestPasswordReset(ctx context.Context, email string) error {
 	if email == "" {
 		return errors.New("email is required")

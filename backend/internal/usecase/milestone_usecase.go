@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"time"
 
 	"gigpurse/internal/domain"
@@ -396,7 +397,10 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		AmountKobo:             paypetal.NairaToKobo(talentAmount),
 		MerchantChargeKobo:     merchantChargeKobo,
 		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
-		RedirectURL:            u.frontendBaseURL + "/contracts/pending?reference=" + reference,
+		// PayPetal appends "?status=...&txnId=..." to this URL itself, blindly
+		// (no check for an existing "?") — so reference must ride in the path,
+		// never a query string, or we get a broken double-"?" redirect.
+		RedirectURL: u.frontendBaseURL + "/contracts/pending/" + url.PathEscape(reference),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start payment: %w", err)

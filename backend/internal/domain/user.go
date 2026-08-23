@@ -127,6 +127,11 @@ type UserUsecase interface {
 	Login(ctx context.Context, email, password string) (string, *User, error) // Returns JWT token and User
 	ResendEmailVerification(ctx context.Context, email string) error
 	VerifyEmail(ctx context.Context, email, code string) error
+	// DevForceVerifyEmail bypasses the email-code flow entirely, gated by
+	// ALLOW_DEV_VERIFY — a bootstrap escape hatch for environments where the
+	// operator can't receive the verification email, meant to be flipped on
+	// only long enough to use it.
+	DevForceVerifyEmail(ctx context.Context, email string) error
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	GetProfile(ctx context.Context, id string) (*User, error)

@@ -25,6 +25,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/auth/login", h.Login)
 	mux.HandleFunc("/auth/email-verification/resend", h.ResendEmailVerification)
 	mux.HandleFunc("/auth/email-verification/confirm", h.VerifyEmail)
+	mux.HandleFunc("/auth/email-verification/dev-force", h.DevForceVerifyEmail)
 	mux.HandleFunc("/auth/password-reset/request", h.RequestPasswordReset)
 	mux.HandleFunc("/auth/password-reset/confirm", h.ResetPassword)
 	mux.HandleFunc("/auth/moderator/request", h.RequestModeratorLogin)
@@ -171,6 +172,25 @@ func (h *UserHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.userUsecase.VerifyEmail(r.Context(), req.Email, req.Code); err != nil {
+		respondError(w, http.StatusBadRequest, "email_verification_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "email verified successfully", nil)
+}
+
+func (h *UserHandler) DevForceVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.userUsecase.DevForceVerifyEmail(r.Context(), req.Email); err != nil {
 		respondError(w, http.StatusBadRequest, "email_verification_failed", err.Error())
 		return
 	}

@@ -22,10 +22,10 @@ const MAX_AUTO_ATTEMPTS = 8;
 // "?reference=" redirect shape). Polls the matching finalize endpoint via
 // React Query's refetchInterval, which re-fetches the agreement from
 // PayPetal itself rather than trusting anything in the URL.
-export default function PendingPaymentView() {
+export default function PendingPaymentView({ reference: referenceProp } = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const reference = searchParams.get("reference");
+  const reference = referenceProp || searchParams.get("reference");
   const isMilestone = reference?.startsWith("ms:");
   const finalizeURL = isMilestone ? "/milestones/fund/finalize" : "/jobs/hire/finalize";
 
