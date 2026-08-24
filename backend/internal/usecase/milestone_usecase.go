@@ -553,7 +553,12 @@ func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domai
 	// "payout_in_progress," but by then our own status write had already
 	// been lost to the other call's overwrite, leaving the milestone stuck
 	// at "funded" with no release transaction ever recorded for the talent.
-	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "funded", "released")
+	//
+	// The starting status is whatever the caller already validated
+	// (Release requires "funded"; ReleaseDisputed requires "disputed") —
+	// hardcoding "funded" here silently no-ops ReleaseDisputed forever,
+	// since a disputed milestone's status is never "funded" by this point.
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, milestone.Status, "released")
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +569,9 @@ func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domai
 	if err := u.client.CompleteTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
 		if !isPayoutInProgress(err) {
 			// Real failure — release the claim so this can be retried
-			// (by the client clicking again, or the next reconciler pass).
-			_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "released", "funded")
+			// (by the client clicking again, or the next reconciler pass),
+			// back to whatever status it actually started from.
+			_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "released", milestone.Status)
 			return nil, fmt.Errorf("failed to release payment: %w", err)
 		}
 		// An earlier attempt already put this payout in motion on
@@ -639,7 +645,7 @@ func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenc
 	// — to the client; GigPurse's platform fee was collected separately as a
 	// merchantCharge at funding time and isn't reversed by this call.
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: clientID, Type: "escrow_release", Amount: agreement.AmountNaira,
+		UserID: clientID, Type: "refund", Amount: agreement.AmountNaira,
 		Description: fmt.Sprintf("Refund requested: %s", milestone.Title), Reference: referenceID,
 	})
 	milestone.Status = "refunded"
@@ -711,7 +717,7 @@ func (u *milestoneUsecase) RefundMilestone(ctx context.Context, milestoneID stri
 	agreement.RefundStatus = "PENDING"
 	_ = u.escrowRepo.Update(ctx, agreement)
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: agreement.AmountNaira,
+		UserID: agreement.InitiatorUserID, Type: "refund", Amount: agreement.AmountNaira,
 		Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 	return nil

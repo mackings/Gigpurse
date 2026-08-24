@@ -510,6 +510,74 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		t.Fatalf("expected a commission-free payment_received of 100 for the settlement, got %#v", musicianTxsAfterSettlement)
 	}
 
+	// Full-release ruling: the moderator decides the talent did all the work
+	// and should keep the entire escrowed amount, no refund at all. This
+	// exercises milestoneUsecase.ReleaseDisputed directly (never covered by
+	// the partial-resolution case above) — a live sandbox test caught this
+	// path silently no-opping (releaseMilestone's CAS required status
+	// "funded" to reach "released", but a disputed milestone is never
+	// "funded" by resolution time, so the swap always lost and nothing
+	// happened, with no error surfaced anywhere).
+	var thirdProposed []domain.Milestone
+	client.post("/milestones", clientToken, map[string]any{
+		"contract_id": contracts[0].ID,
+		"milestones":  []map[string]any{{"title": "Third milestone", "amount": 300}},
+	}, http.StatusCreated, &thirdProposed)
+	thirdMilestoneID := thirdProposed[0].ID
+	client.post("/milestones/accept", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, nil)
+
+	var thirdFundStart struct {
+		Reference string `json:"reference"`
+	}
+	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, &thirdFundStart)
+	app.paypetal.SimulatePaymentCompleted(thirdFundStart.Reference)
+	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": thirdFundStart.Reference}, http.StatusOK, nil)
+
+	client.post("/milestones/cancel", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, nil)
+
+	var openDisputesAfterThird []domain.Dispute
+	client.get("/admin/disputes?status=open", adminToken, http.StatusOK, &openDisputesAfterThird)
+	var thirdDispute domain.Dispute
+	for _, d := range openDisputesAfterThird {
+		if d.MilestoneID == thirdMilestoneID {
+			thirdDispute = d
+		}
+	}
+	if thirdDispute.ID == "" {
+		t.Fatalf("expected an auto-opened dispute scoped to the third milestone, got %#v", openDisputesAfterThird)
+	}
+	client.post("/disputes/join", adminToken, map[string]any{"dispute_id": thirdDispute.ID}, http.StatusOK, nil)
+
+	// Escrowed take-home is 270 (300 minus 10% commission) — award all of it.
+	var fullReleaseResolved domain.Dispute
+	client.post("/admin/disputes/resolve", adminToken, map[string]any{
+		"dispute_id": thirdDispute.ID, "resolution": "Work was fully delivered", "talent_amount": 270,
+	}, http.StatusOK, &fullReleaseResolved)
+
+	var afterFullRelease []domain.Milestone
+	client.get("/milestones?contract_id="+contracts[0].ID, clientToken, http.StatusOK, &afterFullRelease)
+	var thirdAfter *domain.Milestone
+	for i := range afterFullRelease {
+		if afterFullRelease[i].ID == thirdMilestoneID {
+			thirdAfter = &afterFullRelease[i]
+		}
+	}
+	if thirdAfter == nil || thirdAfter.Status != "released" {
+		t.Fatalf("expected a full-release ruling to actually release the disputed milestone, got %#v", thirdAfter)
+	}
+
+	var musicianTxsAfterFullRelease []domain.Transaction
+	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxsAfterFullRelease)
+	foundFullReleasePayment := false
+	for _, tx := range musicianTxsAfterFullRelease {
+		if tx.Type == "payment_received" && tx.Amount == 270 && tx.Reference == thirdFundStart.Reference {
+			foundFullReleasePayment = true
+		}
+	}
+	if !foundFullReleasePayment {
+		t.Fatalf("expected a payment_received of 270 for the full-release ruling, got %#v", musicianTxsAfterFullRelease)
+	}
+
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)
 	client.get("/admin/users", adminToken, http.StatusOK, nil)
 	client.get("/admin/jobs", adminToken, http.StatusOK, nil)

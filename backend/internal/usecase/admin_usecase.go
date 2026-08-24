@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -14,13 +15,14 @@ import (
 )
 
 type adminUsecase struct {
-	db            *mongo.Database
-	userRepo      domain.UserRepository
-	jobRepo       domain.JobRepository
-	contractRepo  domain.ContractRepository
-	milestoneRepo domain.MilestoneRepository
-	escrowRepo    domain.EscrowAgreementRepository
-	jobUsecase    domain.JobUsecase
+	db              *mongo.Database
+	userRepo        domain.UserRepository
+	jobRepo         domain.JobRepository
+	contractRepo    domain.ContractRepository
+	milestoneRepo   domain.MilestoneRepository
+	escrowRepo      domain.EscrowAgreementRepository
+	jobUsecase      domain.JobUsecase
+	frontendBaseURL string
 }
 
 func NewAdminUsecase(
@@ -31,15 +33,17 @@ func NewAdminUsecase(
 	mr domain.MilestoneRepository,
 	er domain.EscrowAgreementRepository,
 	ju domain.JobUsecase,
+	frontendBaseURL string,
 ) domain.AdminUsecase {
 	return &adminUsecase{
-		db:            db,
-		userRepo:      ur,
-		jobRepo:       jr,
-		contractRepo:  cr,
-		milestoneRepo: mr,
-		escrowRepo:    er,
-		jobUsecase:    ju,
+		db:              db,
+		userRepo:        ur,
+		jobRepo:         jr,
+		contractRepo:    cr,
+		milestoneRepo:   mr,
+		escrowRepo:      er,
+		jobUsecase:      ju,
+		frontendBaseURL: frontendBaseURL,
 	}
 }
 
@@ -593,6 +597,24 @@ func (u *adminUsecase) InviteModerator(ctx context.Context, email, name string) 
 	if err := u.userRepo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to invite moderator: %w", err)
 	}
+
+	// Moderators log in passwordless (RequestModeratorLogin/VerifyModeratorLogin)
+	// via a code emailed on demand — but nothing ever told this person the
+	// account exists in the first place, so they'd have no way to discover
+	// they'd been invited. This is a plain transactional email (no in-app
+	// notification makes sense pre-login), sent best-effort: a delivery
+	// failure shouldn't undo the invite itself.
+	loginURL := u.frontendBaseURL + "/moderate"
+	subject := "You've been invited to moderate on GigPurse"
+	body := fmt.Sprintf(
+		"Hi %s,\n\nYou've been added as a moderator on GigPurse. There's no password to set — head to %s, "+
+			"enter this email address, and we'll send you a one-time code to sign in.\n\n%s",
+		user.Name, loginURL, loginURL,
+	)
+	if err := sendEmail(user.Email, subject, body); err != nil {
+		log.Printf("moderator invite email to %s failed: %v", user.Email, err)
+	}
+
 	return user, nil
 }
 

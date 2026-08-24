@@ -7,6 +7,7 @@ const typeMeta = {
   escrow_hold: { label: "Escrow funded", icon: Lock, sign: "-", color: "bg-violet-500" },
   escrow_release: { label: "Escrow released", icon: Unlock, sign: "-", color: "bg-violet-500" },
   payment_received: { label: "Payment received", icon: ArrowDownLeft, sign: "+", color: "bg-emerald-500" },
+  refund: { label: "Refund received", icon: ArrowDownLeft, sign: "+", color: "bg-emerald-500" },
 };
 
 export default function TransactionList({ transactions }) {

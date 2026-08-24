@@ -576,12 +576,18 @@ func (u *disputeUsecase) resolveJobEscrow(ctx context.Context, dispute *domain.D
 	}
 	_ = u.escrowRepo.Update(ctx, agreement)
 
+	// Same convention as the milestone-based dispute settlement: a credit
+	// to the client is a "refund" (money back), a credit to the musician is
+	// "payment_received" (money earned) — never the generic "escrow_release"
+	// a payer's own wallet uses for money that left it.
 	payeeID := dispute.MusicianID
+	txType := "payment_received"
 	if clientWon {
 		payeeID = dispute.ClientID
+		txType = "refund"
 	}
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: payeeID, Type: "escrow_release", Amount: job.EscrowAmount,
+		UserID: payeeID, Type: txType, Amount: job.EscrowAmount,
 		Description: fmt.Sprintf("Dispute resolved — escrow settled for gig: %s", job.Title), Reference: contract.EscrowReference,
 	})
 

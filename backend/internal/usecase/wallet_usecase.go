@@ -55,6 +55,11 @@ func (u *walletUsecase) GetWallet(ctx context.Context, userID string) (*domain.W
 			summary.TotalEarned += tx.Amount
 		case "escrow_hold":
 			summary.TotalSpent += tx.Amount
+		case "refund":
+			// A refund returns money the client already counted as spent
+			// via escrow_hold above — net it back out, or "Total spent"
+			// stays permanently overstated by every refunded amount.
+			summary.TotalSpent -= tx.Amount
 		}
 	}
 	if user, err := u.userRepo.GetByID(ctx, userID); err == nil {
