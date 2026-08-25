@@ -126,7 +126,10 @@ type MilestoneUsecase interface {
 	// exposed on any HTTP route. See the implementation's doc comment for
 	// why this can't just be Release with a relaxed status check.
 	ReleaseDisputed(ctx context.Context, contractID, milestoneID string) (*Milestone, error)
-	List(ctx context.Context, contractID, requesterID string) ([]*Milestone, error)
+	// List returns a contract's milestones for a client/musician participant,
+	// or for an admin/moderator (requesterRole) reviewing a dispute — pass
+	// "" for requesterRole from any ordinary participant-only call site.
+	List(ctx context.Context, contractID, requesterID, requesterRole string) ([]*Milestone, error)
 
 	// RefundHeldForContract sweeps every still-`funded` milestone on a
 	// contract back to the client's wallet balance — used when a dispute

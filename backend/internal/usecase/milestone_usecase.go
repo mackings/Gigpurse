@@ -810,12 +810,14 @@ func (u *milestoneUsecase) RequestRelease(ctx context.Context, contractID, miles
 	return nil
 }
 
-func (u *milestoneUsecase) List(ctx context.Context, contractID, requesterID string) ([]*domain.Milestone, error) {
+func (u *milestoneUsecase) List(ctx context.Context, contractID, requesterID, requesterRole string) ([]*domain.Milestone, error) {
 	contract, err := u.contractRepo.GetByID(ctx, contractID)
 	if err != nil {
 		return nil, fmt.Errorf("contract not found: %w", err)
 	}
-	if _, ok := u.participant(contract, requesterID); !ok {
+	_, isParticipant := u.participant(contract, requesterID)
+	isStaff := requesterRole == "admin" || requesterRole == "moderator"
+	if !isParticipant && !isStaff {
 		return nil, errors.New("unauthorized: not a participant on this contract")
 	}
 	return u.milestoneRepo.ListByContract(ctx, contractID)

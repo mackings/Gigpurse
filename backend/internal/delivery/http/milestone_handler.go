@@ -77,7 +77,7 @@ func (h *MilestoneHandler) RequestRelease(w http.ResponseWriter, r *http.Request
 }
 
 func (h *MilestoneHandler) HandleMilestones(w http.ResponseWriter, r *http.Request) {
-	userID, _, ok := GetUserFromContext(r.Context())
+	userID, role, ok := GetUserFromContext(r.Context())
 	if !ok {
 		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
@@ -90,7 +90,7 @@ func (h *MilestoneHandler) HandleMilestones(w http.ResponseWriter, r *http.Reque
 			respondError(w, http.StatusBadRequest, "missing_contract_id", "contract_id query parameter is required")
 			return
 		}
-		milestones, err := h.milestoneUsecase.List(r.Context(), contractID, userID)
+		milestones, err := h.milestoneUsecase.List(r.Context(), contractID, userID, role)
 		if err != nil {
 			respondError(w, http.StatusBadRequest, "milestones_list_failed", err.Error())
 			return

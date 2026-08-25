@@ -538,7 +538,7 @@ func (u *disputeUsecase) milestonesFor(ctx context.Context, contractID string) (
 	if err != nil {
 		return nil, fmt.Errorf("contract not found: %w", err)
 	}
-	return u.milestoneUsecase.List(ctx, contractID, contract.ClientID)
+	return u.milestoneUsecase.List(ctx, contractID, contract.ClientID, "")
 }
 
 // resolveJobEscrow handles the case where the contract came straight from a
