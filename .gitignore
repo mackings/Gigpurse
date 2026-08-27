@@ -22,3 +22,7 @@ frontend/next-env.d.ts
 .vscode/
 .claude/
 uploads/
+
+# Local Netlify folder
+.netlify
+frontend/deno.lock

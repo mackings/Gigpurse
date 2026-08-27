@@ -6,6 +6,7 @@ import StatCard from "@/components/dashboard/StatCard";
 import AreaTrendChart from "@/components/admin/AreaTrendChart";
 import BreakdownBars from "@/components/admin/BreakdownBars";
 import { formatMoney } from "@/lib/utils";
+import { roleCssVar } from "@/lib/role-colors";
 import {
   Loader2,
   Users,
@@ -15,35 +16,30 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-// Mirrors components/ui/status-badge.jsx's semantic mapping so a status
-// means the same color everywhere in the app, not just on this dashboard.
+// Mirrors components/ui/status-badge.jsx's semantic mapping (same
+// --status-* tokens) so a status means the same color everywhere in the
+// app, not just on this dashboard.
 const STATUS_COLOR = {
-  open: "#0ea5e9",
-  pending_funding: "#f59e0b",
-  pending: "#f59e0b",
-  pending_hire_funding: "#f59e0b",
-  proposed: "#f59e0b",
-  active: "var(--chart-1)",
-  accepted: "var(--chart-1)",
-  funded: "#8b5cf6",
-  refunded: "#8b5cf6",
-  completed: "#10b981",
-  released: "#10b981",
-  resolved: "#10b981",
-  rejected: "#f43f5e",
-  cancelled: "#f43f5e",
-  disputed: "#f43f5e",
+  open: "var(--status-info)",
+  pending_funding: "var(--status-warning)",
+  pending: "var(--status-warning)",
+  pending_hire_funding: "var(--status-warning)",
+  proposed: "var(--status-warning)",
+  active: "var(--primary)",
+  accepted: "var(--primary)",
+  funded: "var(--status-accent)",
+  refunded: "var(--status-accent)",
+  completed: "var(--status-success)",
+  released: "var(--status-success)",
+  resolved: "var(--status-success)",
+  rejected: "var(--status-critical)",
+  cancelled: "var(--status-critical)",
+  disputed: "var(--status-critical)",
   closed: "var(--muted-foreground)",
 };
 const statusColor = (status) =>
   STATUS_COLOR[status] || "var(--muted-foreground)";
 
-const ROLE_COLOR = {
-  musician: "var(--chart-1)",
-  client: "var(--chart-2)",
-  moderator: "var(--chart-3)",
-  admin: "var(--chart-4)",
-};
 const ROLE_LABEL = {
   musician: "Talent",
   client: "Clients",
@@ -62,12 +58,12 @@ function toStatusItems(byStatus) {
 
 function Section({ title, subtitle, children }) {
   return (
-    <div className="bg-card rounded-2xl border border-border p-5">
+    <div className="bg-card rounded-xl border border-border p-6">
       <h2 className="font-semibold text-foreground">{title}</h2>
       {subtitle && (
         <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       )}
-      <div className="mt-4">{children}</div>
+      <div className="mt-5">{children}</div>
     </div>
   );
 }
@@ -91,7 +87,7 @@ export default function AdminOverview() {
       key,
       label: ROLE_LABEL[key] || key,
       value,
-      color: ROLE_COLOR[key] || "var(--chart-5)",
+      color: roleCssVar(key),
     }),
   );
 
@@ -108,25 +104,25 @@ export default function AdminOverview() {
           icon={Wallet}
           label="Total GMV"
           value={formatMoney(data?.total_gmv ?? 0)}
-          color="bg-sky-500"
+          color="bg-status-info"
         />
         <StatCard
           icon={Lock}
           label="Held in escrow"
           value={formatMoney(data?.total_held_in_escrow ?? 0)}
-          color="bg-violet-500"
+          color="bg-status-accent"
         />
         <StatCard
           icon={Users}
           label="Total users"
           value={data?.total_users ?? 0}
-          color="bg-emerald-500"
+          color="bg-status-success"
         />
         <StatCard
           icon={ShieldAlert}
           label="Open disputes"
           value={data?.disputes_by_status?.open ?? 0}
-          color="bg-rose-500"
+          color="bg-status-critical"
         />
       </div>
 
@@ -168,13 +164,13 @@ export default function AdminOverview() {
           icon={Users}
           label="New users (30 days)"
           value={data?.new_users_last_30_days ?? 0}
-          color="bg-sky-500"
+          color="bg-status-info"
         />
         <StatCard
           icon={Wallet}
           label="Total contracts"
           value={data?.total_contracts ?? 0}
-          color="bg-emerald-500"
+          color="bg-status-success"
         />
       </div>
     </div>

@@ -31,7 +31,9 @@ export default function SaveJobButton({ jobId, saved, className }) {
       title={saved ? "Unsave job" : "Save job"}
       className={cn(
         "shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-50",
-        saved ? "text-rose-500 hover:bg-rose-500/10" : "text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10",
+        saved
+          ? "text-status-critical hover:bg-status-critical/10"
+          : "text-muted-foreground hover:text-status-critical hover:bg-status-critical/10",
         className
       )}
     >

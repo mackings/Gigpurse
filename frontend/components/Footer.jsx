@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Disc3 } from "lucide-react";
+import Image from "next/image";
 
 export default function Footer() {
   return (
@@ -7,11 +7,21 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
           <div>
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Disc3 className="w-4 h-4 text-primary-foreground" strokeWidth={2.25} />
-              </div>
-              <span className="text-lg font-bold text-foreground tracking-tight">GigPurse</span>
+            <div className="flex items-center mb-4">
+              <Image
+                src="/brand/gigpurse-wordmark-teal.png"
+                alt="GigPurse"
+                width={140}
+                height={40}
+                className="h-7 w-auto dark:hidden"
+              />
+              <Image
+                src="/brand/gigpurse-wordmark-white-on-black.png"
+                alt="GigPurse"
+                width={140}
+                height={40}
+                className="h-7 w-auto hidden dark:block"
+              />
             </div>
             <p className="text-sm max-w-xs">Connecting Talent with clients for unforgettable events.</p>
           </div>

@@ -526,7 +526,28 @@ func (u *adminUsecase) ListAllUsers(ctx context.Context) ([]*domain.User, error)
 }
 
 func (u *adminUsecase) ListAllJobs(ctx context.Context) ([]*domain.Job, error) {
-	return u.jobRepo.List(ctx, domain.JobFilter{})
+	jobs, err := u.jobRepo.List(ctx, domain.JobFilter{})
+	if err != nil {
+		return nil, err
+	}
+	// Lightweight enrichment for the admin list row (poster name + applicant
+	// count) — deliberately skips the heavier "About the client" stats
+	// (rating/hire-rate/spend) that JobClientInfo also carries, since those
+	// take several extra queries each and only matter on a single job's own
+	// detail view, not a table of every job at once.
+	for _, job := range jobs {
+		if client, err := u.userRepo.GetByID(ctx, job.ClientID); err == nil {
+			info := &domain.JobClientInfo{Name: client.Name}
+			if client.ClientProfile != nil {
+				info.CompanyName = client.ClientProfile.CompanyName
+			}
+			job.Client = info
+		}
+		if count, err := u.jobRepo.CountApplications(ctx, job.ID); err == nil {
+			job.ApplicationCount = count
+		}
+	}
+	return jobs, nil
 }
 
 func (u *adminUsecase) GetJobDetail(ctx context.Context, jobID string) (*domain.AdminJobDetail, error) {

@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { UploadCloud, Link2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, apiUpload } from "@/lib/api";
@@ -72,56 +74,76 @@ export default function PortfolioComposer({ onAdd, nextOrder }) {
   }
 
   return (
-    <div className="space-y-3">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragging(false);
-          handleFiles(e.dataTransfer.files);
-        }}
-        onClick={() => fileInputRef.current?.click()}
-        className={`rounded-xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
-          isDragging ? "border-primary bg-accent" : "border-border hover:border-primary/40 hover:bg-muted/40"
-        }`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*,audio/*,video/*"
-          onChange={(e) => handleFiles(e.target.files)}
-          className="hidden"
-        />
-        {isUploading ? (
-          <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary" />
-        ) : (
-          <>
-            <UploadCloud className="w-6 h-6 mx-auto text-muted-foreground" />
-            <p className="text-sm font-medium text-foreground mt-2">Drop photos, videos, or audio here</p>
-            <p className="text-xs text-muted-foreground mt-0.5">or click to browse — up to 10 files, 25MB each</p>
-          </>
-        )}
-      </div>
+    <Card>
+      <div className="px-(--card-spacing)">
+        <Tabs defaultValue="upload">
+          <TabsList className="mb-4">
+            <TabsTrigger value="upload" className="gap-1.5">
+              <UploadCloud className="w-3.5 h-3.5" />
+              Upload file
+            </TabsTrigger>
+            <TabsTrigger value="link" className="gap-1.5">
+              <Link2 className="w-3.5 h-3.5" />
+              Paste a link
+            </TabsTrigger>
+          </TabsList>
 
-      <form onSubmit={handleAddLink} className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Or paste a YouTube, Vimeo, SoundCloud, Spotify link — or any project URL"
-            value={linkURL}
-            onChange={(e) => setLinkURL(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" variant="outline" disabled={isPreviewing || !linkURL.trim()} className="shrink-0 gap-1.5">
-          {isPreviewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Add link"}
-        </Button>
-      </form>
-    </div>
+          <TabsContent value="upload">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                handleFiles(e.dataTransfer.files);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`rounded-xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
+                isDragging ? "border-primary bg-accent" : "border-border hover:border-primary/40 hover:bg-muted/40"
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,audio/*,video/*"
+                onChange={(e) => handleFiles(e.target.files)}
+                className="hidden"
+              />
+              {isUploading ? (
+                <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary" />
+              ) : (
+                <>
+                  <UploadCloud className="w-6 h-6 mx-auto text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground mt-2">Drop photos, videos, or audio here</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">or click to browse — up to 10 files, 25MB each</p>
+                </>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="link">
+            <form onSubmit={handleAddLink} className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Paste a YouTube, Vimeo, SoundCloud, Spotify link — or any project URL"
+                  value={linkURL}
+                  onChange={(e) => setLinkURL(e.target.value)}
+                  className="pl-9"
+                  autoFocus
+                />
+              </div>
+              <Button type="submit" disabled={isPreviewing || !linkURL.trim()} className="shrink-0 gap-1.5">
+                {isPreviewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Add link"}
+              </Button>
+            </form>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </Card>
   );
 }

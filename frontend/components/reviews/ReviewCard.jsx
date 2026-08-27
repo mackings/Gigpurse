@@ -3,13 +3,13 @@ import IconBadge from "@/components/ui/icon-badge";
 
 export default function ReviewCard({ review }) {
   return (
-    <div className="group p-4 rounded-xl border border-border bg-card transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-amber-500/30">
+    <div className="group p-4 rounded-xl border border-border bg-card transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-status-warning/30">
       <div className="flex items-start gap-3">
-        <IconBadge icon={Star} color="bg-amber-500" size="sm" />
+        <IconBadge icon={Star} color="bg-status-warning" size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
             {Array.from({ length: 5 }).map((_, i) => (
-              <Star key={i} className={`w-3.5 h-3.5 ${i < review.rating ? "text-amber-500 fill-amber-500" : "text-muted"}`} />
+              <Star key={i} className={`w-3.5 h-3.5 ${i < review.rating ? "text-status-warning fill-status-warning" : "text-muted"}`} />
             ))}
           </div>
           {review.comment && <p className="text-foreground text-sm mt-2">{review.comment}</p>}

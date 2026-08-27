@@ -1,16 +1,27 @@
 import Link from "next/link";
-import { Disc3 } from "lucide-react";
+import Image from "next/image";
 
 export default function AuthShell({ children }) {
   return (
-    <div className="min-h-screen bg-background relative flex items-center justify-center p-4 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,var(--accent),transparent)] opacity-60" />
-      <div className="relative max-w-md w-full">
-        <Link href="/" className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
-            <Disc3 className="w-5 h-5 text-primary-foreground" strokeWidth={2.25} />
-          </div>
-          <span className="text-xl font-bold text-foreground tracking-tight">GigPurse</span>
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="max-w-md w-full">
+        <Link href="/" className="flex items-center justify-center mb-8">
+          <Image
+            src="/brand/gigpurse-wordmark-teal.png"
+            alt="GigPurse"
+            width={160}
+            height={44}
+            priority
+            className="h-8 w-auto dark:hidden"
+          />
+          <Image
+            src="/brand/gigpurse-wordmark-white-on-black.png"
+            alt="GigPurse"
+            width={160}
+            height={44}
+            priority
+            className="h-8 w-auto hidden dark:block"
+          />
         </Link>
         {children}
       </div>

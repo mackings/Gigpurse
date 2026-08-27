@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Disc3,
   Menu,
   X,
   User,
@@ -82,13 +82,25 @@ export default function NavBar() {
 
   return (
     <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-md border-b border-border">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+      <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link href={isAuthenticated ? (isStaff ? adminHref : dashboardUrl) : "/"} className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <Disc3 className="w-4 h-4 text-primary-foreground" strokeWidth={2.25} />
-            </div>
-            <span className="text-lg font-bold text-foreground tracking-tight">GigPurse</span>
+          <Link href={isAuthenticated ? (isStaff ? adminHref : dashboardUrl) : "/"} className="flex items-center">
+            <Image
+              src="/brand/gigpurse-wordmark-teal.png"
+              alt="GigPurse"
+              width={140}
+              height={40}
+              priority
+              className="h-7 w-auto dark:hidden"
+            />
+            <Image
+              src="/brand/gigpurse-wordmark-white-on-black.png"
+              alt="GigPurse"
+              width={140}
+              height={40}
+              priority
+              className="h-7 w-auto hidden dark:block"
+            />
           </Link>
 
           <div className="hidden md:flex items-center gap-1">

@@ -7,9 +7,11 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { useDirectHires } from "@/hooks/use-direct-hire";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, postedAgo } from "@/lib/utils";
 import { Loader2, MessageCircle, MapPin, Calendar, CalendarClock } from "lucide-react";
 
 const tabs = [
@@ -20,9 +22,9 @@ const tabs = [
 ];
 
 const STATUS_COLOR = {
-  pending: "bg-amber-500",
+  pending: "bg-status-warning",
   accepted: "bg-primary",
-  declined: "bg-rose-500",
+  declined: "bg-status-critical",
 };
 
 function formatEventDate(iso) {
@@ -41,25 +43,22 @@ export default function BookingsPage() {
 
   return (
     <div>
-      <div className="flex gap-2 mb-6">
-        {tabs.map((t) => (
-          <Button
-            key={t.value}
-            variant={status === t.value ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatus(t.value)}
-          >
-            {t.label}
-          </Button>
-        ))}
-      </div>
+      <Tabs value={status} onValueChange={setStatus} className="mb-6">
+        <TabsList>
+          {tabs.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {isLoading ? (
         <div className="flex justify-center py-24">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       ) : sorted.length ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {sorted.map((req) => {
             const counterpartId = user?.id === req.client_id ? req.musician_id : req.client_id;
             const waitingOnThem = req.status === "pending" && req.proposed_by === user?.id;
@@ -71,7 +70,7 @@ export default function BookingsPage() {
             // valid HTML.
             const isOpenable = req.status === "accepted" && req.contract_id;
             return (
-              <div
+              <Card
                 key={req.id}
                 role={isOpenable ? "button" : undefined}
                 tabIndex={isOpenable ? 0 : undefined}
@@ -83,14 +82,17 @@ export default function BookingsPage() {
                       }
                     : undefined
                 }
-                className={`group bg-card rounded-xl border border-border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5 ${isOpenable ? "cursor-pointer" : ""}`}
+                className={`group h-full transition-colors duration-200 hover:border-foreground/15 ${isOpenable ? "cursor-pointer" : ""}`}
               >
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <IconBadge icon={CalendarClock} color={STATUS_COLOR[req.status] || "bg-muted-foreground"} size="sm" />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-medium text-foreground">{req.title}</p>
+                <div className="px-(--card-spacing) flex flex-col h-full">
+                  <div className="flex items-start gap-3">
+                    <IconBadge icon={CalendarClock} color={STATUS_COLOR[req.status] || "bg-muted-foreground"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-foreground truncate">{req.title}</p>
+                        <span className="text-base font-semibold text-foreground shrink-0">{formatMoney(req.price)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
                         <StatusBadge status={req.status} />
                         {waitingOnThem && (
                           <Badge variant="outline" className="text-xs">
@@ -98,37 +100,42 @@ export default function BookingsPage() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-0.5">{req.description}</p>
-                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
-                        {req.location && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5" />
-                            {req.location}
-                          </span>
-                        )}
-                        {req.event_date && (
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {formatEventDate(req.event_date)}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm font-semibold text-foreground mt-1">{formatMoney(req.price)}</p>
-                      {isOpenable && <p className="text-xs text-primary mt-1">Tap to view milestones &amp; escrow</p>}
                     </div>
                   </div>
-                  <Link
-                    href={`/messages?with=${counterpartId}&booking=${req.id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="shrink-0"
-                  >
-                    <Button size="sm" variant="outline" className="gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      {req.status === "pending" && !waitingOnThem ? "Discuss & respond" : "View in chat"}
-                    </Button>
-                  </Link>
+
+                  {req.description && <p className="text-sm text-muted-foreground line-clamp-2 mt-3">{req.description}</p>}
+
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-xs text-muted-foreground">
+                    {req.location && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        {req.location}
+                      </span>
+                    )}
+                    {req.event_date && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {formatEventDate(req.event_date)}
+                      </span>
+                    )}
+                  </div>
+                  {isOpenable && <p className="text-xs text-primary mt-2">Tap to view milestones &amp; escrow</p>}
+
+                  <div className="mt-auto pt-3 flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">{postedAgo(req.created_at, "Requested")}</span>
+                    <Link
+                      href={`/messages?with=${counterpartId}&booking=${req.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0"
+                    >
+                      <Button size="sm" variant="outline" className="gap-1.5">
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        {req.status === "pending" && !waitingOnThem ? "Discuss & respond" : "View in chat"}
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>

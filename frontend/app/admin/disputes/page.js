@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import StatusBadge from "@/components/ui/status-badge";
-import IconBadge from "@/components/ui/icon-badge";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,11 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import AdvancedFilters from "@/components/admin/AdvancedFilters";
-import { Loader2, ShieldAlert, ChevronRight, Search } from "lucide-react";
+import { postedAgo } from "@/lib/utils";
+import { Loader2, ShieldAlert, FileText, Clock, ChevronRight, Search } from "lucide-react";
 
+// Mirrors components/ui/status-badge.jsx's semantic mapping (same
+// --status-* tokens) rather than its own hand-picked Tailwind literals.
 const STATUS_COLOR = {
-  open: "bg-rose-500",
-  resolved: "bg-emerald-500",
+  open: "bg-status-critical",
+  resolved: "bg-status-success",
   closed: "bg-muted-foreground",
 };
 const emptyAdvanced = { moderator: "any", from: "", to: "" };
@@ -136,40 +138,50 @@ export default function AdminDisputes() {
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       ) : filtered.length ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((d) => (
             <Link
               key={d.id}
               href={`/admin/disputes/${d.id}`}
-              className="group flex items-start justify-between gap-4 bg-card rounded-xl border border-border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-rose-500/30"
+              className="group flex flex-col bg-card rounded-xl border border-border p-5 transition-colors hover:border-foreground/15"
             >
-              <div className="flex items-start gap-3 min-w-0">
-                <IconBadge
-                  icon={ShieldAlert}
-                  color={STATUS_COLOR[d.status] || "bg-muted-foreground"}
-                  size="sm"
-                />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-medium text-foreground">{d.reason}</p>
-                    <StatusBadge status={d.status} />
-                    {!d.moderator_id && d.status === "open" && (
-                      <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                        No moderator yet
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Contract: {d.contract_title || d.contract_id}
-                  </p>
-                  {d.resolution && (
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Resolution: {d.resolution}
-                    </p>
-                  )}
+              <div className="flex items-start justify-between gap-3">
+                <div
+                  className={`w-11 h-11 rounded-lg flex items-center justify-center shrink-0 ${STATUS_COLOR[d.status] || "bg-muted-foreground"}`}
+                >
+                  <ShieldAlert className="w-5 h-5 text-white" />
                 </div>
+                <StatusBadge status={d.status} />
               </div>
-              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+
+              <p className="font-semibold text-foreground mt-3 line-clamp-2">{d.reason}</p>
+              {!d.moderator_id && d.status === "open" && (
+                <span className="text-xs font-medium text-status-warning mt-1">
+                  No moderator yet
+                </span>
+              )}
+              <div className="flex flex-col gap-1 mt-2 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  {d.contract_title || d.contract_id}
+                </span>
+                {postedAgo(d.created_at, "Opened") && (
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    {postedAgo(d.created_at, "Opened")}
+                  </span>
+                )}
+              </div>
+              {d.resolution && (
+                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
+                  Resolution: {d.resolution}
+                </p>
+              )}
+
+              <div className="flex items-center justify-end gap-1 mt-4 pt-4 border-t border-border text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                View
+                <ChevronRight className="w-4 h-4" />
+              </div>
             </Link>
           ))}
         </div>

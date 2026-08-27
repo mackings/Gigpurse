@@ -51,7 +51,7 @@ export default function JobDetailPage() {
 
   return (
     <div className="min-h-screen bg-background py-10 px-4">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <button
           onClick={() => router.back()}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6"
@@ -60,17 +60,15 @@ export default function JobDetailPage() {
           Back
         </button>
 
-        <div className="bg-card rounded-2xl border border-border overflow-hidden">
-          <JobDetailContent
-            job={job}
-            currentUser={user}
-            isAuthenticated={isAuthenticated}
-            alreadyApplied={alreadyApplied}
-            saved={saved}
-            onApplied={onApplied}
-            showOpenInNewWindow={false}
-          />
-        </div>
+        <JobDetailContent
+          job={job}
+          currentUser={user}
+          isAuthenticated={isAuthenticated}
+          alreadyApplied={alreadyApplied}
+          saved={saved}
+          onApplied={onApplied}
+          layout="split"
+        />
       </div>
     </div>
   );

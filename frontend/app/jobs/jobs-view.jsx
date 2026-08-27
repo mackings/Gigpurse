@@ -13,15 +13,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card } from "@/components/ui/card";
 import JobBoardCard from "@/components/jobs/JobBoardCard";
 import JobDetailContent from "@/components/jobs/JobDetailContent";
 import IconBadge from "@/components/ui/icon-badge";
 import StatusBadge from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/utils";
-import { Loader2, Search, SlidersHorizontal, Sparkles, Clock3, Heart, Mail, Handshake, CalendarClock, X } from "lucide-react";
+import { Loader2, Search, SlidersHorizontal, Clock3, Heart, Mail, Handshake, CalendarClock, X } from "lucide-react";
 
 const TABS = [
-  { value: "best", label: "Best matches", icon: Sparkles },
+  { value: "best", label: "Best matches" },
   { value: "recent", label: "Most recent", icon: Clock3 },
   { value: "saved", label: "Saved jobs", icon: Heart },
   { value: "invites", label: "Invites", icon: Mail },
@@ -113,7 +115,7 @@ export default function JobsView() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-12">
+      <div className="max-w-6xl mx-auto px-4 py-12">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-foreground mb-2 tracking-tight">Find Gigs</h1>
           <p className="text-muted-foreground">Browse, save, and apply to gigs posted by clients.</p>
@@ -228,37 +230,33 @@ export default function JobsView() {
         )}
 
         {isMusician && (
-          <div className="flex gap-1 mb-8 border-b border-border overflow-x-auto">
-            {TABS.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => setTab(t.value)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-                  tab === t.value
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <t.icon className="w-3.5 h-3.5" />
-                {t.label}
-                {t.value === "saved" && savedJobs?.length > 0 && (
-                  <span className="ml-0.5 text-xs text-muted-foreground">({savedJobs.length})</span>
-                )}
-                {t.value === "invites" && invites.length > 0 && (
-                  <span className="ml-0.5 text-xs text-muted-foreground">({invites.length})</span>
-                )}
-              </button>
-            ))}
-          </div>
+          <Tabs value={tab} onValueChange={setTab} className="mb-8">
+            <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+              {TABS.map((t) => (
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                  {t.icon && <t.icon className="w-3.5 h-3.5" />}
+                  {t.label}
+                  {t.value === "saved" && savedJobs?.length > 0 && (
+                    <span className="ml-0.5 text-xs text-muted-foreground">({savedJobs.length})</span>
+                  )}
+                  {t.value === "invites" && invites.length > 0 && (
+                    <span className="ml-0.5 text-xs text-muted-foreground">({invites.length})</span>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         )}
 
         {loading ? (
-          <div className="flex justify-center py-24">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <JobCardSkeleton key={i} />
+            ))}
           </div>
         ) : effectiveTab === "invites" ? (
           invites.length ? (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {invites.map((req) => (
                 <InviteCard key={req.id} req={req} />
               ))}
@@ -269,7 +267,7 @@ export default function JobsView() {
             </div>
           )
         ) : list?.length ? (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {list.map((job) => (
               <JobBoardCard
                 key={job.id}
@@ -329,29 +327,45 @@ export default function JobsView() {
 
 function InviteCard({ req }) {
   return (
-    <Link
-      href={`/messages?with=${req.client_id}&booking=${req.id}`}
-      className="group block bg-card rounded-2xl border border-border p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30"
-    >
-      <div className="flex items-start gap-4">
-        <IconBadge icon={Handshake} color="bg-violet-500" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="font-semibold text-foreground truncate">{req.title}</h3>
-            <StatusBadge status={req.status} />
-          </div>
-          <p className="text-muted-foreground mt-1 line-clamp-2">{req.description}</p>
-          <div className="flex items-center gap-3 mt-3 text-sm">
-            <span className="font-medium text-foreground">{formatMoney(req.price)}</span>
-            {req.event_date && (
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <CalendarClock className="w-3.5 h-3.5" />
-                {new Date(req.event_date).toLocaleDateString()}
-              </span>
-            )}
+    <Link href={`/messages?with=${req.client_id}&booking=${req.id}`} className="group block h-full">
+      <Card className="h-full transition-colors duration-200 hover:border-foreground/15">
+        <div className="px-(--card-spacing) flex items-start gap-4">
+          <IconBadge icon={Handshake} color="bg-status-accent" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-semibold text-foreground truncate">{req.title}</h3>
+              <StatusBadge status={req.status} />
+            </div>
+            <p className="text-muted-foreground mt-1 line-clamp-2">{req.description}</p>
+            <div className="flex items-center gap-3 mt-3 text-sm">
+              <span className="font-semibold text-foreground text-base">{formatMoney(req.price)}</span>
+              {req.event_date && (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <CalendarClock className="w-3.5 h-3.5" />
+                  {new Date(req.event_date).toLocaleDateString()}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </Card>
     </Link>
+  );
+}
+
+function JobCardSkeleton() {
+  return (
+    <Card className="animate-pulse">
+      <div className="px-(--card-spacing) flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-muted shrink-0" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="h-4 w-2/3 bg-muted rounded" />
+          <div className="h-3 w-1/3 bg-muted rounded" />
+          <div className="h-3 w-full bg-muted rounded" />
+          <div className="h-3 w-4/5 bg-muted rounded" />
+          <div className="h-8 w-24 bg-muted rounded-lg mt-2" />
+        </div>
+      </div>
+    </Card>
   );
 }

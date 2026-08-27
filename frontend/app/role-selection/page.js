@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Mic2, Briefcase, Building2, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
@@ -31,9 +33,26 @@ export default function RoleSelection() {
   }
 
   return (
-    <div className="min-h-screen bg-background relative flex items-center justify-center p-4 overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,var(--accent),transparent)] opacity-60" />
-      <div className="relative max-w-2xl w-full">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="max-w-2xl w-full">
+        <Link href="/" className="flex items-center justify-center mb-8">
+          <Image
+            src="/brand/gigpurse-wordmark-teal.png"
+            alt="GigPurse"
+            width={160}
+            height={44}
+            priority
+            className="h-8 w-auto dark:hidden"
+          />
+          <Image
+            src="/brand/gigpurse-wordmark-white-on-black.png"
+            alt="GigPurse"
+            width={160}
+            height={44}
+            priority
+            className="h-8 w-auto hidden dark:block"
+          />
+        </Link>
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-3 tracking-tight">
             Welcome! How will you use GigPurse?

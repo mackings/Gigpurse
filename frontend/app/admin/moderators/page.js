@@ -13,8 +13,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import IconBadge from "@/components/ui/icon-badge";
 import { Loader2, ShieldCheck, UserPlus, Ban, RotateCcw } from "lucide-react";
+import { initials } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function AdminModerators() {
@@ -125,22 +125,22 @@ export default function AdminModerators() {
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       ) : moderators?.length ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {moderators.map((m) => {
             const active = m.role === "moderator";
             return (
               <div
                 key={m.id}
-                className="group bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30"
+                className="group bg-card rounded-xl border border-border p-5 flex flex-col transition-colors hover:border-foreground/15"
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <IconBadge
-                    icon={ShieldCheck}
-                    color={active ? "bg-emerald-500" : "bg-muted-foreground"}
-                    size="sm"
-                  />
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold text-white ${active ? "bg-status-success" : "bg-muted-foreground"}`}
+                  >
+                    {initials(m.name)}
+                  </div>
                   <div className="min-w-0">
-                    <p className="font-medium text-foreground truncate">
+                    <p className="font-semibold text-foreground truncate">
                       {m.name}
                     </p>
                     <p className="text-sm text-muted-foreground truncate">
@@ -148,11 +148,16 @@ export default function AdminModerators() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground mt-3">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Moderator
+                </span>
+
+                <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-border">
                   <span
                     className={
                       active
-                        ? "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        ? "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-status-success/10 text-status-success"
                         : "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground"
                     }
                   >

@@ -27,7 +27,7 @@ export default function AdminLayout({ children }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-10 py-10">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
             {isModerator ? "Disputes" : "Admin"}

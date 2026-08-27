@@ -3,16 +3,18 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
+import { instrumentIcon } from "@/lib/instrument-icons";
 import { formatMoney } from "@/lib/utils";
-import { Loader2, MapPin, Banknote, Guitar } from "lucide-react";
+import { Loader2, MapPin, Banknote } from "lucide-react";
 
 const STATUS_COLOR = {
-  pending: "bg-amber-500",
+  pending: "bg-status-warning",
   active: "bg-primary",
-  completed: "bg-emerald-500",
+  completed: "bg-status-success",
 };
 
 const tabs = [
@@ -31,18 +33,15 @@ export default function MyJobs() {
 
   return (
     <div>
-      <div className="flex gap-2 mb-6">
-        {tabs.map((t) => (
-          <Button
-            key={t.value}
-            variant={status === t.value ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatus(t.value)}
-          >
-            {t.label}
-          </Button>
-        ))}
-      </div>
+      <Tabs value={status} onValueChange={setStatus} className="mb-6">
+        <TabsList>
+          {tabs.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {isLoading ? (
         <div className="flex justify-center py-24">
@@ -51,33 +50,32 @@ export default function MyJobs() {
       ) : jobs?.length ? (
         <div className="space-y-4">
           {jobs.map((job) => (
-            <div
-              key={job.id}
-              className="group bg-card rounded-2xl border border-border p-6 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5"
-            >
-              <div className="flex items-start justify-between gap-4">
+            <Card key={job.id} className="transition-colors duration-200 hover:border-foreground/15">
+              <div className="px-(--card-spacing) flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 min-w-0">
-                  <IconBadge icon={Guitar} color={STATUS_COLOR[job.status] || "bg-muted-foreground"} />
+                  <IconBadge icon={instrumentIcon(job.instrument)} color={STATUS_COLOR[job.status] || "bg-muted-foreground"} />
                   <div className="min-w-0">
                     <h3 className="text-lg font-semibold text-foreground">{job.title}</h3>
-                    <p className="text-muted-foreground mt-1">{job.description}</p>
+                    <p className="text-muted-foreground mt-1 line-clamp-2">{job.description}</p>
                     <div className="flex flex-wrap gap-3 mt-3 text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-4 h-4" />
-                        {job.location}
-                      </span>
-                      <span className="flex items-center gap-1">
+                      {job.location && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-4 h-4" />
+                          {job.location}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 font-semibold text-foreground">
                         <Banknote className="w-4 h-4" />
                         {formatMoney(job.budget)}
                       </span>
-                      <span>{job.instrument}</span>
-                      <span>{job.genre}</span>
+                      {job.instrument && <span>{job.instrument}</span>}
+                      {job.genre && <span>{job.genre}</span>}
                     </div>
                   </div>
                 </div>
                 <StatusBadge status={job.status} />
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (

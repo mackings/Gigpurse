@@ -13,13 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, CheckCircle2, XCircle, Search } from "lucide-react";
 import AdvancedFilters from "@/components/admin/AdvancedFilters";
-
-const ROLE_COLOR = {
-  admin: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  moderator: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  client: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  musician: "bg-primary/10 text-primary",
-};
+import { roleBadgeClass } from "@/lib/role-colors";
 
 const emptyAdvanced = { verified: "any", disabled: "any", from: "", to: "" };
 
@@ -189,7 +183,7 @@ export default function AdminUsers() {
                 <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium capitalize ${ROLE_COLOR[u.role] || "bg-muted text-muted-foreground"}`}
+                    className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium capitalize ${roleBadgeClass(u.role)}`}
                   >
                     {u.role}
                   </span>

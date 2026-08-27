@@ -1,35 +1,51 @@
 import Link from "next/link";
+import { Card } from "@/components/ui/card";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
-import { formatMoney } from "@/lib/utils";
-import { Handshake, ChevronRight } from "lucide-react";
+import { formatMoney, postedAgo } from "@/lib/utils";
+import { Handshake, Briefcase, ArrowRight } from "lucide-react";
 
 const STATUS_COLOR = {
-  active: "bg-sky-500",
-  completed: "bg-emerald-500",
-  disputed: "bg-rose-500",
-  cancelled: "bg-rose-500",
+  active: "bg-primary",
+  completed: "bg-status-success",
+  disputed: "bg-status-critical",
+  cancelled: "bg-status-critical",
 };
 
-// Shared contract list row for both the client and talent dashboards, so
+// Shared contract list card for both the client and talent dashboards, so
 // "Active contracts" / "Your contracts" read consistently everywhere.
 export default function ContractRow({ contract }) {
+  const SourceIcon = contract.source === "direct_hire" ? Handshake : Briefcase;
+
   return (
-    <Link
-      href={`/contracts/${contract.id}`}
-      className="group bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-3 transition-all duration-200 hover:shadow-lg hover:shadow-black/5 hover:border-primary/30 hover:-translate-y-0.5"
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <IconBadge icon={Handshake} color={STATUS_COLOR[contract.status] || "bg-primary"} size="sm" />
-        <div className="min-w-0">
-          <p className="font-medium text-foreground truncate">{contract.title || "Contract"}</p>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-sm text-muted-foreground">{formatMoney(contract.price)}</span>
-            <StatusBadge status={contract.status} />
+    <Link href={`/contracts/${contract.id}`} className="group block h-full">
+      <Card className="h-full transition-colors duration-200 hover:border-foreground/15">
+        <div className="px-(--card-spacing) flex items-start gap-4">
+          <IconBadge icon={SourceIcon} color={STATUS_COLOR[contract.status] || "bg-primary"} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                {contract.title || "Contract"}
+              </h3>
+              <StatusBadge status={contract.status} />
+            </div>
+
+            {contract.description && <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{contract.description}</p>}
+
+            {postedAgo(contract.created_at, "Started") && (
+              <p className="text-xs text-muted-foreground mt-2">{postedAgo(contract.created_at, "Started")}</p>
+            )}
+
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/60">
+              <span className="text-base font-semibold text-foreground">{formatMoney(contract.price)}</span>
+              <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                View contract
+                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+              </span>
+            </div>
           </div>
         </div>
-      </div>
-      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+      </Card>
     </Link>
   );
 }

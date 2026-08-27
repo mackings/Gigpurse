@@ -31,7 +31,7 @@ export default function ProfileContracts() {
       <div>
         <h2 className="text-lg font-semibold text-foreground tracking-tight mb-4">Active contracts</h2>
         {active.length ? (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {active.map((contract) => (
               <ContractRow key={contract.id} contract={contract} />
             ))}
@@ -44,7 +44,7 @@ export default function ProfileContracts() {
       <div>
         <h2 className="text-lg font-semibold text-foreground tracking-tight mb-4">Completed contracts</h2>
         {completed.length ? (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {completed.map((contract) => (
               <ContractRow key={contract.id} contract={contract} />
             ))}

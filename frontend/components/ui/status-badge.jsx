@@ -1,22 +1,27 @@
 import { cn } from "@/lib/utils";
 
+// Keyed off the shared --status-* tokens in globals.css (one definition per
+// state, light+dark already baked in) instead of hand-picking a Tailwind
+// color family per status here — this used to be the single heaviest
+// concentration of hardcoded palette colors in the app, and drifted out of
+// sync with the separate ROLE_COLOR maps in the admin pages.
 const STATUS_STYLES = {
-  open: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  pending_funding: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  pending: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  shortlisted: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-  proposed: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  waiting: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  open: "bg-status-info/10 text-status-info",
+  pending_funding: "bg-status-warning/10 text-status-warning",
+  pending: "bg-status-warning/10 text-status-warning",
+  shortlisted: "bg-status-accent/10 text-status-accent",
+  proposed: "bg-status-warning/10 text-status-warning",
+  waiting: "bg-status-warning/10 text-status-warning",
   active: "bg-primary/10 text-primary",
   accepted: "bg-primary/10 text-primary",
-  funded: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  released: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  resolved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  refunded: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  rejected: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  cancelled: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  disputed: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  funded: "bg-status-accent/10 text-status-accent",
+  completed: "bg-status-success/10 text-status-success",
+  released: "bg-status-success/10 text-status-success",
+  resolved: "bg-status-success/10 text-status-success",
+  refunded: "bg-status-accent/10 text-status-accent",
+  rejected: "bg-status-critical/10 text-status-critical",
+  cancelled: "bg-status-critical/10 text-status-critical",
+  disputed: "bg-status-critical/10 text-status-critical",
   closed: "bg-muted text-muted-foreground",
 };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Download, X, Share } from "lucide-react";
 
@@ -78,8 +79,8 @@ export default function InstallPrompt() {
   return (
     <div className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-96 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
       <div className="bg-card border border-border rounded-2xl shadow-lg p-4 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0 shadow-sm">
-          <Download className="w-5 h-5 text-primary-foreground" />
+        <div className="w-10 h-10 rounded-xl bg-white border border-border flex items-center justify-center shrink-0 shadow-sm p-2">
+          <Image src="/brand/gigpurse-icon-orange.png" alt="" width={40} height={40} className="w-full h-full object-contain" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">Install GigPurse</p>

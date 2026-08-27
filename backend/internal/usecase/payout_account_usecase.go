@@ -65,6 +65,7 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	if err != nil {
 		return nil, err
 	}
+	
 	hadNoAccountBefore := user.PayoutAccount == nil
 
 	// Re-resolve the account name server-side rather than trusting whatever

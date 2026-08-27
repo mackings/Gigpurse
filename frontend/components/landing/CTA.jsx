@@ -4,6 +4,10 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
+
+const onDarkOutlineButton =
+  "w-full sm:w-auto px-7 text-base rounded-xl border-background/20 text-background bg-transparent hover:bg-background/10 hover:text-background";
 
 export default function CTA() {
   return (
@@ -15,9 +19,9 @@ export default function CTA() {
           viewport={{ once: true }}
           className="relative overflow-hidden rounded-3xl bg-foreground text-background px-8 py-16 sm:px-16 sm:py-20 text-center"
         >
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-background/10 rounded-full text-sm font-medium mb-6">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-            <span>Join thousands of happy users</span>
+          <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary tracking-wide uppercase mb-6">
+            <Sparkles className="w-4 h-4" />
+            Join thousands of happy users
           </div>
 
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 tracking-tight">
@@ -25,7 +29,7 @@ export default function CTA() {
           </h2>
 
           <p className="text-lg text-background/70 mb-10 max-w-2xl mx-auto">
-            Whether you need to hire Talent for your event or you&apos;re ready to showcase your own talent, our
+            Whether you need to hire talent for your event or you&apos;re ready to showcase your own talent, our
             platform connects you with the right people.
           </p>
 
@@ -37,11 +41,10 @@ export default function CTA() {
               </Button>
             </Link>
             <Link href="/role-selection">
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:w-auto px-7 text-base rounded-xl border-background/20 text-background bg-transparent hover:bg-background/10 hover:text-background"
-              >
+              {/* This is the app's one deliberately dark-inverted panel (bg-foreground
+                  text-background above), so the outline button needs its own on-dark
+                  colors rather than the shared variant's light-surface assumptions. */}
+              <Button size="lg" variant="outline" className={cn(onDarkOutlineButton)}>
                 Join as Talent
               </Button>
             </Link>

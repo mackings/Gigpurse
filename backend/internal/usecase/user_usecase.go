@@ -621,7 +621,9 @@ func sendEmail(to, subject, body string) error {
 	return smtp.SendMail(host+":"+port, auth, from, []string{to}, []byte(msg))
 }
 
+
 func sendMailjetEmail(to, subject, body string) error {
+
 	apiKey := os.Getenv("MAILJET_API_KEY")
 	apiSecret := os.Getenv("MAILJET_API_SECRET")
 	fromEmail := os.Getenv("MAILJET_FROM_EMAIL")
@@ -671,6 +673,8 @@ func sendMailjetEmail(to, subject, body string) error {
 
 	return nil
 }
+
+
 
 func sendResendEmail(to, subject, body string) error {
 	apiKey := os.Getenv("RESEND_API_KEY")

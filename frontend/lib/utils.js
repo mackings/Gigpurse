@@ -19,16 +19,25 @@ export function formatMoney(amount, { decimals } = {}) {
   return `₦${n.toLocaleString("en-NG", opts)}`;
 }
 
-// Shared "Posted 3 days ago" phrasing used by every job card/detail view.
-export function postedAgo(dateStr) {
+// Shared "Posted 3 days ago" phrasing used by every job card/detail view —
+// pass a different verb (e.g. "Opened") for non-job relative-date labels.
+export function postedAgo(dateStr, verb = "Posted") {
   if (!dateStr) return null;
   const diffMs = Date.now() - new Date(dateStr).getTime();
   if (!Number.isFinite(diffMs) || diffMs < 0) return null;
   const days = Math.floor(diffMs / 86400000);
-  if (days < 1) return "Posted today";
-  if (days === 1) return "Posted yesterday";
-  if (days < 30) return `Posted ${days} days ago`;
-  return `Posted ${new Date(dateStr).toLocaleDateString()}`;
+  if (days < 1) return `${verb} today`;
+  if (days === 1) return `${verb} yesterday`;
+  if (days < 30) return `${verb} ${days} days ago`;
+  return `${verb} ${new Date(dateStr).toLocaleDateString()}`;
+}
+
+// "IG" from "Igewere" / "John Smith" — used for avatar circles wherever a
+// person doesn't have a photo (moderator rows, applicant lists).
+export function initials(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
 export const JOB_DURATION_LABELS = {

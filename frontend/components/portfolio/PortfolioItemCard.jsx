@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Star, Trash2, ArrowUp, ArrowDown, Maximize2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import MediaThumb from "@/components/portfolio/MediaThumb";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +13,7 @@ export default function PortfolioItemCard({ item, onChange, onRemove, onMove, on
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="bg-card rounded-xl border border-border overflow-hidden flex flex-col sm:flex-row">
+    <Card className="p-0 flex-col sm:flex-row overflow-hidden">
       <button
         type="button"
         onClick={() => onPreview(item)}
@@ -78,6 +79,6 @@ export default function PortfolioItemCard({ item, onChange, onRemove, onMove, on
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
