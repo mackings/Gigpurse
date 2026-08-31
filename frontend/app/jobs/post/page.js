@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,17 +9,34 @@ import { Textarea } from "@/components/ui/textarea";
 import CurrencyInput from "@/components/ui/currency-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import AddPayoutAccountSheet from "@/components/wallet/AddPayoutAccountSheet";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatMoney, JOB_DURATION_LABELS, JOB_EXPERIENCE_LABELS, JOB_PROJECT_TYPE_LABELS } from "@/lib/utils";
-import { Loader2, X, Megaphone } from "lucide-react";
+import { Loader2, X, Megaphone, Landmark, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
 
 export default function PostJob() {
   const router = useRouter();
+  const { user, refetch: refetchUser } = useCurrentUser();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [postedJob, setPostedJob] = useState(null);
   const [skillInput, setSkillInput] = useState("");
+  const [payoutSheetOpen, setPayoutSheetOpen] = useState(false);
+  const hasPayoutAccount = !!user?.payout_account;
+  const hasAutoPrompted = useRef(false);
+
+  // Detect the missing payout account up front — before the user fills out
+  // the whole form and gets surprised by it on submit — and prompt once per
+  // visit. A manual "Add payout account" banner stays visible afterward in
+  // case they dismiss the sheet without adding one.
+  useEffect(() => {
+    if (user && !hasPayoutAccount && !hasAutoPrompted.current) {
+      hasAutoPrompted.current = true;
+      setPayoutSheetOpen(true);
+    }
+  }, [user, hasPayoutAccount]);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -57,6 +74,7 @@ export default function PostJob() {
         toast.error("You have a dispute settlement waiting to be paid — check your contracts and fund it before posting a new gig.");
       } else if (err.code === "payout_account_required") {
         toast.error("Add a payout account before posting a gig — it's what any future dispute refund would be paid back to.");
+        setPayoutSheetOpen(true);
       } else {
         toast.error(err.message);
       }
@@ -115,6 +133,18 @@ export default function PostJob() {
   return (
     <div className="min-h-screen bg-background py-12 px-4">
       <div className="max-w-xl mx-auto">
+        {!hasPayoutAccount && (
+          <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-3 mb-5">
+            <div className="flex items-center gap-2.5 text-sm text-foreground">
+              <AlertCircle className="w-4 h-4 text-status-warning shrink-0" />
+              Add a payout account before posting — it&apos;s where a dispute refund would be paid back to.
+            </div>
+            <Button type="button" size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setPayoutSheetOpen(true)}>
+              <Landmark className="w-3.5 h-3.5" />
+              Add payout account
+            </Button>
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Post a gig</CardTitle>
@@ -284,6 +314,8 @@ export default function PostJob() {
           </CardContent>
         </Card>
       </div>
+
+      <AddPayoutAccountSheet open={payoutSheetOpen} onOpenChange={setPayoutSheetOpen} onSaved={refetchUser} />
     </div>
   );
 }

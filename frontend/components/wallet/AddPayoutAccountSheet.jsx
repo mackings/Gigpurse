@@ -7,24 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Loader2, CheckCircle2, Landmark } from "lucide-react";
 import { toast } from "sonner";
 
-// Two-step flow, deliberately not skippable: PayPetal can't reverse a
-// payout sent to the wrong account, so the resolved account holder name
-// must be shown back and explicitly confirmed before it's saved.
-export default function AddPayoutAccountModal({ trigger }) {
+// Same two-step validate-then-confirm flow as AddPayoutAccountModal, just in
+// the app's bottom-sheet shell instead of a centered dialog — used wherever
+// we need to interrupt a flow (like posting a job) to collect this rather
+// than send the user off to a settings page and lose their place. Fully
+// controlled (open/onOpenChange) so a parent can pop it open automatically
+// the moment it detects the account is missing, not just from a click.
+export default function AddPayoutAccountSheet({ open, onOpenChange, onSaved }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [bankCode, setBankCode] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [resolvedName, setResolvedName] = useState("");
@@ -76,8 +70,9 @@ export default function AddPayoutAccountModal({ trigger }) {
       toast.success("Payout account saved.");
       queryClient.invalidateQueries({ queryKey: ["wallet"] });
       queryClient.invalidateQueries({ queryKey: ["profile", "me"] });
-      setOpen(false);
+      onOpenChange(false);
       reset();
+      onSaved?.();
     } catch (err) {
       toast.error(err.message || "Couldn't save that account.");
     } finally {
@@ -86,72 +81,75 @@ export default function AddPayoutAccountModal({ trigger }) {
   }
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onOpenChange={(v) => {
-        setOpen(v);
+        onOpenChange(v);
         if (!v) reset();
       }}
     >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
             <Landmark className="w-5 h-5 text-primary" />
-            Payout account
-          </DialogTitle>
-          <DialogDescription>
-            Where you get paid when a client releases escrow. We can&apos;t undo a payout sent to the wrong account, so
-            we&apos;ll confirm the account holder&apos;s name before saving.
-          </DialogDescription>
-        </DialogHeader>
+            Add a payout account
+          </SheetTitle>
+          <SheetDescription>
+            Where a refund would be paid back to if a dispute on this gig is ever resolved in your favor. We can&apos;t
+            undo a payout sent to the wrong account, so we&apos;ll confirm the account holder&apos;s name before saving.
+          </SheetDescription>
+        </SheetHeader>
 
-        {!resolvedName ? (
-          <form onSubmit={handleValidate} className="space-y-4">
-            <div>
-              <Label htmlFor="payout-bank">Bank</Label>
-              <Select value={bankCode} onValueChange={setBankCode}>
-                <SelectTrigger id="payout-bank" className="mt-1.5">
-                  <SelectValue placeholder={banksLoading ? "Loading banks..." : "Select your bank"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(banks || []).map((bank) => (
-                    <SelectItem key={bank.code} value={bank.code}>
-                      {bank.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="payout-account-number">Account number</Label>
-              <Input
-                id="payout-account-number"
-                required
-                inputMode="numeric"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ""))}
-                className="mt-1.5"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" disabled={isValidating || !bankCode || !accountNumber} className="gap-1.5">
-                {isValidating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Continue
-              </Button>
-            </DialogFooter>
-          </form>
-        ) : (
-          <div className="space-y-4">
+        <div className="p-4 sm:p-5 flex-1 overflow-y-auto">
+          {!resolvedName ? (
+            <form id="payout-sheet-form" onSubmit={handleValidate} className="space-y-4">
+              <div>
+                <Label htmlFor="payout-sheet-bank">Bank</Label>
+                <Select value={bankCode} onValueChange={setBankCode}>
+                  <SelectTrigger id="payout-sheet-bank" className="mt-1.5 w-full">
+                    <SelectValue placeholder={banksLoading ? "Loading banks..." : "Select your bank"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(banks || []).map((bank) => (
+                      <SelectItem key={bank.code} value={bank.code}>
+                        {bank.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="payout-sheet-account-number">Account number</Label>
+                <Input
+                  id="payout-sheet-account-number"
+                  required
+                  inputMode="numeric"
+                  value={accountNumber}
+                  onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ""))}
+                  className="mt-1.5"
+                />
+              </div>
+            </form>
+          ) : (
             <div className="rounded-xl border border-border bg-muted/40 p-4 text-center space-y-1.5">
-              <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
+              <CheckCircle2 className="w-6 h-6 text-status-success mx-auto" />
               <p className="text-sm text-muted-foreground">Confirm this is you</p>
               <p className="font-semibold text-foreground text-lg">{resolvedName}</p>
               <p className="text-xs text-muted-foreground">
                 {selectedBank?.name} &middot; {accountNumber}
               </p>
             </div>
-            <DialogFooter className="gap-2 sm:gap-2">
+          )}
+        </div>
+
+        <SheetFooter className="flex-row justify-end gap-2">
+          {!resolvedName ? (
+            <Button type="submit" form="payout-sheet-form" disabled={isValidating || !bankCode || !accountNumber} className="gap-1.5">
+              {isValidating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Continue
+            </Button>
+          ) : (
+            <>
               <Button type="button" variant="outline" onClick={() => setResolvedName("")} disabled={isSaving}>
                 Back
               </Button>
@@ -159,10 +157,10 @@ export default function AddPayoutAccountModal({ trigger }) {
                 {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Yes, this is me — save it
               </Button>
-            </DialogFooter>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+            </>
+          )}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
