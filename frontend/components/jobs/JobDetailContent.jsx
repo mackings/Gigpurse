@@ -295,9 +295,13 @@ export default function JobDetailContent({
       <div className="p-4 sm:p-5 space-y-6">
         {header}
         {specs}
+        {/* Apply sits right under the specs, same as the split layout's
+            sidebar — not after "About the client", which can run long
+            enough that the action was easy to miss without scrolling past
+            it entirely. */}
+        {applyCta}
         {body}
         {job.client && <ClientCard client={job.client} />}
-        {applyCta}
         <CopyLinkButton jobId={job.id} />
       </div>
     </div>

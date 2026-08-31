@@ -61,8 +61,12 @@ function SheetContent({ className, children, showCloseButton = true, ...props })
         <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-border sm:hidden" />
         {children}
         {showCloseButton && (
+          // Visible at every breakpoint — there's no functional swipe-to-dismiss
+          // bound to the drag-handle bar above, so on mobile (where this was
+          // previously hidden) tapping outside the sheet was the only way out,
+          // with no visible affordance for it.
           <DialogPrimitive.Close data-slot="sheet-close" asChild>
-            <Button variant="ghost" className="absolute top-3 right-3 hidden sm:inline-flex" size="icon-sm">
+            <Button variant="ghost" className="absolute top-3 right-3 inline-flex" size="icon-sm">
               <XIcon />
               <span className="sr-only">Close</span>
             </Button>
