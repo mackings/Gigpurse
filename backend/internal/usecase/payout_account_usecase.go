@@ -65,7 +65,7 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	if err != nil {
 		return nil, err
 	}
-	
+
 	hadNoAccountBefore := user.PayoutAccount == nil
 
 	// Re-resolve the account name server-side rather than trusting whatever
@@ -86,7 +86,20 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 	}
 
 	if err := u.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode); err != nil {
-		return nil, err
+		if !isBankAlreadyLinkedError(err) {
+			return nil, err
+		}
+		// This customer already has a bank account on file with PayPetal —
+		// remove it and relink with what was just validated, so a genuine
+		// bank change (or recovering from GigPurse's own record of an
+		// earlier successful link having been lost) doesn't dead-end on an
+		// error that would otherwise repeat on every future retry too.
+		if removeErr := u.client.RemovePayoutAccount(ctx, customerID); removeErr != nil {
+			return nil, err
+		}
+		if err := u.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode); err != nil {
+			return nil, err
+		}
 	}
 
 	user.PayoutAccount = &domain.PayoutAccount{

@@ -1906,6 +1906,54 @@ func TestMemoryChatRepo_UnreadDigestFlow(t *testing.T) {
 	}
 }
 
+// TestPayoutAccount_RelinkSelfHeals covers the real production bug: PayPetal
+// allows exactly one bank account per customer, ever, and a second
+// LinkPayoutAccount call for the same customer fails with "A bank account
+// has already been added for this customer" — confirmed live against
+// PayPetal's sandbox. Before the fix this left a user permanently stuck,
+// unable to add or change a payout account after the first attempt.
+func TestPayoutAccount_RelinkSelfHeals(t *testing.T) {
+	t.Setenv("JWT_SECRET", "payout-relink-secret")
+
+	app := newTestApp()
+	server := httptest.NewServer(app.mux)
+	defer server.Close()
+
+	client := &apiClient{t: t, baseURL: server.URL, http: server.Client()}
+
+	musicianUser := client.signup("relink-musician@example.com", "password123", "musician", "Relink Musician")
+	client.verifyEmail(app, musicianUser.ID, "relink-musician@example.com", "444444")
+	musicianToken := client.login("relink-musician@example.com", "password123")
+
+	client.post("/payout-account/validate", musicianToken, map[string]any{
+		"bank_code": "000", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+	client.post("/payout-account", musicianToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
+	}, http.StatusOK, nil)
+
+	// A second link for the same PayPetal customer, with a different
+	// account — this used to return the "already added" error verbatim and
+	// leave user.PayoutAccount unchanged. It should now self-heal.
+	client.post("/payout-account/validate", musicianToken, map[string]any{
+		"bank_code": "000", "account_number": "1111111111",
+	}, http.StatusOK, nil)
+	var relinked domain.PayoutAccount
+	client.post("/payout-account", musicianToken, map[string]any{
+		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "1111111111",
+	}, http.StatusOK, &relinked)
+
+	if relinked.AccountNumber != "1111111111" {
+		t.Fatalf("expected the relink to replace the payout account with the new number, got %#v", relinked)
+	}
+
+	var profile domain.User
+	client.get("/users/profile", musicianToken, http.StatusOK, &profile)
+	if profile.PayoutAccount == nil || profile.PayoutAccount.AccountNumber != "1111111111" {
+		t.Fatalf("expected the saved profile to reflect the new payout account, got %#v", profile.PayoutAccount)
+	}
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }

@@ -56,7 +56,20 @@ func (f *PayPetalFake) ValidateBankAccount(ctx context.Context, accountNumber, b
 func (f *PayPetalFake) LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// Mirrors PayPetal's real constraint (confirmed live): exactly one bank
+	// account per customer, ever — a second link for the same customer
+	// fails until RemovePayoutAccount clears the first.
+	if f.payouts[customerID] {
+		return &paypetal.APIError{HTTPStatus: 400, Message: "A bank account has already been added for this customer"}
+	}
 	f.payouts[customerID] = true
+	return nil
+}
+
+func (f *PayPetalFake) RemovePayoutAccount(ctx context.Context, customerID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.payouts[customerID] = false
 	return nil
 }
 

@@ -79,6 +79,22 @@ func isAlreadyExistsError(err error) bool {
 	return strings.Contains(strings.ToLower(apiErr.Message), "already exist")
 }
 
+// isBankAlreadyLinkedError recognizes PayPetal's response to LinkPayoutAccount
+// when the target customer already has a bank account on file — PayPetal
+// allows exactly one per customer, ever, with no "replace" endpoint.
+// Confirmed live: a customer's *second* LinkPayoutAccount call fails with
+// this even for a perfectly valid, newly-validated account. Without
+// recognizing this, whoever hits it (a genuine bank change, or GigPurse's
+// own record of an earlier successful link having been lost) is stuck
+// forever — every retry fails identically.
+func isBankAlreadyLinkedError(err error) bool {
+	var apiErr *paypetal.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.Message), "already been added")
+}
+
 // isPayoutInProgress recognizes PayPetal's response to a second completion
 // call on an agreement whose payout is already running — confirmed live
 // when a race let two concurrent FinalizeFund calls both attempt the same

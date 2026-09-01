@@ -29,6 +29,7 @@ type API interface {
 	ListBanks(ctx context.Context) ([]Bank, error)
 	ValidateBankAccount(ctx context.Context, accountNumber, bankCode string) (accountName string, err error)
 	LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error
+	RemovePayoutAccount(ctx context.Context, customerID string) error
 
 	CreateTrustCoreAgreement(ctx context.Context, in CreateAgreementInput) (*AgreementResult, error)
 	GetTrustCoreAgreement(ctx context.Context, reference string) (*AgreementState, error)

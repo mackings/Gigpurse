@@ -48,8 +48,9 @@ func (c *Client) LinkPayoutAccount(ctx context.Context, customerID, accountNumbe
 // RemovePayoutAccount unlinks a customer's payout account — discovered as a
 // precondition for DeleteCustomer: PayPetal refuses to delete a customer
 // that still has one linked (returned as a misleading 401 rather than 409,
-// confirmed live against sandbox). Not used by any GigPurse feature today —
-// exists purely for ops cleanup, same as DeleteCustomer.
+// confirmed live against sandbox). Also used by payoutAccountUsecase.Link to
+// self-heal a customer PayPetal already has a (possibly stale) bank account
+// on file for — see isBankAlreadyLinkedError.
 func (c *Client) RemovePayoutAccount(ctx context.Context, customerID string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/escrow/trustcore/payout/"+customerID, nil, nil)
 }
