@@ -52,6 +52,9 @@ func (r *testUserRepo) GetByID(ctx context.Context, id string) (*domain.User, er
 func (r *testUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	return nil, errors.New("not implemented")
 }
+func (r *testUserRepo) GetByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	return nil, errors.New("not implemented")
+}
 func (r *testUserRepo) Update(ctx context.Context, user *domain.User) error {
 	return errors.New("not implemented")
 }

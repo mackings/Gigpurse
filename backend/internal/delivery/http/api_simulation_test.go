@@ -945,6 +945,18 @@ func (r *memoryUserRepo) GetByEmail(ctx context.Context, email string) (*domain.
 	return &cp, nil
 }
 
+func (r *memoryUserRepo) GetByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, user := range r.users {
+		if user.Phone == phone {
+			cp := *user
+			return &cp, nil
+		}
+	}
+	return nil, errors.New("user not found")
+}
+
 func (r *memoryUserRepo) Update(ctx context.Context, user *domain.User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1952,6 +1964,36 @@ func TestPayoutAccount_RelinkSelfHeals(t *testing.T) {
 	if profile.PayoutAccount == nil || profile.PayoutAccount.AccountNumber != "1111111111" {
 		t.Fatalf("expected the saved profile to reflect the new payout account, got %#v", profile.PayoutAccount)
 	}
+}
+
+// TestSignUp_DuplicatePhoneRejected covers a real gap: two accounts sharing
+// a phone number used to pass signup silently. Phone is what PayPetal keys
+// a customer on (see paypetalDeps.findExistingCustomer), so a shared phone
+// is a real identity conflict downstream, not just a cosmetic duplicate —
+// it should be rejected at signup with a clear message, same as email.
+func TestSignUp_DuplicatePhoneRejected(t *testing.T) {
+	t.Setenv("JWT_SECRET", "duplicate-phone-secret")
+
+	app := newTestApp()
+	server := httptest.NewServer(app.mux)
+	defer server.Close()
+
+	client := &apiClient{t: t, baseURL: server.URL, http: server.Client()}
+
+	sharedPhone := "+2348099999999"
+	client.post("/auth/signup", "", map[string]any{
+		"email": "phone-owner@example.com", "password": "password123", "role": "musician",
+		"name": "First Owner", "phone": sharedPhone, "accepted_terms": true,
+	}, http.StatusCreated, nil)
+
+	// out is nil here deliberately — the request helper's decode path treats
+	// an unsuccessful envelope as a test failure, so a deliberately-failing
+	// call can only assert on the status code, same as every other expected
+	// signup rejection in this file.
+	client.post("/auth/signup", "", map[string]any{
+		"email": "different-email@example.com", "password": "password123", "role": "musician",
+		"name": "Second Owner", "phone": sharedPhone, "accepted_terms": true,
+	}, http.StatusBadRequest, nil)
 }
 
 func TestMain(m *testing.M) {

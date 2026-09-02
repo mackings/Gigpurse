@@ -54,6 +54,18 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	return &user, nil
 }
 
+func (r *userRepository) GetByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	var user domain.User
+	err := r.collection.FindOne(ctx, bson.M{"phone": phone}).Decode(&user)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": user.ID}, user)
 	return err

@@ -100,6 +100,15 @@ func (u *userUsecase) SignUp(ctx context.Context, email, password, role, name, p
 		return nil, errors.New("email already registered")
 	}
 
+	// Phone is what PayPetal keys a customer on, so two GigPurse accounts
+	// sharing one is a real conflict downstream (see findExistingCustomer),
+	// not just a duplicate — reject it up front instead of letting it
+	// surface later as an opaque payment error.
+	existingPhone, err := u.userRepo.GetByPhone(ctx, phone)
+	if err == nil && existingPhone != nil {
+		return nil, errors.New("phone number already registered")
+	}
+
 	// Hash password
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
