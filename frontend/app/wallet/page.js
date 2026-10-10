@@ -29,9 +29,11 @@ function StatCard({ label, value, accent }) {
   );
 }
 
-// A client never receives a payout, so the musician's payout-account card
-// and "total earned" stat are meaningless here — instead this is "how much
-// of your money is currently tied up in escrow, and can I get it back."
+// A client never receives a *payout*, so the musician's "total earned" stat
+// is meaningless here — but a client does need a payout account on file now
+// too (see requirePayoutAccount in PostJob), purely so a dispute refund has
+// somewhere to land. This is "how much of your money is currently tied up
+// in escrow, and can I get it back," plus that one prerequisite.
 function ClientWallet() {
   const { wallet, transactions } = useWallet();
   const { holdings, requestRefund } = useEscrowHoldings();
@@ -43,6 +45,8 @@ function ClientWallet() {
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Wallet</h1>
         <p className="text-muted-foreground">Money you currently have in escrow, and your payment history.</p>
       </div>
+
+      <WalletCard payoutAccount={wallet?.payout_account} role="client" />
 
       <div className="group relative overflow-hidden bg-primary rounded-2xl p-6 text-primary-foreground shadow-sm">
         <div className="flex items-center gap-2 mb-2 opacity-80">

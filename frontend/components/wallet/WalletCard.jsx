@@ -8,7 +8,16 @@ import { Button } from "@/components/ui/button";
 // with PayPetal, every payment is its own checkout and every payout goes
 // straight to a bank account. This is "where does your money land," not
 // "how much do you have."
-export default function WalletCard({ payoutAccount }) {
+export default function WalletCard({ payoutAccount, role = "musician" }) {
+  const readyCopy =
+    role === "client"
+      ? "On file in case a dispute is ever resolved in your favor — a refund can only be paid back here."
+      : "";
+  const missingCopy =
+    role === "client"
+      ? "Required before you can post a gig — it's where a dispute refund would be paid back to."
+      : "Add a bank account so clients can pay you and escrow can be released to you.";
+
   return (
     <div className="bg-primary rounded-2xl p-6 text-primary-foreground shadow-sm">
       <div className="flex items-center gap-2 mb-4 opacity-80">
@@ -20,11 +29,12 @@ export default function WalletCard({ payoutAccount }) {
         <>
           <div className="flex items-center gap-1.5 mb-1">
             <ShieldCheck className="w-4 h-4 text-emerald-300" />
-            <span className="text-sm font-medium text-emerald-300">Ready to receive payouts</span>
+            <span className="text-sm font-medium text-emerald-300">{role === "client" ? "On file" : "Ready to receive payouts"}</span>
           </div>
           <div className="text-2xl font-bold mb-1">{payoutAccount.account_name}</div>
           <p className="text-sm opacity-80 mb-5">
             {payoutAccount.bank_name} &middot; ****{payoutAccount.account_number?.slice(-4)}
+            {readyCopy && <span className="block mt-1">{readyCopy}</span>}
           </p>
           <AddPayoutAccountModal
             trigger={
@@ -40,7 +50,7 @@ export default function WalletCard({ payoutAccount }) {
             <ShieldAlert className="w-4 h-4 text-amber-300" />
             <span className="text-sm font-medium text-amber-300">No payout account yet</span>
           </div>
-          <p className="text-sm opacity-80 mb-5">Add a bank account so clients can pay you and escrow can be released to you.</p>
+          <p className="text-sm opacity-80 mb-5">{missingCopy}</p>
           <AddPayoutAccountModal trigger={<Button variant="secondary">Add payout account</Button>} />
         </>
       )}
