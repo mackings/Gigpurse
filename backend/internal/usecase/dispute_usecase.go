@@ -59,7 +59,26 @@ func (u *disputeUsecase) OpenDispute(ctx context.Context, userID, contractID, re
 	if contract.ClientID != userID && contract.MusicianID != userID {
 		return nil, errors.New("unauthorized: only contract participants can open disputes")
 	}
-	return u.openDispute(ctx, userID, contract, reason, "")
+	milestones, err := u.milestonesFor(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	dispute, err := u.openDispute(ctx, userID, contract, reason, "")
+	if err != nil {
+		return nil, err
+	}
+	// Lock everything still in escrow, same as EndContract — without this
+	// the client could release or refund it themselves, auto-release could
+	// pay it out, and ResolveDispute would find nothing in scope to award.
+	for _, m := range milestones {
+		if m.Status != "funded" {
+			continue
+		}
+		if err := u.milestoneUsecase.MarkDisputed(ctx, m.ID, dispute.ID); err != nil {
+			log.Printf("OpenDispute %s: marking milestone %s disputed failed: %v", contractID, m.ID, err)
+		}
+	}
+	return dispute, nil
 }
 
 // openDispute is the shared record-creation step behind both a
@@ -443,13 +462,19 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 	var inScope []*domain.Milestone
 	var totalFunded float64
 	for _, m := range allMilestones {
-		// EndContract/CancelMilestone both mark a milestone "disputed" the
+		// OpenDispute/EndContract/CancelMilestone all mark a milestone "disputed" the
 		// moment its dispute opens (see MarkDisputed) — it's never still
 		// "funded" by the time a moderator resolves it.
 		if m.Status != "disputed" {
 			continue
 		}
 		if dispute.MilestoneID != "" && m.ID != dispute.MilestoneID {
+			continue
+		}
+		// A contract can have more than one dispute open at once (a
+		// cancelled milestone plus a contract-wide one) — never settle
+		// money that a different dispute locked.
+		if m.DisputeID != "" && m.DisputeID != dispute.ID {
 			continue
 		}
 		inScope = append(inScope, m)

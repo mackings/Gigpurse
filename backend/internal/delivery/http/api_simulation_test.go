@@ -723,6 +723,8 @@ type testApp struct {
 	resetRepo       *memoryPasswordResetRepo
 	emailVerifyRepo *memoryEmailVerificationRepo
 	paypetal        *memory.PayPetalFake
+	userRepo        *memoryUserRepo
+	escrowRepo      domain.EscrowAgreementRepository
 }
 
 func newTestApp() *testApp {
@@ -778,7 +780,7 @@ func newTestApp() *testApp {
 	delivery.NewMilestoneHandler(milestoneUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
 
-	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake}
+	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo}
 }
 
 type apiClient struct {

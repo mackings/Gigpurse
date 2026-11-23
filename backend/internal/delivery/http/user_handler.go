@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"gigpurse/internal/domain"
 )
@@ -309,6 +310,51 @@ func (h *UserHandler) UpdatePhone(w http.ResponseWriter, r *http.Request) {
 	respondSuccess(w, http.StatusOK, "phone updated successfully", user)
 }
 
+// publicMusician is everything the unauthenticated /musicians endpoints are
+// allowed to expose. It's an explicit allowlist rather than domain.User with
+// fields blanked out, because domain.User also carries email, phone and
+// payout bank details — a field added there later must not become public
+// just by existing.
+type publicMusician struct {
+	ID                 string                  `json:"id"`
+	Role               string                  `json:"role"`
+	Name               string                  `json:"name"`
+	Bio                string                  `json:"bio"`
+	Location           string                  `json:"location"`
+	AvatarURL          string                  `json:"avatar_url,omitempty"`
+	MusicianProfile    *domain.MusicianProfile `json:"musician_profile,omitempty"`
+	CreatedAt          time.Time               `json:"created_at"`
+	AverageRating      float64                 `json:"average_rating,omitempty"`
+	TotalReviews       int                     `json:"total_reviews,omitempty"`
+	CompletedContracts int                     `json:"completed_contracts,omitempty"`
+	TotalEarned        float64                 `json:"total_earned,omitempty"`
+	Status             string                  `json:"status,omitempty"`
+}
+
+func toPublicMusician(u *domain.User) *publicMusician {
+	var profile *domain.MusicianProfile
+	if u.MusicianProfile != nil {
+		cp := *u.MusicianProfile
+		cp.SavedJobIDs = nil // the talent's own bookmarks, nobody else's business
+		profile = &cp
+	}
+	return &publicMusician{
+		ID:                 u.ID,
+		Role:               u.Role,
+		Name:               u.Name,
+		Bio:                u.Bio,
+		Location:           u.Location,
+		AvatarURL:          u.AvatarURL,
+		MusicianProfile:    profile,
+		CreatedAt:          u.CreatedAt,
+		AverageRating:      u.AverageRating,
+		TotalReviews:       u.TotalReviews,
+		CompletedContracts: u.CompletedContracts,
+		TotalEarned:        u.TotalEarned,
+		Status:             u.Status,
+	}
+}
+
 func (h *UserHandler) BrowseMusicians(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -333,7 +379,11 @@ func (h *UserHandler) BrowseMusicians(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondSuccess(w, http.StatusOK, "musicians retrieved successfully", musicians)
+	public := make([]*publicMusician, 0, len(musicians))
+	for _, m := range musicians {
+		public = append(public, toPublicMusician(m))
+	}
+	respondSuccess(w, http.StatusOK, "musicians retrieved successfully", public)
 }
 
 // GetUserByID returns a minimal, non-sensitive projection (id/name/role) of
@@ -411,5 +461,5 @@ func (h *UserHandler) GetMusicianByID(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respondSuccess(w, http.StatusOK, "musician retrieved successfully", user)
+	respondSuccess(w, http.StatusOK, "musician retrieved successfully", toPublicMusician(user))
 }

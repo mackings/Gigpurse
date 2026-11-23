@@ -94,6 +94,7 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 		}
 
 		var title string
+		var disputed bool
 		switch a.ScopeType {
 		case "job_hire":
 			if app, err := u.jobRepo.GetApplicationByID(ctx, a.ScopeID); err == nil {
@@ -104,6 +105,7 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 		case "milestone":
 			if m, err := u.milestoneRepo.GetByID(ctx, a.ScopeID); err == nil {
 				title = m.Title
+				disputed = m.Status == "disputed"
 			}
 		}
 		if title == "" {
@@ -121,6 +123,8 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 			Title:            title,
 			CounterpartyName: counterpartyName,
 			Amount:           a.AmountNaira,
+			RefundAmount:     a.RefundTotal(),
+			Disputed:         disputed,
 			CreatedAt:        a.CreatedAt,
 		})
 	}

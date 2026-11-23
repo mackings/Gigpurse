@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -42,9 +44,21 @@ type paypetalDeps struct {
 // first time they're party to a real money movement — never at signup, so
 // users who never transact don't accumulate a PayPetal identity. Persists
 // the resulting customerId back onto the user so this only happens once.
+//
+// A stored ID is checked against PayPetal before being reused: IDs are
+// per-environment, so one saved while pointed at sandbox is unknown to live
+// and every payment or payout-account call made with it fails. Such a user
+// simply gets a new customer, with their payout account carried over.
 func (d paypetalDeps) ensureCustomer(ctx context.Context, user *domain.User) (string, error) {
 	if user.PayPetalCustomerID != "" {
-		return user.PayPetalCustomerID, nil
+		exists, err := d.client.CustomerExists(ctx, user.PayPetalCustomerID)
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			return user.PayPetalCustomerID, nil
+		}
+		log.Printf("paypetal: stored customer for user %s no longer exists, recreating", user.ID)
 	}
 	if user.Phone == "" {
 		return "", ErrPhoneRequired
@@ -64,11 +78,70 @@ func (d paypetalDeps) ensureCustomer(ctx context.Context, user *domain.User) (st
 			return "", err
 		}
 	}
+	if err := d.carryOverPayoutAccount(ctx, user, customerID); err != nil {
+		return "", err
+	}
 	user.PayPetalCustomerID = customerID
 	if err := d.userRepo.Update(ctx, user); err != nil {
 		return "", err
 	}
 	return customerID, nil
+}
+
+// carryOverPayoutAccount links the bank account GigPurse has on file to a
+// newly assigned PayPetal customer, which starts out with none. PayPetal
+// doesn't check for one when an agreement is created, only at release — so
+// leaving the stored account unlinked would let a client pay into escrow
+// that then can't be paid out.
+//
+// The account is re-validated first and only carried over if it still
+// resolves to the same holder. If it doesn't (a sandbox-only account, say),
+// the stored copy is dropped in memory so the user is asked to add one; the
+// caller persists that along with the new customer ID.
+func (d paypetalDeps) carryOverPayoutAccount(ctx context.Context, user *domain.User, customerID string) error {
+	acct := user.PayoutAccount
+	if acct == nil {
+		return nil
+	}
+	name, err := d.client.ValidateBankAccount(ctx, acct.AccountNumber, acct.BankCode)
+	if err == nil && strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(acct.AccountName)) {
+		if err = d.linkPayoutAccount(ctx, customerID, acct.AccountNumber, acct.BankCode); err == nil {
+			return nil
+		}
+	}
+	// Anything short of PayPetal actually rejecting it (network trouble, a
+	// 5xx, rate limiting) says nothing about the account — fail and let the
+	// user retry rather than throwing their details away.
+	if err != nil && !isRejection(err) {
+		return err
+	}
+	log.Printf("paypetal: payout account on file for user %s couldn't be carried over, they'll need to add it again", user.ID)
+	user.PayoutAccount = nil
+	return nil
+}
+
+// isRejection reports whether PayPetal definitively refused a request, as
+// opposed to failing to process it.
+func isRejection(err error) bool {
+	var apiErr *paypetal.APIError
+	return errors.As(err, &apiErr) && apiErr.HTTPStatus >= 400 && apiErr.HTTPStatus < 500 &&
+		apiErr.HTTPStatus != http.StatusUnauthorized && apiErr.HTTPStatus != http.StatusTooManyRequests
+}
+
+// linkPayoutAccount links an already-validated bank account to a customer,
+// replacing whatever PayPetal has on file for them — it allows exactly one,
+// so without the remove-and-relink a genuine bank change (or recovering from
+// GigPurse having lost its own record of an earlier link) dead-ends on an
+// error that repeats on every retry.
+func (d paypetalDeps) linkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error {
+	err := d.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode)
+	if err == nil || !isBankAlreadyLinkedError(err) {
+		return err
+	}
+	if removeErr := d.client.RemovePayoutAccount(ctx, customerID); removeErr != nil {
+		return err
+	}
+	return d.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode)
 }
 
 func isAlreadyExistsError(err error) bool {

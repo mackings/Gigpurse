@@ -38,7 +38,12 @@ export default function ResolveDisputeModal({ dispute, clientName, musicianName,
   // Same scope DisputeUsecase.ResolveDispute uses: one specific milestone if
   // the dispute named one, else every milestone this dispute locked.
   const milestoneId = dispute?.milestone_id;
-  const inScope = (milestones || []).filter((m) => m.status === "disputed" && (!milestoneId || m.id === milestoneId));
+  const inScope = (milestones || []).filter(
+    (m) =>
+      m.status === "disputed" &&
+      (!milestoneId || m.id === milestoneId) &&
+      (!m.dispute_id || m.dispute_id === dispute?.id)
+  );
   // What's actually escrowed per milestone is its agreed price minus
   // GigPurse's commission — mirrors milestoneUsecase.Fund's own math.
   const totalHeld = inScope.reduce((sum, m) => sum + m.amount * (1 - talentRate), 0);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -157,8 +158,44 @@ func filterContent(input string) string {
 		"phone number", "direct deposit", "pay me directly", "pay outside",
 	}
 
-	return applyFilters(input, bypassWords)
+	return maskPhoneNumbers(applyFilters(input, bypassWords))
 }
+
+// phonePattern matches Nigerian mobile numbers (0803…, 234803…, +234803…)
+// and any other number written in international +form, with or without
+// spaces, dots, dashes or brackets between the digits. It's anchored on
+// those prefixes rather than "any long digit run" so prices, dates and
+// booking references stay readable.
+var phonePattern = regexp.MustCompile(`\+\(?\d(?:[\s.()\-]*\d){8,14}|(?:234[\s.()\-]*0?|0)[\s.()\-]*[789][\s.()\-]*[01](?:[\s.()\-]*\d){8}`)
+
+var leadingDate = regexp.MustCompile(`^\d{2}[-.]\d{2}[-.]\d{4}(?:\D|$)`)
+
+func maskPhoneNumbers(input string) string {
+	var out strings.Builder
+	last := 0
+	for _, loc := range phonePattern.FindAllStringIndex(input, -1) {
+		start, end := loc[0], loc[1]
+		// The tail of a longer digit run or of an amount like 1,080… — not a
+		// phone number.
+		if start > 0 && isDigit(input[start-1]) {
+			continue
+		}
+		if start > 1 && (input[start-1] == ',' || input[start-1] == '.') && isDigit(input[start-2]) {
+			continue
+		}
+		// "09-11-2026 1000 guests" has the right digits by accident.
+		if leadingDate.MatchString(input[start:end]) {
+			continue
+		}
+		out.WriteString(input[last:start])
+		out.WriteString(strings.Repeat("*", end-start))
+		last = end
+	}
+	out.WriteString(input[last:])
+	return out.String()
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
 func applyFilters(input string, words []string) string {
 	output := input

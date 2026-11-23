@@ -343,10 +343,13 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	if err != nil {
 		return "", "", fmt.Errorf("musician not found: %w", err)
 	}
-	if err := u.requirePayoutAccount(musician); err != nil {
+	payoutAccountMissing := func(err error) (string, string, error) {
 		u.notify(ctx, musician.ID, "Add your bank account to get paid",
 			fmt.Sprintf("A milestone payment for '%s' is waiting on you to add a payout account.", milestone.Title), contractID)
 		return "", "", err
+	}
+	if err := u.requirePayoutAccount(musician); err != nil {
+		return payoutAccountMissing(err)
 	}
 
 	clientCustomerID, err := u.ensureCustomer(ctx, client)
@@ -356,6 +359,15 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	musicianCustomerID, err := u.ensureCustomer(ctx, musician)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to register musician with payment provider: %w", err)
+	}
+	// ensureCustomer drops a payout account PayPetal no longer accepts, so
+	// check again before any money can be paid in: without the talent's it
+	// can't be released, without the client's it can't be refunded.
+	if err := u.requirePayoutAccount(musician); err != nil {
+		return payoutAccountMissing(err)
+	}
+	if client.PayoutAccount == nil {
+		return "", "", errors.New("add your bank account on the Wallet page before paying — it's where a refund would be sent")
 	}
 
 	// milestone.Amount is the agreed price — what the talent expects for
@@ -422,7 +434,16 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		PayoutStatus:           "NONE",
 		RefundStatus:           "NONE",
 	}
-	if err := u.escrowRepo.Create(ctx, agreement); err != nil {
+	// Reopening an unpaid checkout: PayPetal hands back the same pending
+	// transaction for the same reference, so refresh the record already on
+	// file instead of adding a second one for one payment.
+	if existing, err := u.escrowRepo.GetByReference(ctx, reference); err == nil && existing.Status == "PENDING" {
+		agreement.ID = existing.ID
+		agreement.CreatedAt = existing.CreatedAt
+		if err := u.escrowRepo.Update(ctx, agreement); err != nil {
+			return "", "", fmt.Errorf("failed to record escrow agreement: %w", err)
+		}
+	} else if err := u.escrowRepo.Create(ctx, agreement); err != nil {
 		return "", "", fmt.Errorf("failed to record escrow agreement: %w", err)
 	}
 
@@ -630,30 +651,33 @@ func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenc
 	if err != nil {
 		return fmt.Errorf("milestone not found: %w", err)
 	}
-	if milestone.Status != "funded" {
+	if milestone.Status == "disputed" {
+		return errors.New("this payment is under dispute — a moderator has to settle it")
+	}
+	// Same claim-before-calling-PayPetal guard as RefundMilestone, so a
+	// dispute opened at the same moment can't be refunded out from under.
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "funded", "refunded")
+	if err != nil {
+		return err
+	}
+	if !won {
 		return errors.New("this milestone isn't currently funded")
 	}
 
 	if err := u.client.RefundTrustCoreAgreement(ctx, referenceID); err != nil {
+		_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "refunded", "funded")
 		return fmt.Errorf("failed to refund: %w", err)
 	}
 	agreement.RefundStatus = "PENDING"
 	if err := u.escrowRepo.Update(ctx, agreement); err != nil {
 		return fmt.Errorf("failed to record refund: %w", err)
 	}
-	// PayPetal's refund returns "the escrowed amount" — agreement.AmountNaira
-	// — to the client; GigPurse's platform fee was collected separately as a
-	// merchantCharge at funding time and isn't reversed by this call.
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: clientID, Type: "refund", Amount: agreement.AmountNaira,
+		UserID: clientID, Type: "refund", Amount: agreement.RefundTotal(),
 		Description: fmt.Sprintf("Refund requested: %s", milestone.Title), Reference: referenceID,
 	})
-	milestone.Status = "refunded"
-	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
-		return fmt.Errorf("failed to update milestone: %w", err)
-	}
 	u.notify(ctx, agreement.CounterpartyUserID, "Milestone payment refunded",
-		fmt.Sprintf("The client requested a refund for milestone '%s' (%s). The payment has been returned to them.", milestone.Title, formatNaira(agreement.AmountNaira)), milestone.ContractID)
+		fmt.Sprintf("The client requested a refund for milestone '%s' (%s). The payment is being returned to them.", milestone.Title, formatNaira(agreement.AmountNaira)), milestone.ContractID)
 
 	return nil
 }
@@ -717,7 +741,7 @@ func (u *milestoneUsecase) RefundMilestone(ctx context.Context, milestoneID stri
 	agreement.RefundStatus = "PENDING"
 	_ = u.escrowRepo.Update(ctx, agreement)
 	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: agreement.InitiatorUserID, Type: "refund", Amount: agreement.AmountNaira,
+		UserID: agreement.InitiatorUserID, Type: "refund", Amount: agreement.RefundTotal(),
 		Description: fmt.Sprintf("Escrow refunded (dispute resolved): %s", milestone.Title), Reference: milestone.EscrowReference,
 	})
 	return nil
@@ -737,15 +761,22 @@ func (u *milestoneUsecase) CancelAccepted(ctx context.Context, milestoneID strin
 	return u.milestoneRepo.Update(ctx, milestone)
 }
 
-// MarkDisputed locks a `funded` milestone out of Release/RequestRefund while
-// the dispute CancelMilestone just opened on it (disputeID) is pending.
+// MarkDisputed locks a `funded` milestone out of Release/RequestRefund/
+// auto-release while the dispute just opened on it (disputeID) is pending.
 // Ungated for the same reason as CancelAccepted.
 func (u *milestoneUsecase) MarkDisputed(ctx context.Context, milestoneID, disputeID string) error {
 	milestone, err := u.milestoneRepo.GetByID(ctx, milestoneID)
 	if err != nil {
 		return fmt.Errorf("milestone not found: %w", err)
 	}
-	if milestone.Status != "funded" {
+	// Claimed atomically: a Release/refund/auto-release that already claimed
+	// this milestone must win outright, not have its "released" overwritten
+	// back to "disputed" after the money has gone.
+	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestoneID, "funded", "disputed")
+	if err != nil {
+		return err
+	}
+	if !won {
 		return fmt.Errorf("milestone is %s, not funded", milestone.Status)
 	}
 	milestone.Status = "disputed"
@@ -824,11 +855,10 @@ func (u *milestoneUsecase) List(ctx context.Context, contractID, requesterID, re
 }
 
 // StartReminderScanner polls every checkInterval for milestones stuck in
-// "proposed" for at least nudgeAfter since they were last nudged (or since
-// they were proposed/countered, if never nudged yet), and re-notifies
-// whichever party hasn't responded — repeating every nudgeAfter until they
-// do. Runs until ctx is cancelled.
-func (u *milestoneUsecase) StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter time.Duration) {
+// "proposed": whichever party hasn't responded is nudged once nudgeAfter has
+// passed since the offer, then at most once every repeatAfter until they do.
+// Runs until ctx is cancelled.
+func (u *milestoneUsecase) StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter, repeatAfter time.Duration) {
 	ticker := time.NewTicker(checkInterval)
 	go func() {
 		defer ticker.Stop()
@@ -837,13 +867,13 @@ func (u *milestoneUsecase) StartReminderScanner(ctx context.Context, checkInterv
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				u.sendDueReminders(ctx, nudgeAfter)
+				u.sendDueReminders(ctx, nudgeAfter, repeatAfter)
 			}
 		}
 	}()
 }
 
-func (u *milestoneUsecase) sendDueReminders(ctx context.Context, nudgeAfter time.Duration) {
+func (u *milestoneUsecase) sendDueReminders(ctx context.Context, nudgeAfter, repeatAfter time.Duration) {
 	pending, err := u.milestoneRepo.ListByStatus(ctx, "proposed")
 	if err != nil {
 		return
@@ -854,7 +884,11 @@ func (u *milestoneUsecase) sendDueReminders(ctx context.Context, nudgeAfter time
 		if m.LastReminderAt != nil && m.LastReminderAt.After(baseline) {
 			baseline = *m.LastReminderAt
 		}
-		if now.Sub(baseline) < nudgeAfter {
+		wait := nudgeAfter
+		if m.LastReminderAt != nil {
+			wait = repeatAfter
+		}
+		if now.Sub(baseline) < wait {
 			continue
 		}
 		contract, err := u.contractRepo.GetByID(ctx, m.ContractID)

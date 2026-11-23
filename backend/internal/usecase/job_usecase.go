@@ -318,7 +318,7 @@ func (u *jobUsecase) RequestHireRefund(ctx context.Context, clientID, referenceI
 	if err == nil {
 		if job, err := u.jobRepo.GetByID(ctx, app.JobID); err == nil {
 			_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-				UserID: clientID, Type: "refund", Amount: agreement.AmountNaira,
+				UserID: clientID, Type: "refund", Amount: agreement.RefundTotal(),
 				Description: fmt.Sprintf("Refund requested for gig: %s", job.Title), Reference: referenceID,
 			})
 			job.EscrowAmount = 0

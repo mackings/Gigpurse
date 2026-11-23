@@ -71,29 +71,34 @@ export default function EscrowHoldingsList({ holdings, onRequestRefund }) {
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatMoney(h.amount)}</p>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="outline" disabled={isRefunding} className="gap-1.5">
-                    {isRefunding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
-                    Refund
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Request a refund?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {formatMoney(h.amount)} held for &apos;{h.title}&apos; will be returned to the account you paid with.{" "}
-                      {h.counterparty_name || "The other party"} will be notified.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleRefund(h)} className="gap-1.5">
-                      Request refund
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              {h.disputed ? (
+                <span className="text-xs font-medium text-rose-600 dark:text-rose-400">Under dispute</span>
+              ) : (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={isRefunding} className="gap-1.5">
+                      {isRefunding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
+                      Refund
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Request a refund?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {formatMoney(h.refund_amount ?? h.amount)} for &apos;{h.title}&apos; will be sent to the bank account saved on this
+                        page. The payment provider&apos;s own checkout fee isn&apos;t refunded.{" "}
+                        {h.counterparty_name || "The other party"} will be notified.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleRefund(h)} className="gap-1.5">
+                        Request refund
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </div>
           </div>
         );

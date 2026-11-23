@@ -21,10 +21,10 @@ import (
 //	cancelled -- either party ended the contract or pulled this milestone
 //	             while it was still just "accepted" — no money had moved yet,
 //	             so this is a clean cancel, no dispute needed (terminal)
-//	disputed  -- a `funded` milestone was pulled back (contract ended, or the
-//	             milestone itself withdrawn) after real money moved — locked
-//	             from Release/RequestRefund until a moderator resolves the
-//	             dispute it automatically opened
+//	disputed  -- a dispute was opened over a `funded` milestone (directly, by
+//	             ending the contract, or by withdrawing the milestone) —
+//	             locked from Release/RequestRefund/auto-release until a
+//	             moderator resolves that dispute
 type Milestone struct {
 	ID         string                      `json:"id" bson:"_id"`
 	ContractID string                      `json:"contract_id" bson:"contract_id"`
@@ -178,8 +178,9 @@ type MilestoneUsecase interface {
 
 	// StartReminderScanner runs in the background for the lifetime of ctx,
 	// periodically re-notifying whoever hasn't responded to a still-`proposed`
-	// milestone. Called once at startup from main.go.
-	StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter time.Duration)
+	// milestone — first after nudgeAfter, then at most every repeatAfter.
+	// Called once at startup from main.go.
+	StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter, repeatAfter time.Duration)
 
 	// StartAutoReleaseScanner runs in the background for the lifetime of
 	// ctx, releasing any `funded` milestone whose RequestRelease window has

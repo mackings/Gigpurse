@@ -46,6 +46,13 @@ type EscrowAgreement struct {
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
 }
 
+// RefundTotal is what the initiator gets back on a refund. PayPetal returns
+// the escrowed amount plus our merchantCharge (PayPetal's own checkout fee
+// is not refunded), to the initiator's linked payout account.
+func (a *EscrowAgreement) RefundTotal() float64 {
+	return a.AmountNaira + a.PlatformFeeNaira
+}
+
 type EscrowAgreementRepository interface {
 	Create(ctx context.Context, a *EscrowAgreement) error
 	GetByReference(ctx context.Context, referenceID string) (*EscrowAgreement, error)

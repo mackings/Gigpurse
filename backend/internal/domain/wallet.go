@@ -56,12 +56,16 @@ type WalletRepository interface {
 // sums these into "currently in escrow" and lists them individually, each
 // with its own refund action.
 type EscrowHolding struct {
-	ReferenceID      string    `json:"reference_id"`
-	ScopeType        string    `json:"scope_type"` // "job_hire" | "milestone"
-	Title            string    `json:"title"`
-	CounterpartyName string    `json:"counterparty_name"`
-	Amount           float64   `json:"amount"`
-	CreatedAt        time.Time `json:"created_at"`
+	ReferenceID      string  `json:"reference_id"`
+	ScopeType        string  `json:"scope_type"` // "job_hire" | "milestone"
+	Title            string  `json:"title"`
+	CounterpartyName string  `json:"counterparty_name"`
+	Amount           float64 `json:"amount"`
+	// RefundAmount is what a refund actually returns — Amount plus the
+	// platform fee the client paid on top of it.
+	RefundAmount float64   `json:"refund_amount"`
+	Disputed     bool      `json:"disputed"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type WalletUsecase interface {

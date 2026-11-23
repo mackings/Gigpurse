@@ -177,6 +177,7 @@ export default function ContractDetailPage() {
             )}
             <DisputeModal
               contractId={contract.id}
+              onOpened={() => queryClient.invalidateQueries({ queryKey: ["milestones", id] })}
               trigger={
                 <Button size="sm" variant="outline" className="gap-1.5">
                   <ShieldAlert className="w-3.5 h-3.5" />

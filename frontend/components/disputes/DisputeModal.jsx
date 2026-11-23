@@ -43,7 +43,7 @@ export default function DisputeModal({ contractId, trigger, onOpened }) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Open a dispute</DialogTitle>
-          <DialogDescription>Explain what went wrong. An admin will step in to review.</DialogDescription>
+          <DialogDescription>Explain what went wrong. Any payment held in escrow is locked until a moderator settles it.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Textarea

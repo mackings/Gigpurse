@@ -16,6 +16,7 @@ import (
 // real.
 type PayPetalFake struct {
 	mu         sync.Mutex
+	customers  []paypetal.Customer
 	payouts    map[string]bool // customerID -> has a payout account on file
 	agreements map[string]*paypetal.AgreementState
 	nextID     int
@@ -34,7 +35,38 @@ func (f *PayPetalFake) CreateCustomer(ctx context.Context, fullname, email, phon
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
-	return fmt.Sprintf("cust_fake_%d", f.nextID), nil
+	id := fmt.Sprintf("cust_fake_%d", f.nextID)
+	f.customers = append(f.customers, paypetal.Customer{CustomerID: id, Fullname: fullname, Email: email, PhoneNumber: phone})
+	return id, nil
+}
+
+func (f *PayPetalFake) CustomerExists(ctx context.Context, customerID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.customers {
+		if c.CustomerID == customerID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// HasPayoutAccount reports whether customerID currently has a bank account
+// linked.
+func (f *PayPetalFake) HasPayoutAccount(customerID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.payouts[customerID]
+}
+
+// ForgetCustomers drops every customer and payout account — standing in for
+// GigPurse being pointed at a different PayPetal environment, where IDs
+// stored from the old one mean nothing.
+func (f *PayPetalFake) ForgetCustomers() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.customers = nil
+	f.payouts = make(map[string]bool)
 }
 
 func (f *PayPetalFake) UpdateCustomer(ctx context.Context, customerID, fullname, email, phone string) error {
@@ -42,7 +74,9 @@ func (f *PayPetalFake) UpdateCustomer(ctx context.Context, customerID, fullname,
 }
 
 func (f *PayPetalFake) ListCustomers(ctx context.Context) ([]paypetal.Customer, error) {
-	return nil, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]paypetal.Customer(nil), f.customers...), nil
 }
 
 func (f *PayPetalFake) ListBanks(ctx context.Context) ([]paypetal.Bank, error) {

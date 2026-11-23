@@ -25,6 +25,7 @@ type API interface {
 	CreateCustomer(ctx context.Context, fullname, email, phone string) (customerID string, err error)
 	UpdateCustomer(ctx context.Context, customerID, fullname, email, phone string) error
 	ListCustomers(ctx context.Context) ([]Customer, error)
+	CustomerExists(ctx context.Context, customerID string) (bool, error)
 
 	ListBanks(ctx context.Context) ([]Bank, error)
 	ValidateBankAccount(ctx context.Context, accountNumber, bankCode string) (accountName string, err error)
