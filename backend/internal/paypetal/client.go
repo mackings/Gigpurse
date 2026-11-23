@@ -1,7 +1,7 @@
 // Package paypetal is a thin client for PayPetal's Merchant API — the
 // TrustCore escrow product specifically (see https://paypetal.readme.io).
 // It is the only place in the codebase that speaks PayPetal's wire format
-// (its two different response envelope shapes, its kobo amounts, its JWT
+// (its two different response envelope shapes, its string amounts, its JWT
 // login exchange); everything above this package deals in plain Naira
 // floats and GigPurse's own domain types.
 package paypetal

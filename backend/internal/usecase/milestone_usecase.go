@@ -377,9 +377,9 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		platformFee = 0
 	}
 
-	var merchantChargeKobo string
+	var merchantCharge string
 	if platformFee > 0 {
-		merchantChargeKobo = paypetal.NairaToKobo(platformFee)
+		merchantCharge = paypetal.FormatAmount(platformFee)
 	}
 
 	// PayPetal's hosted checkout prepends its own "MCH-" prefix before
@@ -394,8 +394,8 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		InitiatorCustomerID:    clientCustomerID,
 		CounterpartyCustomerID: musicianCustomerID,
 		Currency:               "NGN",
-		AmountKobo:             paypetal.NairaToKobo(talentAmount),
-		MerchantChargeKobo:     merchantChargeKobo,
+		Amount:                 paypetal.FormatAmount(talentAmount),
+		MerchantCharge:         merchantCharge,
 		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
 		// PayPetal appends "?status=...&txnId=..." to this URL itself, blindly
 		// (no check for an existing "?") — so reference must ride in the path,

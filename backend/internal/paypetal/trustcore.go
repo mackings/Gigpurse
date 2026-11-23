@@ -7,24 +7,21 @@ import (
 )
 
 // CreateAgreementInput describes a new TrustCore escrow agreement.
-// AmountKobo/MerchantChargeKobo must already be in the smallest currency
-// unit — build them with NairaToKobo right before calling, so the
-// conversion is visible at the call site rather than hidden inside this
-// package.
+// Amount/MerchantCharge are Naira strings built with FormatAmount.
 type CreateAgreementInput struct {
 	ReferenceID            string
 	InitiatorCustomerID    string
 	CounterpartyCustomerID string
 	Currency               string // "NGN" or "USD"
-	AmountKobo             string
-	// MerchantChargeKobo is GigPurse's platform fee, billed to the
-	// initiator on top of AmountKobo — the only mechanism PayPetal offers
-	// for platform revenue, since the escrowed AmountKobo itself always
+	Amount                 string
+	// MerchantCharge is GigPurse's platform fee, billed to the
+	// initiator on top of Amount — the only mechanism PayPetal offers
+	// for platform revenue, since the escrowed Amount itself always
 	// goes to the counterparty in full on release (no partial-release
 	// support). Optional — leave empty for a zero-fee agreement.
-	MerchantChargeKobo string
-	Description        string
-	RedirectURL        string
+	MerchantCharge string
+	Description    string
+	RedirectURL    string
 }
 
 type AgreementResult struct {
@@ -51,12 +48,12 @@ func (c *Client) CreateTrustCoreAgreement(ctx context.Context, in CreateAgreemen
 		"initiator":    in.InitiatorCustomerID,
 		"counterparty": in.CounterpartyCustomerID,
 		"currency":     in.Currency,
-		"amount":       in.AmountKobo,
+		"amount":       in.Amount,
 		"description":  in.Description,
 		"redirectUrl":  in.RedirectURL,
 	}
-	if in.MerchantChargeKobo != "" {
-		body["merchantCharge"] = in.MerchantChargeKobo
+	if in.MerchantCharge != "" {
+		body["merchantCharge"] = in.MerchantCharge
 	}
 	var out createAgreementResponse
 	if err := c.do(ctx, http.MethodPost, "/api/v1/escrow/trustcores", body, &out); err != nil {
