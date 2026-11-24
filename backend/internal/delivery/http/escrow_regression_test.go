@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 // escrowFixture is a client and a talent with payout accounts and one active
@@ -281,5 +282,50 @@ func TestPayoutAccount_LinkRecreatesUnknownCustomer(t *testing.T) {
 	u, _ := f.app.userRepo.GetByID(context.Background(), f.musicianID)
 	if u.PayoutAccount == nil || u.PayoutAccount.AccountNumber != "9876543210" || !f.app.paypetal.HasPayoutAccount(u.PayPetalCustomerID) {
 		t.Fatalf("expected the new account linked to a live customer, got %#v", u.PayoutAccount)
+	}
+}
+
+// References are letters and digits only: live payments made against
+// "ms:<id>" references were never matched by PayPetal.
+func TestFund_ReferenceIsAlphanumeric(t *testing.T) {
+	f := newEscrowFixture(t)
+	id := f.acceptedMilestone(500)
+	if ref := f.startFunding(id); ref != "ms"+id {
+		t.Fatalf("expected ms%s, got %q", id, ref)
+	}
+}
+
+// PayPetal may still apply a payment made against an old-format reference
+// after the same milestone was reopened under the new one. Release has to act
+// on the agreement that was actually paid.
+func TestFinalizeFund_OldReferencePaidAfterReopening(t *testing.T) {
+	f := newEscrowFixture(t)
+	ctx := context.Background()
+	id := f.acceptedMilestone(500)
+	newRef, oldRef := f.startFunding(id), "ms:"+id
+
+	agreement, err := f.app.escrowRepo.GetByReference(ctx, newRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := *agreement
+	old.ID, old.ReferenceID = "", oldRef
+	if err := f.app.escrowRepo.Create(ctx, &old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.app.paypetal.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
+		ReferenceID: oldRef, CounterpartyCustomerID: old.CounterpartyCustomerID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.app.paypetal.SimulatePaymentCompleted(oldRef)
+
+	f.post("/milestones/fund/finalize", f.clientTok, map[string]any{"reference": oldRef}, http.StatusOK, nil)
+	f.post("/milestones/release", f.clientTok, map[string]any{"contract_id": f.contractID, "milestone_id": id}, http.StatusOK, nil)
+
+	paid, _ := f.app.paypetal.GetTrustCoreAgreement(ctx, oldRef)
+	unpaid, _ := f.app.paypetal.GetTrustCoreAgreement(ctx, newRef)
+	if paid.PayoutStatus == "NONE" || unpaid.PayoutStatus != "NONE" {
+		t.Fatalf("released the wrong agreement: old=%s new=%s", paid.PayoutStatus, unpaid.PayoutStatus)
 	}
 }

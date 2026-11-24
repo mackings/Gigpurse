@@ -42,7 +42,7 @@ func (c *Client) ValidateBankAccount(ctx context.Context, accountNumber, bankCod
 // first — this endpoint expects an already-validated account.
 func (c *Client) LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error {
 	body := map[string]string{"accountNumber": accountNumber, "bankCode": bankCode}
-	return c.do(ctx, http.MethodPost, "/api/v1/escrow/trustcore/payout/"+customerID, body, nil)
+	return c.do(ctx, http.MethodPost, "/api/v1/escrow/payout-accounts/"+customerID, body, nil)
 }
 
 // RemovePayoutAccount unlinks a customer's payout account — discovered as a
@@ -52,5 +52,5 @@ func (c *Client) LinkPayoutAccount(ctx context.Context, customerID, accountNumbe
 // self-heal a customer PayPetal already has a (possibly stale) bank account
 // on file for — see isBankAlreadyLinkedError.
 func (c *Client) RemovePayoutAccount(ctx context.Context, customerID string) error {
-	return c.do(ctx, http.MethodDelete, "/api/v1/escrow/trustcore/payout/"+customerID, nil, nil)
+	return c.do(ctx, http.MethodDelete, "/api/v1/escrow/payout-accounts/"+customerID, nil, nil)
 }

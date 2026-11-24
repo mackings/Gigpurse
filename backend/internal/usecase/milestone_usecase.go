@@ -400,7 +400,12 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	// Mongo ID is 34 chars, +4 for "MCH-" = 38, over the limit — every
 	// bank-transfer milestone payment 400'd on PayPetal's /pay/create-account
 	// step). Keep this prefix short enough to leave headroom.
-	reference := "ms:" + milestoneID
+	//
+	// Letters and digits only. Earlier references were "ms:<id>", and live
+	// bank-transfer payments made against them were never matched by
+	// PayPetal; every reference in their docs sticks to letters, digits and
+	// dashes.
+	reference := "ms" + milestoneID
 	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
 		ReferenceID:            reference,
 		InitiatorCustomerID:    clientCustomerID,
@@ -494,6 +499,16 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 		return u.milestoneRepo.GetByID(ctx, milestone.ID)
 	}
 	milestone.Status = "funded"
+
+	// Release and refund act on the milestone's own reference, so it has to
+	// be the one that was actually paid — a milestone first funded under the
+	// old "ms:" format can have checkouts under both.
+	if milestone.EscrowReference != reference {
+		milestone.EscrowReference = reference
+		if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
+			return nil, err
+		}
+	}
 
 	agreement.Status = state.Status
 	agreement.PayoutStatus = state.PayoutStatus

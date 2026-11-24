@@ -105,5 +105,5 @@ func (c *Client) ListCustomers(ctx context.Context) ([]Customer, error) {
 // exists purely for ops cleanup (e.g. clearing sandbox test data), called
 // from a one-off script rather than through the paypetal.API interface.
 func (c *Client) DeleteCustomer(ctx context.Context, customerID string) error {
-	return c.do(ctx, http.MethodDelete, "/api/v1/customer/delete/"+customerID, nil, nil)
+	return c.do(ctx, http.MethodDelete, "/api/v1/customer/"+customerID, nil, nil)
 }

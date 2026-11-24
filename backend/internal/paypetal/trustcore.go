@@ -90,7 +90,7 @@ type getAgreementResponse struct {
 // GetTrustCoreAgreement fetches an agreement's current state by its
 // referenceId or PayPetal transactionId.
 func (c *Client) GetTrustCoreAgreement(ctx context.Context, reference string) (*AgreementState, error) {
-	path := "/api/v1/escrow/trustcore?reference=" + url.QueryEscape(reference)
+	path := "/api/v1/escrow/trustcore/" + url.PathEscape(reference)
 	var out getAgreementResponse
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
