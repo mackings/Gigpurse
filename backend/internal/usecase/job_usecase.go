@@ -66,7 +66,7 @@ func (u *jobUsecase) hasOutstandingSettlement(ctx context.Context, clientID stri
 			continue
 		}
 		for _, m := range milestones {
-			if m.Status == "accepted" && m.DisputeID != "" {
+			if m.AwaitingClientSettlement() {
 				return true, nil
 			}
 		}
@@ -78,7 +78,7 @@ func (u *jobUsecase) hasOutstandingSettlement(ctx context.Context, clientID stri
 // still unfunded somewhere — a moderator already ordered this payment, so
 // new job posts/hires are blocked until it's paid. See
 // DisputeUsecase.HasOutstandingSettlement / MilestoneUsecase.CreateSettlementMilestone.
-var ErrPaymentRequired = errors.New("payment required: fund the pending dispute settlement before posting new jobs")
+var ErrPaymentRequired = errors.New("payment required: settle the pending dispute ruling before posting new jobs")
 
 func (u *jobUsecase) PostJob(ctx context.Context, clientID string, input domain.JobPostInput) (*domain.Job, error) {
 	if input.Title == "" || input.Description == "" || input.Budget <= 0 {

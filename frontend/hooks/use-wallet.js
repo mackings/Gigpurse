@@ -33,8 +33,8 @@ export function useEscrowHoldings() {
     queryFn: () => apiGet("/wallet/escrow"),
   });
 
-  async function requestRefund(referenceId) {
-    await apiPost("/wallet/escrow/refund", { reference_id: referenceId });
+  async function requestRefund(referenceId, code) {
+    await apiPost("/wallet/escrow/refund", { reference_id: referenceId, code });
     queryClient.invalidateQueries({ queryKey: ["wallet-escrow"] });
     queryClient.invalidateQueries({ queryKey: ["wallet-transactions"] });
     queryClient.invalidateQueries({ queryKey: ["wallet"] });

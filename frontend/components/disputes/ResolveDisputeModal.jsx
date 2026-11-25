@@ -124,9 +124,19 @@ export default function ResolveDisputeModal({ dispute, clientName, musicianName,
             />
             {talentAmount !== "" && !isFullRefund && !isFullRelease && Number(talentAmount) >= 0 && Number(talentAmount) <= totalHeld && (
               <p className="text-xs text-muted-foreground mt-1.5">
-                Partial: {clientName || "the client"} is refunded in full now, then separately pays{" "}
-                {formatMoney(Number(talentAmount))} to {musicianName || "the talent"} — they&apos;re blocked from posting
-                new jobs or hiring until they do.
+                {inScope.some((m) => m.escrow_provider === "trustvault") ? (
+                  <>
+                    Split: {musicianName || "the talent"} gets {formatMoney(Number(talentAmount))} and{" "}
+                    {clientName || "the client"} gets the rest back, once {clientName || "the client"} confirms with the
+                    code emailed to them.
+                  </>
+                ) : (
+                  <>
+                    Partial: {clientName || "the client"} is refunded in full now, then separately pays{" "}
+                    {formatMoney(Number(talentAmount))} to {musicianName || "the talent"} — they&apos;re blocked from posting
+                    new jobs or hiring until they do.
+                  </>
+                )}
               </p>
             )}
           </div>

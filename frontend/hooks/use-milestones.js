@@ -55,8 +55,8 @@ export function useMilestones(contractId) {
     return m;
   }
 
-  async function release(milestone) {
-    const m = await apiPost("/milestones/release", { contract_id: contractId, milestone_id: milestone.id });
+  async function release(milestone, code) {
+    const m = await apiPost("/milestones/release", { contract_id: contractId, milestone_id: milestone.id, code });
     invalidate();
     return m;
   }
@@ -162,8 +162,8 @@ export function useMilestonesForContracts(contractIds) {
     return m;
   }
 
-  async function release(milestone) {
-    const m = await apiPost("/milestones/release", { contract_id: milestone.contract_id, milestone_id: milestone.id });
+  async function release(milestone, code) {
+    const m = await apiPost("/milestones/release", { contract_id: milestone.contract_id, milestone_id: milestone.id, code });
     invalidate(milestone.contract_id);
     return m;
   }

@@ -105,7 +105,7 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 		case "milestone":
 			if m, err := u.milestoneRepo.GetByID(ctx, a.ScopeID); err == nil {
 				title = m.Title
-				disputed = m.Status == "disputed"
+				disputed = m.Status == "disputed" || m.Status == "settling"
 			}
 		}
 		if title == "" {
@@ -125,6 +125,7 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 			Amount:           a.AmountNaira,
 			RefundAmount:     a.RefundTotal(),
 			Disputed:         disputed,
+			NeedsCode:        a.IsVault(),
 			CreatedAt:        a.CreatedAt,
 		})
 	}
@@ -136,7 +137,7 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 // RequestRefund routes to whichever usecase actually owns the money-moving
 // logic for this holding's scope — wallet itself never talks to PayPetal
 // directly, it just picks the right specialist.
-func (u *walletUsecase) RequestRefund(ctx context.Context, userID, referenceID string) error {
+func (u *walletUsecase) RequestRefund(ctx context.Context, userID, referenceID, code string) error {
 	agreement, err := u.escrowRepo.GetByReference(ctx, referenceID)
 	if err != nil {
 		return fmt.Errorf("escrow agreement not found: %w", err)
@@ -145,8 +146,12 @@ func (u *walletUsecase) RequestRefund(ctx context.Context, userID, referenceID s
 	case "job_hire":
 		return u.jobUsecase.RequestHireRefund(ctx, userID, referenceID)
 	case "milestone":
-		return u.milestoneUsecase.RequestRefund(ctx, userID, referenceID)
+		return u.milestoneUsecase.RequestRefund(ctx, userID, referenceID, code)
 	default:
 		return errors.New("unknown escrow scope type")
 	}
+}
+
+func (u *walletUsecase) SendReleaseCode(ctx context.Context, userID, referenceID string) error {
+	return u.milestoneUsecase.SendReleaseCode(ctx, userID, referenceID)
 }

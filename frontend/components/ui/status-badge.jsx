@@ -21,6 +21,7 @@ const STATUS_STYLES = {
   refunded: "bg-status-accent/10 text-status-accent",
   rejected: "bg-status-critical/10 text-status-critical",
   cancelled: "bg-status-critical/10 text-status-critical",
+  settling: "bg-status-warning/10 text-status-warning",
   disputed: "bg-status-critical/10 text-status-critical",
   closed: "bg-muted text-muted-foreground",
 };

@@ -725,9 +725,13 @@ type testApp struct {
 	paypetal        *memory.PayPetalFake
 	userRepo        *memoryUserRepo
 	escrowRepo      domain.EscrowAgreementRepository
+	payoutRepo      domain.PayoutRepository
+	milestones      domain.MilestoneUsecase
 }
 
-func newTestApp() *testApp {
+func newTestApp() *testApp { return newTestAppWith(false) }
+
+func newTestAppWith(vault bool) *testApp {
 	userRepo := newMemoryUserRepo()
 	jobRepo := newMemoryJobRepo()
 	chatRepo := newMemoryChatRepo()
@@ -740,6 +744,7 @@ func newTestApp() *testApp {
 	walletRepo := memory.NewWalletRepository()
 	milestoneRepo := memory.NewMilestoneRepository()
 	escrowRepo := memory.NewEscrowAgreementRepository()
+	payoutRepo := memory.NewPayoutRepository()
 	paypetalFake := memory.NewPayPetalFake()
 	hub := delivery.NewHub()
 	const testFrontendBaseURL = "https://gigpurse.test"
@@ -752,7 +757,7 @@ func newTestApp() *testApp {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo, milestones: milestoneRepo, escrow: escrowRepo, jobUsecase: jobUsecase}
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL, usecase.VaultConfig{Enabled: vault, Payouts: payoutRepo})
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalFake, escrowRepo)
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalFake, userRepo, contractRepo, milestoneRepo, notifRepo)
@@ -779,8 +784,10 @@ func newTestApp() *testApp {
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
 	delivery.NewMilestoneHandler(milestoneUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
+	delivery.NewPayoutHandler(usecase.NewPayoutUsecase(payoutRepo, escrowRepo, walletRepo, userRepo, notifRepo)).RegisterRoutes(mux)
+	delivery.NewPayPetalWebhookHandler(paypetalFake, escrowRepo, jobUsecase, milestoneUsecase, notifRepo).RegisterRoutes(mux)
 
-	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo}
+	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo, payoutRepo: payoutRepo, milestones: milestoneUsecase}
 }
 
 type apiClient struct {

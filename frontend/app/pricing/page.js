@@ -73,14 +73,14 @@ const FEATURE_GROUPS = [
         talent: true,
       },
       {
-        name: "Fast bank payouts",
-        detail: "Once a milestone is released, payout goes straight to your linked bank account.",
+        name: "Bank payouts",
+        detail: "Once a milestone is released, GigPurse sends your payout to your linked bank account.",
         client: false,
         talent: true,
       },
       {
-        name: "Auto-release after 48h",
-        detail: "Request release on a funded milestone, and it pays out automatically if the client doesn't respond within 48 hours.",
+        name: "Release reminders",
+        detail: "Request release on a funded milestone and we keep reminding the client. If they don't respond, open a dispute and a moderator steps in.",
         client: false,
         talent: true,
       },
@@ -199,7 +199,7 @@ export default async function PricingPage() {
             </div>
 
             <ul className="text-sm text-foreground space-y-2.5 mt-6">
-              {["Free profile, portfolio, and applications", "No fee unless you actually get paid", "Fast bank payouts on release", "Auto-release after 48h of silence"].map((f) => (
+              {["Free profile, portfolio, and applications", "No fee unless you actually get paid", "Bank payouts on release", "Moderator support if a client goes quiet"].map((f) => (
                 <li key={f} className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                   <span>{f}</span>
@@ -296,7 +296,7 @@ export default async function PricingPage() {
               {
                 icon: HandCoins,
                 title: "Client releases payment",
-                body: "Once the client confirms the work is done, the talent's share is sent straight to their bank account.",
+                body: "Once the client confirms with a code sent to their email, GigPurse sends the talent's share to their bank account.",
               },
             ].map((step) => (
               <div key={step.title} className="flex items-start gap-3">

@@ -36,6 +36,10 @@ type EscrowAgreement struct {
 	AmountNaira      float64 `json:"amount" bson:"amount_naira"`
 	PlatformFeeNaira float64 `json:"platform_fee" bson:"platform_fee_naira"`
 
+	// Provider is which PayPetal product holds this money: "trustvault", or
+	// "" for TrustCore (everything created before TrustVault).
+	Provider string `json:"provider,omitempty" bson:"provider,omitempty"`
+
 	TrustCoreTransactionID string `json:"-" bson:"trustcore_transaction_id"`
 
 	Status       string `json:"status" bson:"status"`               // PENDING, ONGOING, ...
@@ -52,6 +56,12 @@ type EscrowAgreement struct {
 func (a *EscrowAgreement) RefundTotal() float64 {
 	return a.AmountNaira + a.PlatformFeeNaira
 }
+
+// IsVault reports whether this money is in TrustVault, where it can only be
+// moved with a code emailed to the client, and only to GigPurse's own wallet.
+func (a *EscrowAgreement) IsVault() bool { return a.Provider == ProviderVault }
+
+const ProviderVault = "trustvault"
 
 type EscrowAgreementRepository interface {
 	Create(ctx context.Context, a *EscrowAgreement) error

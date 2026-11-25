@@ -12,6 +12,7 @@ const allTabs = [
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/jobs", label: "Jobs" },
   { href: "/admin/disputes", label: "Disputes" },
+  { href: "/admin/payouts", label: "Payouts" },
   { href: "/admin/moderators", label: "Moderators" },
 ];
 

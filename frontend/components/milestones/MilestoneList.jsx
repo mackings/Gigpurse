@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/ui/status-badge";
 import IconBadge from "@/components/ui/icon-badge";
@@ -21,6 +21,7 @@ import { Lock, CheckCircle2, Check, X, RefreshCw, Clock, Flag, Loader2, Undo2, B
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/utils";
 import { openPaymentPopup } from "@/lib/payment-popup";
+import ReleaseCodeDialog from "@/components/milestones/ReleaseCodeDialog";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
 
 // GigPurse's cut isn't deducted from the milestone amount shown — it can't
@@ -42,6 +43,7 @@ const STATUS_ICON = {
   released: CheckCircle2,
   rejected: X,
   cancelled: Ban,
+  settling: ShieldAlert,
   disputed: ShieldAlert,
 };
 
@@ -52,6 +54,7 @@ const STATUS_COLOR = {
   released: "bg-emerald-500",
   rejected: "bg-rose-500",
   cancelled: "bg-muted-foreground",
+  settling: "bg-amber-500",
   disputed: "bg-rose-500",
 };
 
@@ -125,6 +128,10 @@ export default function MilestoneList({
         const StatusIcon = STATUS_ICON[m.status] || Flag;
         const cardPending = pendingKey?.startsWith(`${m.id}:`);
         const isPending = (action) => pendingKey === `${m.id}:${action}`;
+        // TrustVault money only moves with a code emailed to the client.
+        const needsCode = m.escrow_provider === "trustvault";
+        const sendCode = () => apiPost("/milestones/release/code", { contract_id: m.contract_id, milestone_id: m.id });
+        const talentShare = m.dispute_id ? m.amount : m.amount * (1 - talentRate);
         return (
           <div
             key={m.id}
@@ -206,7 +213,46 @@ export default function MilestoneList({
                   Fund escrow
                 </Button>
               )}
-              {role === "client" && m.status === "funded" && (
+              {role === "client" && m.status === "funded" && needsCode && (
+                <ReleaseCodeDialog
+                  title="Release this payment?"
+                  description={`${formatMoney(talentShare)} goes to the talent for '${m.title}'. PayPetal emails you a code to confirm it.`}
+                  confirmLabel="Release payment"
+                  successMessage="Payment released. GigPurse will send it to the talent's bank."
+                  onSendCode={sendCode}
+                  onConfirm={(code) => onRelease(m, code)}
+                  trigger={
+                    <Button size="sm" disabled={cardPending} className="gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Release payment
+                    </Button>
+                  }
+                />
+              )}
+              {role === "client" && m.status === "settling" && (
+                <ReleaseCodeDialog
+                  title="Confirm the dispute ruling"
+                  description={`A moderator awarded ${formatMoney(m.settlement_talent || 0)} of '${m.title}' to the talent${
+                    (m.settlement_talent || 0) < talentShare ? "; the rest comes back to you" : ""
+                  }. PayPetal emails you a code to confirm it. You can't start new gigs until you do.`}
+                  confirmLabel="Confirm ruling"
+                  successMessage="Ruling confirmed. GigPurse will send the money by bank transfer."
+                  onSendCode={sendCode}
+                  onConfirm={(code) => onRelease(m, code)}
+                  trigger={
+                    <Button size="sm" disabled={cardPending} className="gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      Confirm ruling
+                    </Button>
+                  }
+                />
+              )}
+              {role === "musician" && m.status === "settling" && (
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                  {formatMoney(m.settlement_talent || 0)} awarded, waiting for the client to confirm
+                </span>
+              )}
+              {role === "client" && m.status === "funded" && !needsCode && (
                 <Button
                   size="sm"
                   disabled={cardPending}
@@ -222,9 +268,22 @@ export default function MilestoneList({
                   size="sm"
                   variant="outline"
                   disabled={cardPending || !!m.release_requested_at}
-                  onClick={() => run(onRequestRelease, m, "request-release", "Release requested — the client has 48h to act before it auto-releases.")}
+                  onClick={() =>
+                    run(
+                      onRequestRelease,
+                      m,
+                      "request-release",
+                      needsCode ? "Release requested. The client has been asked to confirm." : "Release requested — the client has 48h to act before it auto-releases."
+                    )
+                  }
                   className="gap-1.5"
-                  title={m.release_requested_at ? "Already requested — auto-releases if the client doesn't act within 48h" : "Ask the client to release this payment"}
+                  title={
+                    !m.release_requested_at
+                      ? "Ask the client to release this payment"
+                      : needsCode
+                        ? "Already requested. If the client doesn't respond, open a dispute."
+                        : "Already requested — auto-releases if the client doesn't act within 48h"
+                  }
                 >
                   {isPending("request-release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5" />}
                   {m.release_requested_at ? "Release requested" : "Request release"}

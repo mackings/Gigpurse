@@ -43,7 +43,10 @@ func (h *PayPetalWebhookHandler) RegisterRoutes(mux *http.ServeMux) {
 // (claimed status, amount, etc.) is deliberately ignored.
 type webhookPayload struct {
 	Reference string `json:"reference"`
-	Data      struct {
+	// TrustVault release events put PayPetal's own reference in "reference"
+	// and ours here.
+	IdempotencyKey string `json:"idempotencyKey"`
+	Data           struct {
 		Reference string `json:"reference"`
 	} `json:"data"`
 }
@@ -61,7 +64,10 @@ func (h *PayPetalWebhookHandler) Handle(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	reference := payload.Reference
+	reference := payload.IdempotencyKey
+	if reference == "" {
+		reference = payload.Reference
+	}
 	if reference == "" {
 		reference = payload.Data.Reference
 	}
@@ -96,6 +102,13 @@ func (h *PayPetalWebhookHandler) reconcile(ctx context.Context, reference string
 				log.Printf("paypetal webhook: FinalizeFund(%s) not yet confirmable: %v", reference, err)
 			}
 		}
+		return
+	}
+
+	// TrustVault payouts and refunds are made by hand (see domain.Payout);
+	// the only thing PayPetal can tell us is that a release went through.
+	if agreement.IsVault() {
+		h.milestoneUC.ReconcileVault(ctx)
 		return
 	}
 

@@ -32,6 +32,7 @@ func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreemen
 				return
 			case <-ticker.C:
 				reconcilePendingEscrow(ctx, escrowRepo, jobUC, milestoneUC)
+				milestoneUC.ReconcileVault(ctx)
 			}
 		}
 	}()

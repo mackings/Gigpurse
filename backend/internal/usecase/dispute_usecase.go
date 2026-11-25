@@ -259,7 +259,7 @@ func (u *disputeUsecase) HasOutstandingSettlement(ctx context.Context, clientID 
 			continue
 		}
 		for _, m := range milestones {
-			if m.Status == "accepted" && m.DisputeID != "" {
+			if m.AwaitingClientSettlement() {
 				return true, nil
 			}
 		}
@@ -459,8 +459,9 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 	if err != nil {
 		return nil, err
 	}
-	var inScope []*domain.Milestone
-	var totalFunded float64
+	var inScope, vault []*domain.Milestone
+	vaultHeld := map[string]float64{} // milestone ID -> talent's share in TrustVault
+	var totalFunded, totalVault float64
 	for _, m := range allMilestones {
 		// OpenDispute/EndContract/CancelMilestone all mark a milestone "disputed" the
 		// moment its dispute opens (see MarkDisputed) — it's never still
@@ -477,19 +478,35 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 		if m.DisputeID != "" && m.DisputeID != dispute.ID {
 			continue
 		}
-		inScope = append(inScope, m)
 		// The bound is what's actually sitting in escrow (the talent's
 		// take-home after commission), not milestone.Amount — the agreed
 		// price is bigger than that by GigPurse's cut, which was never
 		// escrowed in the first place and so isn't available to award.
 		if m.EscrowReference != "" {
 			if agreement, err := u.escrowRepo.GetByReference(ctx, m.EscrowReference); err == nil {
+				if agreement.IsVault() {
+					vault = append(vault, m)
+					vaultHeld[m.ID] = agreement.AmountNaira
+					totalVault += agreement.AmountNaira
+					continue
+				}
 				totalFunded += agreement.AmountNaira
 			}
 		}
+		inScope = append(inScope, m)
 	}
-	if talentAmountNaira < 0 || talentAmountNaira > totalFunded+settlementEpsilon {
-		return nil, fmt.Errorf("talent_amount must be between 0 and %.2f (the amount actually held in escrow for this dispute)", totalFunded)
+	awarded := talentAmountNaira
+	if awarded < 0 || awarded > totalFunded+totalVault+settlementEpsilon {
+		return nil, fmt.Errorf("talent_amount must be between 0 and %.2f (the amount actually held in escrow for this dispute)", totalFunded+totalVault)
+	}
+	// TrustVault milestones take their share of the award first: that money
+	// can be split any way, while TrustCore's can only go all one way.
+	vaultAward := map[string]float64{}
+	talentAmountNaira = awarded
+	for _, m := range vault {
+		share := min(talentAmountNaira, vaultHeld[m.ID])
+		vaultAward[m.ID] = share
+		talentAmountNaira -= share
 	}
 
 	fullRelease := talentAmountNaira >= totalFunded-settlementEpsilon && totalFunded > 0
@@ -497,12 +514,17 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 
 	dispute.Status = "resolved"
 	dispute.Resolution = resolution
-	dispute.TalentAmountNaira = talentAmountNaira
+	dispute.TalentAmountNaira = awarded
 	dispute.UpdatedAt = time.Now()
 	if err := u.disputeRepo.Update(ctx, dispute); err != nil {
 		return nil, fmt.Errorf("failed to resolve dispute: %w", err)
 	}
 
+	for _, m := range vault {
+		if err := u.milestoneUsecase.BeginVaultSettlement(ctx, m.ID, vaultAward[m.ID]); err != nil {
+			log.Printf("dispute %s: milestone %s settlement failed: %v", disputeID, m.ID, err)
+		}
+	}
 	if fullRelease {
 		for _, m := range inScope {
 			if _, err := u.milestoneUsecase.ReleaseDisputed(ctx, dispute.ContractID, m.ID); err != nil {
@@ -528,10 +550,12 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 	// Legacy job-level (pre-milestone, whole-budget-upfront) escrow has no
 	// partial concept — anything above a token amount counts as "talent won"
 	// for that portion specifically.
-	u.resolveJobEscrow(ctx, dispute, talentAmountNaira <= settlementEpsilon)
+	u.resolveJobEscrow(ctx, dispute, awarded <= settlementEpsilon)
 
 	var summary string
 	switch {
+	case len(vault) > 0:
+		summary = fmt.Sprintf("%s — talent awarded %s; the client must confirm it with the code PayPetal emails them.", resolution, formatNaira(awarded))
 	case fullRelease:
 		summary = fmt.Sprintf("%s — full amount released to the talent.", resolution)
 	case partial:

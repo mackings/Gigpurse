@@ -27,6 +27,7 @@ func (h *MilestoneHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/milestones/fund", JWTMiddleware(h.Fund))
 	mux.HandleFunc("/milestones/fund/finalize", JWTMiddleware(h.FinalizeFund))
 	mux.HandleFunc("/milestones/release", JWTMiddleware(h.Release))
+	mux.HandleFunc("POST /milestones/release/code", JWTMiddleware(h.SendReleaseCode))
 	mux.HandleFunc("/milestones/cancel", JWTMiddleware(h.Cancel))
 	mux.HandleFunc("/milestones/request-release", JWTMiddleware(h.RequestRelease))
 }
@@ -119,6 +120,7 @@ func (h *MilestoneHandler) HandleMilestones(w http.ResponseWriter, r *http.Reque
 type milestoneActionRequest struct {
 	ContractID  string `json:"contract_id"`
 	MilestoneID string `json:"milestone_id"`
+	Code        string `json:"code"` // release only, TrustVault only
 }
 
 func (h *MilestoneHandler) Accept(w http.ResponseWriter, r *http.Request) {
@@ -292,10 +294,40 @@ func (h *MilestoneHandler) Release(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
-	milestone, err := h.milestoneUsecase.Release(r.Context(), req.ContractID, req.MilestoneID, userID)
+	var milestone *domain.Milestone
+	var err error
+	if req.Code != "" {
+		milestone, err = h.milestoneUsecase.ReleaseWithCode(r.Context(), req.ContractID, req.MilestoneID, userID, req.Code)
+	} else {
+		milestone, err = h.milestoneUsecase.Release(r.Context(), req.ContractID, req.MilestoneID, userID)
+	}
 	if err != nil {
+		if errors.Is(err, usecase.ErrReleaseCodeRequired) {
+			respondError(w, http.StatusConflict, "release_code_required", err.Error())
+			return
+		}
 		respondError(w, http.StatusBadRequest, "milestone_release_failed", err.Error())
 		return
 	}
 	respondSuccess(w, http.StatusOK, "milestone released successfully", milestone)
+}
+
+// SendReleaseCode has PayPetal email the client the code a TrustVault release
+// needs.
+func (h *MilestoneHandler) SendReleaseCode(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := GetUserFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	var req milestoneActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
+		return
+	}
+	if err := h.milestoneUsecase.SendMilestoneReleaseCode(r.Context(), req.ContractID, req.MilestoneID, userID); err != nil {
+		respondError(w, http.StatusBadRequest, "release_code_failed", err.Error())
+		return
+	}
+	respondSuccess(w, http.StatusOK, "code sent to your email", nil)
 }

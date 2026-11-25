@@ -32,6 +32,7 @@ type milestoneUsecase struct {
 	broadcaster     Broadcaster
 	escrowRepo      domain.EscrowAgreementRepository
 	frontendBaseURL string
+	vault           VaultConfig
 }
 
 func NewMilestoneUsecase(
@@ -45,6 +46,7 @@ func NewMilestoneUsecase(
 	userRepo domain.UserRepository,
 	escrowRepo domain.EscrowAgreementRepository,
 	frontendBaseURL string,
+	vault VaultConfig,
 ) domain.MilestoneUsecase {
 	return &milestoneUsecase{
 		paypetalDeps:    paypetalDeps{client: paypetalClient, userRepo: userRepo},
@@ -56,6 +58,7 @@ func NewMilestoneUsecase(
 		broadcaster:     broadcaster,
 		escrowRepo:      escrowRepo,
 		frontendBaseURL: frontendBaseURL,
+		vault:           vault,
 	}
 }
 
@@ -406,19 +409,33 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	// PayPetal; every reference in their docs sticks to letters, digits and
 	// dashes.
 	reference := "ms" + milestoneID
-	result, err := u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
-		ReferenceID:            reference,
-		InitiatorCustomerID:    clientCustomerID,
-		CounterpartyCustomerID: musicianCustomerID,
-		Currency:               "NGN",
-		Amount:                 paypetal.FormatAmount(talentAmount),
-		MerchantCharge:         merchantCharge,
-		Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
-		// PayPetal appends "?status=...&txnId=..." to this URL itself, blindly
-		// (no check for an existing "?") — so reference must ride in the path,
-		// never a query string, or we get a broken double-"?" redirect.
-		RedirectURL: u.frontendBaseURL + "/contracts/pending/" + url.PathEscape(reference),
-	})
+	// PayPetal appends "?status=...&txnId=..." to this URL itself, blindly
+	// (no check for an existing "?") — so reference must ride in the path,
+	// never a query string, or we get a broken double-"?" redirect.
+	redirectURL := u.frontendBaseURL + "/contracts/pending/" + url.PathEscape(reference)
+
+	var paymentURL, transactionID, provider string
+	if u.vault.Enabled {
+		provider = domain.ProviderVault
+		// TrustVault has no merchantCharge: the client pays the whole total
+		// into escrow and GigPurse keeps its fee when paying the talent.
+		paymentURL, transactionID, err = u.createVaultPayment(ctx, reference, clientCustomerID, milestone.Title, redirectURL, talentAmount+platformFee)
+	} else {
+		var result *paypetal.AgreementResult
+		result, err = u.client.CreateTrustCoreAgreement(ctx, paypetal.CreateAgreementInput{
+			ReferenceID:            reference,
+			InitiatorCustomerID:    clientCustomerID,
+			CounterpartyCustomerID: musicianCustomerID,
+			Currency:               "NGN",
+			Amount:                 paypetal.FormatAmount(talentAmount),
+			MerchantCharge:         merchantCharge,
+			Description:            fmt.Sprintf("GigPurse milestone: %s", milestone.Title),
+			RedirectURL:            redirectURL,
+		})
+		if err == nil {
+			paymentURL, transactionID = result.PaymentURL, result.TransactionID
+		}
+	}
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start payment: %w", err)
 	}
@@ -434,8 +451,9 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 		CounterpartyUserID:     contract.MusicianID,
 		AmountNaira:            talentAmount,
 		PlatformFeeNaira:       platformFee,
-		TrustCoreTransactionID: result.TransactionID,
-		Status:                 result.Status,
+		Provider:               provider,
+		TrustCoreTransactionID: transactionID,
+		Status:                 "PENDING",
 		PayoutStatus:           "NONE",
 		RefundStatus:           "NONE",
 	}
@@ -453,11 +471,12 @@ func (u *milestoneUsecase) Fund(ctx context.Context, contractID, milestoneID, us
 	}
 
 	milestone.EscrowReference = reference
+	milestone.EscrowProvider = provider
 	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 		return "", "", err
 	}
 
-	return result.PaymentURL, reference, nil
+	return paymentURL, reference, nil
 }
 
 // FinalizeFund confirms a milestone payment and flips it to "funded" — the
@@ -476,7 +495,7 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 		return milestone, nil // already finalized (released covers a settlement milestone's auto-release below)
 	}
 
-	state, err := u.client.GetTrustCoreAgreement(ctx, reference)
+	state, err := u.paymentConfirmed(ctx, agreement)
 	if err != nil {
 		return nil, fmt.Errorf("failed to confirm payment: %w", err)
 	}
@@ -503,8 +522,9 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 	// Release and refund act on the milestone's own reference, so it has to
 	// be the one that was actually paid — a milestone first funded under the
 	// old "ms:" format can have checkouts under both.
-	if milestone.EscrowReference != reference {
+	if milestone.EscrowReference != reference || milestone.EscrowProvider != agreement.Provider {
 		milestone.EscrowReference = reference
+		milestone.EscrowProvider = agreement.Provider
 		if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 			return nil, err
 		}
@@ -528,7 +548,10 @@ func (u *milestoneUsecase) FinalizeFund(ctx context.Context, reference string) (
 	// moderator already ruled on whether the work was done, so it pays out
 	// the instant the client funds it rather than waiting on a separate
 	// Release click that could just never come.
-	if milestone.DisputeID != "" {
+	if milestone.DisputeID != "" && agreement.IsVault() {
+		u.notify(ctx, agreement.InitiatorUserID, "Confirm the settlement payment",
+			fmt.Sprintf("Your payment for '%s' is in. Open the contract and release it with the code PayPetal emails you.", milestone.Title), milestone.ContractID)
+	} else if milestone.DisputeID != "" {
 		if released, err := u.Release(ctx, milestone.ContractID, milestone.ID, agreement.InitiatorUserID); err == nil {
 			return released, nil
 		}
@@ -581,6 +604,17 @@ func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domai
 	if milestone.EscrowReference == "" {
 		return nil, errors.New("milestone has no escrow agreement on file")
 	}
+	// agreement.AmountNaira is what's actually released here — the talent's
+	// take-home after GigPurse's commission, already smaller than
+	// milestone.Amount (see pricing.go). The client's platform fee isn't
+	// part of this release; it was already collected as part of funding.
+	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
+	if err != nil {
+		return nil, fmt.Errorf("escrow agreement not found: %w", err)
+	}
+	if agreement.IsVault() {
+		return nil, ErrReleaseCodeRequired
+	}
 
 	// Claim the release before calling PayPetal, not after — a client's
 	// manual Release click can race FinalizeFund's own auto-release for a
@@ -614,14 +648,6 @@ func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domai
 		// PayPetal's side — that's a real success, not an error, so fall
 		// through and record it as one.
 	}
-	// agreement.AmountNaira is what's actually released here — the talent's
-	// take-home after GigPurse's commission, already smaller than
-	// milestone.Amount (see pricing.go). The client's platform fee isn't
-	// part of this release; it was already collected as part of funding.
-	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
-	if err != nil {
-		return nil, fmt.Errorf("escrow agreement not found: %w", err)
-	}
 	agreement.PayoutStatus = "PENDING"
 	_ = u.escrowRepo.Update(ctx, agreement)
 
@@ -648,7 +674,7 @@ func (u *milestoneUsecase) releaseMilestone(ctx context.Context, contract *domai
 // RequestRefund lets the client who funded a milestone pull the escrow back
 // before it's released — the single-item, client-initiated counterpart to
 // RefundHeldForContract's dispute-driven sweep below.
-func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenceID string) error {
+func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenceID, code string) error {
 	agreement, err := u.escrowRepo.GetByReference(ctx, referenceID)
 	if err != nil {
 		return fmt.Errorf("escrow agreement not found: %w", err)
@@ -668,6 +694,12 @@ func (u *milestoneUsecase) RequestRefund(ctx context.Context, clientID, referenc
 	}
 	if milestone.Status == "disputed" {
 		return errors.New("this payment is under dispute — a moderator has to settle it")
+	}
+	if agreement.IsVault() {
+		if milestone.Status != "funded" {
+			return errors.New("this milestone isn't currently funded")
+		}
+		return u.refundVault(ctx, agreement, milestone, code)
 	}
 	// Same claim-before-calling-PayPetal guard as RefundMilestone, so a
 	// dispute opened at the same moment can't be refunded out from under.
@@ -738,16 +770,19 @@ func (u *milestoneUsecase) RefundMilestone(ctx context.Context, milestoneID stri
 	// closes the same class of race rather than leaving it for the next
 	// caller who adds one.
 	startingStatus := milestone.Status
+	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
+	if err != nil {
+		return err
+	}
+	if agreement.IsVault() {
+		return ErrReleaseCodeRequired
+	}
 	won, err := u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, startingStatus, "refunded")
 	if err != nil {
 		return err
 	}
 	if !won {
 		return nil
-	}
-	agreement, err := u.escrowRepo.GetByReference(ctx, milestone.EscrowReference)
-	if err != nil {
-		return err
 	}
 	if err := u.client.RefundTrustCoreAgreement(ctx, milestone.EscrowReference); err != nil {
 		_, _ = u.milestoneRepo.CompareAndSwapStatus(ctx, milestone.ID, "refunded", startingStatus)
@@ -851,8 +886,12 @@ func (u *milestoneUsecase) RequestRelease(ctx context.Context, contractID, miles
 	if err := u.milestoneRepo.Update(ctx, milestone); err != nil {
 		return err
 	}
+	deadline := "it auto-releases in 48h if you don't act"
+	if milestone.EscrowProvider == domain.ProviderVault {
+		deadline = "open the contract and enter the code PayPetal emails you"
+	}
 	u.notify(ctx, contract.ClientID, "Release requested",
-		fmt.Sprintf("The talent asked you to release '%s' (%s) — it auto-releases in 48h if you don't act.", milestone.Title, formatNaira(milestone.Amount)), contractID)
+		fmt.Sprintf("The talent asked you to release '%s' (%s) — %s.", milestone.Title, formatNaira(milestone.Amount), deadline), contractID)
 	return nil
 }
 
@@ -958,6 +997,10 @@ func (u *milestoneUsecase) releaseDueMilestones(ctx context.Context) {
 		}
 		contract, err := u.contractRepo.GetByID(ctx, m.ContractID)
 		if err != nil {
+			continue
+		}
+		if m.EscrowProvider == domain.ProviderVault {
+			u.nudgeVaultRelease(ctx, contract, m)
 			continue
 		}
 		// Release is normally client-gated; the system is acting on the

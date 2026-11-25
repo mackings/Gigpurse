@@ -65,6 +65,7 @@ type EscrowHolding struct {
 	// platform fee the client paid on top of it.
 	RefundAmount float64   `json:"refund_amount"`
 	Disputed     bool      `json:"disputed"`
+	NeedsCode    bool      `json:"needs_code"` // TrustVault
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -79,5 +80,7 @@ type WalletUsecase interface {
 	// RequestRefund pulls a specific holding back to the client — routed to
 	// jobUsecase.RequestHireRefund or milestoneUsecase.RequestRefund
 	// depending on the holding's scope type.
-	RequestRefund(ctx context.Context, userID, referenceID string) error
+	RequestRefund(ctx context.Context, userID, referenceID, code string) error
+	// SendReleaseCode emails the client the code a TrustVault refund needs.
+	SendReleaseCode(ctx context.Context, userID, referenceID string) error
 }

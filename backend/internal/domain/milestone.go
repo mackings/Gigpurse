@@ -25,6 +25,8 @@ import (
 //	             ending the contract, or by withdrawing the milestone) —
 //	             locked from Release/RequestRefund/auto-release until a
 //	             moderator resolves that dispute
+//	settling  -- TrustVault only: a moderator has ruled, and the client still
+//	             has to enter their emailed code before the money can move
 type Milestone struct {
 	ID         string                      `json:"id" bson:"_id"`
 	ContractID string                      `json:"contract_id" bson:"contract_id"`
@@ -46,6 +48,15 @@ type Milestone struct {
 	// EscrowReference points at the EscrowAgreement backing this milestone's
 	// PayPetal TrustCore payment — set by Fund, confirmed by FinalizeFund.
 	EscrowReference string `json:"-" bson:"escrow_reference,omitempty"`
+	// EscrowProvider mirrors the agreement's Provider so the frontend knows
+	// whether releasing needs a code.
+	EscrowProvider string `json:"escrow_provider,omitempty" bson:"escrow_provider,omitempty"`
+	// SettlementTalent is what a moderator awarded the talent on a "settling"
+	// milestone; the client gets the rest back.
+	SettlementTalent *float64 `json:"settlement_talent,omitempty" bson:"settlement_talent,omitempty"`
+	// ReleaseNudgedAt is the last time a client was reminded about an
+	// overdue TrustVault release request.
+	ReleaseNudgedAt *time.Time `json:"-" bson:"release_nudged_at,omitempty"`
 
 	// DisputeID does double duty: on an original milestone it's set the
 	// moment a dispute over it opens (locks it at status "disputed"); on a
@@ -61,6 +72,13 @@ type Milestone struct {
 	// after 48h if the client hasn't acted (released, refunded, or
 	// disputed) by then. See MilestoneUsecase.RequestRelease.
 	ReleaseRequestedAt *time.Time `json:"release_requested_at,omitempty" bson:"release_requested_at,omitempty"`
+}
+
+// AwaitingClientSettlement reports whether a moderator has ruled on this and
+// the client still owes the next step: paying a settlement (TrustCore) or
+// confirming the ruling with their code (TrustVault).
+func (m *Milestone) AwaitingClientSettlement() bool {
+	return m.Status == "settling" || (m.Status == "accepted" && m.DisputeID != "")
 }
 
 // MilestoneNegotiationEntry records one offer in a milestone's back-and-forth
@@ -131,6 +149,18 @@ type MilestoneUsecase interface {
 	// "" for requesterRole from any ordinary participant-only call site.
 	List(ctx context.Context, contractID, requesterID, requesterRole string) ([]*Milestone, error)
 
+	// TrustVault payments only move with a 6-digit code PayPetal emails the
+	// client. SendMilestoneReleaseCode/SendReleaseCode trigger that email;
+	// ReleaseWithCode and RequestRefund use the code.
+	SendMilestoneReleaseCode(ctx context.Context, contractID, milestoneID, userID string) error
+	SendReleaseCode(ctx context.Context, userID, referenceID string) error
+	ReleaseWithCode(ctx context.Context, contractID, milestoneID, userID, code string) (*Milestone, error)
+	// BeginVaultSettlement records a moderator's ruling on a disputed
+	// TrustVault milestone — never exposed on any HTTP route.
+	BeginVaultSettlement(ctx context.Context, milestoneID string, talentAward float64) error
+	// ReconcileVault finishes or undoes releases PayPetal hadn't confirmed.
+	ReconcileVault(ctx context.Context)
+
 	// RefundHeldForContract sweeps every still-`funded` milestone on a
 	// contract back to the client's wallet balance — used when a dispute
 	// resolves in the client's favor. Unlike Release/Fund this isn't gated
@@ -148,7 +178,8 @@ type MilestoneUsecase interface {
 	// RequestRefund is the client-initiated, single-item counterpart to
 	// RefundHeldForContract — gated by clientID, callable directly (e.g.
 	// from the wallet), not just from dispute resolution.
-	RequestRefund(ctx context.Context, clientID, referenceID string) error
+	// code is required for TrustVault payments and ignored otherwise.
+	RequestRefund(ctx context.Context, clientID, referenceID, code string) error
 
 	// CancelAccepted cancels a still-`accepted` (not yet funded) milestone —
 	// no money involved, so no dispute needed. Ungated like

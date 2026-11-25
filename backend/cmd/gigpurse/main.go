@@ -81,6 +81,7 @@ func main() {
 	walletRepo := mongodb.NewWalletRepository(db)
 	milestoneRepo := mongodb.NewMilestoneRepository(db)
 	escrowAgreementRepo := mongodb.NewEscrowAgreementRepository(db)
+	payoutRepo := mongodb.NewPayoutRepository(db)
 
 	// PayPetal — sandbox vs production is a config change, not a code
 	// change. PAYPETAL_BASE_URL defaults to sandbox so a missing env var
@@ -93,6 +94,15 @@ func main() {
 	paypetalAppID := os.Getenv("PAYPETAL_APP_ID")
 	if paypetalSecretKey == "" || paypetalAppID == "" {
 		log.Println("PAYPETAL_SECRET_KEY/PAYPETAL_APP_ID not set — escrow payment features will fail.")
+	}
+	// Which PayPetal escrow product new milestone payments use. Existing
+	// payments keep whichever they were created with.
+	escrowProduct := os.Getenv("PAYPETAL_ESCROW_PRODUCT")
+	if escrowProduct == "" {
+		escrowProduct = "trustvault"
+	}
+	if escrowProduct != "trustvault" && escrowProduct != "trustcore" {
+		log.Fatalf("PAYPETAL_ESCROW_PRODUCT must be trustvault or trustcore, got %q", escrowProduct)
 	}
 	paypetalClient := paypetal.NewClient(paypetalBaseURL, paypetalSecretKey, paypetalAppID)
 	// Where PayPetal redirects the client back to after hosted checkout.
@@ -110,7 +120,8 @@ func main() {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo, contractRepo, milestoneRepo, escrowAgreementRepo, jobUsecase, frontendBaseURL)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL)
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL, usecase.VaultConfig{Enabled: escrowProduct == "trustvault", Payouts: payoutRepo})
+	payoutUsecase := usecase.NewPayoutUsecase(payoutRepo, escrowAgreementRepo, walletRepo, userRepo, notifRepo)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowAgreementRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, contractRepo, milestoneRepo, notifRepo)
@@ -142,6 +153,7 @@ func main() {
 	pushHandler := delivery.NewPushHandler(pushSubRepo, vapidPublicKey)
 	linkPreviewHandler := delivery.NewLinkPreviewHandler()
 	pricingHandler := delivery.NewPricingHandler()
+	payoutHandler := delivery.NewPayoutHandler(payoutUsecase)
 	payoutAccountHandler := delivery.NewPayoutAccountHandler(payoutAccountUsecase)
 	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(paypetalClient, escrowAgreementRepo, jobUsecase, milestoneUsecase, notifRepo)
 
@@ -171,6 +183,7 @@ func main() {
 	linkPreviewHandler.RegisterRoutes(mux)
 	pricingHandler.RegisterRoutes(mux)
 	payoutAccountHandler.RegisterRoutes(mux)
+	payoutHandler.RegisterRoutes(mux)
 	// Deliberately outside JWTMiddleware — PayPetal isn't a logged-in
 	// GigPurse user. See PayPetalWebhookHandler for why the payload itself
 	// is never trusted for a money decision.

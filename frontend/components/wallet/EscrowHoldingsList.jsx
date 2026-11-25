@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/utils";
+import { apiPost } from "@/lib/api";
+import ReleaseCodeDialog from "@/components/milestones/ReleaseCodeDialog";
 import { Briefcase, Flag, Loader2, ShieldCheck, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -73,6 +75,21 @@ export default function EscrowHoldingsList({ holdings, onRequestRefund }) {
               <p className="text-sm font-semibold text-foreground tabular-nums">{formatMoney(h.amount)}</p>
               {h.disputed ? (
                 <span className="text-xs font-medium text-rose-600 dark:text-rose-400">Under dispute</span>
+              ) : h.needs_code ? (
+                <ReleaseCodeDialog
+                  title="Request a refund?"
+                  description={`${formatMoney(h.refund_amount ?? h.amount)} for '${h.title}' comes back to the bank account saved on this page. GigPurse sends it by bank transfer. PayPetal emails you a code to confirm, and doesn't refund its own checkout fee.`}
+                  confirmLabel="Request refund"
+                  successMessage={`Refund approved for '${h.title}'. GigPurse will send it to your bank.`}
+                  onSendCode={() => apiPost("/wallet/escrow/code", { reference_id: h.reference_id })}
+                  onConfirm={(code) => onRequestRefund(h.reference_id, code)}
+                  trigger={
+                    <Button size="sm" variant="outline" className="gap-1.5">
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Refund
+                    </Button>
+                  }
+                />
               ) : (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

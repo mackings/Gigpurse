@@ -17,6 +17,9 @@ import (
 type PayPetalFake struct {
 	mu         sync.Mutex
 	customers  []paypetal.Customer
+	vaults     map[string]*vaultFake
+	LastVault  paypetal.CreateVaultInput
+	VaultDown  bool
 	payouts    map[string]bool // customerID -> has a payout account on file
 	agreements map[string]*paypetal.AgreementState
 	nextID     int
@@ -180,4 +183,112 @@ func (f *PayPetalFake) SimulatePaymentCompleted(reference string) {
 	if a, ok := f.agreements[reference]; ok {
 		a.Status = "ONGOING"
 	}
+}
+
+// VaultCode is the release code the fake "emails" for every agreement.
+const VaultCode = "483921"
+
+type vaultFake struct {
+	status  string
+	coded   bool
+	failErr error // returned by the next release...
+	applied bool  // ...which nonetheless went through
+}
+
+func (f *PayPetalFake) vault(reference string) (*vaultFake, error) {
+	v, ok := f.vaults[reference]
+	if !ok {
+		return nil, &paypetal.APIError{HTTPStatus: 404, Code: "agreement_not_found", Message: "Agreement not found"}
+	}
+	return v, nil
+}
+
+func (f *PayPetalFake) CreateVaultAgreement(ctx context.Context, in paypetal.CreateVaultInput) (*paypetal.VaultResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.vaults == nil {
+		f.vaults = map[string]*vaultFake{}
+	}
+	if _, ok := f.vaults[in.ReferenceID]; !ok {
+		f.vaults[in.ReferenceID] = &vaultFake{status: "CREATED"}
+	}
+	f.LastVault = in
+	return &paypetal.VaultResult{PaymentURL: "https://fake.paypetal.test/pay?pid=" + in.ReferenceID, Reference: "pp_" + in.ReferenceID, Status: f.vaults[in.ReferenceID].status}, nil
+}
+
+func (f *PayPetalFake) GetVaultAgreement(ctx context.Context, reference string) (*paypetal.VaultState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.VaultDown {
+		return nil, fmt.Errorf("paypetal: request failed: timeout")
+	}
+	v, err := f.vault(reference)
+	if err != nil {
+		return nil, err
+	}
+	return &paypetal.VaultState{Status: v.status}, nil
+}
+
+func (f *PayPetalFake) SendVaultReleaseCode(ctx context.Context, reference string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v, err := f.vault(reference)
+	if err != nil {
+		return err
+	}
+	if v.status != "PAID" {
+		return &paypetal.APIError{HTTPStatus: 400, Code: "agreement_has_not_been_paid", Message: "Agreement has not been paid"}
+	}
+	v.coded = true
+	return nil
+}
+
+func (f *PayPetalFake) ReleaseVaultAgreement(ctx context.Context, reference, code string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v, err := f.vault(reference)
+	if err != nil {
+		return err
+	}
+	if v.failErr != nil {
+		err := v.failErr
+		v.failErr = nil
+		if v.applied {
+			v.status = "COMPLETED"
+		}
+		return err
+	}
+	switch {
+	case v.status == "COMPLETED":
+		return &paypetal.APIError{HTTPStatus: 400, Code: "agreement_has_already_been_completed", Message: "Agreement has already been completed"}
+	case !v.coded:
+		return &paypetal.APIError{HTTPStatus: 400, Code: "code_expired", Message: "Code expired"}
+	case code != VaultCode:
+		return &paypetal.APIError{HTTPStatus: 400, Code: "invalid_code", Message: "Invalid code"}
+	}
+	v.status = "COMPLETED"
+	return nil
+}
+
+// SimulateVaultPaid stands in for the client completing hosted checkout.
+func (f *PayPetalFake) SimulateVaultPaid(reference string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.vaults[reference].status = "PAID"
+}
+
+// FailNextVaultRelease makes the next release return an error, with applied
+// saying whether PayPetal actually moved the money anyway.
+func (f *PayPetalFake) FailNextVaultRelease(reference string, applied bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := f.vaults[reference]
+	v.failErr, v.applied = fmt.Errorf("paypetal: request failed: timeout"), applied
+}
+
+// SetVaultDown makes status lookups fail.
+func (f *PayPetalFake) SetVaultDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.VaultDown = down
 }

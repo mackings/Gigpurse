@@ -32,6 +32,11 @@ type API interface {
 	LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error
 	RemovePayoutAccount(ctx context.Context, customerID string) error
 
+	CreateVaultAgreement(ctx context.Context, in CreateVaultInput) (*VaultResult, error)
+	GetVaultAgreement(ctx context.Context, reference string) (*VaultState, error)
+	SendVaultReleaseCode(ctx context.Context, reference string) error
+	ReleaseVaultAgreement(ctx context.Context, reference, code string) error
+
 	CreateTrustCoreAgreement(ctx context.Context, in CreateAgreementInput) (*AgreementResult, error)
 	GetTrustCoreAgreement(ctx context.Context, reference string) (*AgreementState, error)
 	CompleteTrustCoreAgreement(ctx context.Context, reference string) error
