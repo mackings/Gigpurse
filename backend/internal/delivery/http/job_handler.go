@@ -483,9 +483,6 @@ func (h *JobHandler) UnshortlistApplication(w http.ResponseWriter, r *http.Reque
 	respondSuccess(w, http.StatusOK, "application removed from shortlist", app)
 }
 
-// FinalizeHire is polled by the frontend after the client returns from
-// PayPetal's hosted checkout (the webhook also calls the same usecase
-// method independently — whichever lands first wins, both are idempotent).
 func (h *JobHandler) SaveJob(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

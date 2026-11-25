@@ -6,9 +6,9 @@ import (
 	"net/url"
 )
 
-// CreateVaultInput describes a new one-time TrustVault agreement. Unlike
-// TrustCore there is no counterparty and no merchantCharge: the customer pays
-// Amount, and on release all of it lands in GigPurse's own wallet.
+// CreateVaultInput describes a new one-time TrustVault agreement. There's no
+// receiving party: the customer pays Amount (a Naira string built with
+// FormatAmount), and on release all of it lands in GigPurse's own wallet.
 type CreateVaultInput struct {
 	ReferenceID string
 	CustomerID  string // who pays, and who PayPetal emails release codes to
@@ -31,6 +31,10 @@ type VaultState struct {
 	Status         string
 	ReleasedAmount float64
 }
+
+// Paid reports whether the client's money has reached escrow (including if
+// it has since been released).
+func (s *VaultState) Paid() bool { return s.Status == "PAID" || s.Status == "COMPLETED" }
 
 const vaultPath = "/api/v1/escrow/trustvault/agreement"
 

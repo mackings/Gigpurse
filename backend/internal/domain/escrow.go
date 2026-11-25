@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// EscrowAgreement mirrors one PayPetal TrustCore agreement locally, scoped
+// EscrowAgreement mirrors one PayPetal escrow agreement locally, scoped
 // to whichever GigPurse concept already has two fixed parties: a whole-job
 // hire (ScopeType "job_hire", ScopeID = JobApplication.ID) or a milestone
 // (ScopeType "milestone", ScopeID = Milestone.ID). Status/PayoutStatus/
@@ -30,17 +30,17 @@ type EscrowAgreement struct {
 	// counterparty on completion — the agreed price minus GigPurse's
 	// commission (see usecase.TalentTakeHome). PlatformFeeNaira is
 	// GigPurse's cut, billed to the initiator on top of AmountNaira as a
-	// PayPetal merchantCharge (see usecase.PlatformFee) — captured here at
+	// part of the payment (see usecase.PlatformFee) — captured here at
 	// creation time rather than recomputed later, so a past agreement's
 	// numbers stay accurate even if the rates change going forward.
 	AmountNaira      float64 `json:"amount" bson:"amount_naira"`
 	PlatformFeeNaira float64 `json:"platform_fee" bson:"platform_fee_naira"`
 
-	// Provider is which PayPetal product holds this money: "trustvault", or
-	// "" for TrustCore (everything created before TrustVault).
+	// Provider is "trustvault", or "" on records from before it.
 	Provider string `json:"provider,omitempty" bson:"provider,omitempty"`
 
-	TrustCoreTransactionID string `json:"-" bson:"trustcore_transaction_id"`
+	// PayPetalReference is PayPetal's own reference for this agreement.
+	PayPetalReference string `json:"-" bson:"paypetal_reference,omitempty"`
 
 	Status       string `json:"status" bson:"status"`               // PENDING, ONGOING, ...
 	PayoutStatus string `json:"payout_status" bson:"payout_status"` // NONE, PENDING, COMPLETED, ...
@@ -50,9 +50,8 @@ type EscrowAgreement struct {
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
 }
 
-// RefundTotal is what the initiator gets back on a refund. PayPetal returns
-// the escrowed amount plus our merchantCharge (PayPetal's own checkout fee
-// is not refunded), to the initiator's linked payout account.
+// RefundTotal is everything the initiator paid into escrow: the talent's share
+// plus GigPurse's fee. PayPetal's own checkout fee is on top and not refunded.
 func (a *EscrowAgreement) RefundTotal() float64 {
 	return a.AmountNaira + a.PlatformFeeNaira
 }

@@ -51,7 +51,7 @@ func (f *escrowFixture) wallet(tok string) (w domain.WalletSummary) {
 }
 
 func TestVault_FundReleasePayout(t *testing.T) {
-	f := newEscrowFixtureWith(t, true)
+	f := newEscrowFixture(t)
 	id, ref := f.vaultFunded(500)
 
 	in := f.app.paypetal.LastVault
@@ -109,7 +109,7 @@ func TestVault_FundReleasePayout(t *testing.T) {
 }
 
 func TestVault_ClientRefundReturnsEverything(t *testing.T) {
-	f := newEscrowFixtureWith(t, true)
+	f := newEscrowFixture(t)
 	id, ref := f.vaultFunded(500)
 	f.post("/wallet/escrow/refund", f.clientTok, map[string]any{"reference_id": ref}, http.StatusConflict, nil)
 	f.post("/wallet/escrow/code", f.clientTok, map[string]any{"reference_id": ref}, http.StatusOK, nil)
@@ -138,7 +138,7 @@ func TestVault_DisputeRulings(t *testing.T) {
 		{"split", 200, 200, 325, "released"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newEscrowFixtureWith(t, true)
+			f := newEscrowFixture(t)
 			id, ref := f.vaultFunded(500)
 			var d domain.Dispute
 			f.post("/disputes", f.musicianTok, map[string]any{"contract_id": f.contractID, "reason": "Unpaid"}, http.StatusCreated, &d)
@@ -147,6 +147,11 @@ func TestVault_DisputeRulings(t *testing.T) {
 			f.post("/milestones/release", f.clientTok, f.body(id, "code", memory.VaultCode), http.StatusBadRequest, nil)
 			f.post("/wallet/escrow/refund", f.clientTok, map[string]any{"reference_id": ref, "code": memory.VaultCode}, http.StatusBadRequest, nil)
 
+			var holdings []domain.EscrowHolding
+			f.get("/wallet/escrow", f.clientTok, http.StatusOK, &holdings)
+			if len(holdings) != 1 || !holdings[0].Disputed {
+				t.Fatalf("expected the holding flagged as disputed, got %#v", holdings)
+			}
 			f.post("/disputes/join", f.admTok, map[string]any{"dispute_id": d.ID}, http.StatusOK, nil)
 			f.post("/admin/disputes/resolve", f.admTok, map[string]any{"dispute_id": d.ID, "resolution": "x", "talent_amount": 451}, http.StatusBadRequest, nil)
 			f.post("/admin/disputes/resolve", f.admTok, map[string]any{"dispute_id": d.ID, "resolution": "x", "talent_amount": tc.award}, http.StatusOK, nil)
@@ -184,7 +189,7 @@ func TestVault_LostReleaseResponse(t *testing.T) {
 		}
 	}
 	for _, applied := range []bool{true, false} {
-		f := newEscrowFixtureWith(t, true)
+		f := newEscrowFixture(t)
 		id, ref := f.vaultFunded(500)
 		f.sendCode(id)
 		f.app.paypetal.FailNextVaultRelease(ref, applied)
@@ -217,7 +222,7 @@ func TestVault_LostReleaseResponse(t *testing.T) {
 	}
 
 	// Response lost but PayPetal reachable: resolved on the spot.
-	f := newEscrowFixtureWith(t, true)
+	f := newEscrowFixture(t)
 	id, ref := f.vaultFunded(500)
 	f.sendCode(id)
 	f.app.paypetal.FailNextVaultRelease(ref, true)
@@ -227,24 +232,30 @@ func TestVault_LostReleaseResponse(t *testing.T) {
 	}
 }
 
-// Agreements made on TrustCore keep working after the switch.
-func TestVault_ExistingTrustCorePaymentsUnaffected(t *testing.T) {
-	f := newEscrowFixtureWith(t, true)
+// Records from before TrustVault are inert: nothing is sent to PayPetal for
+// them and no money can move.
+func TestVault_OldRecordsAreInert(t *testing.T) {
+	f := newEscrowFixture(t)
 	ctx := context.Background()
 	id, ref := f.vaultFunded(500)
-	f.post("/milestones/release/code", f.clientTok, f.body(id), http.StatusOK, nil)
 	a, _ := f.app.escrowRepo.GetByReference(ctx, ref)
 	a.Provider = ""
 	_ = f.app.escrowRepo.Update(ctx, a)
-	// Now it's TrustCore: a code is meaningless and no code is needed.
 	f.post("/milestones/release/code", f.clientTok, f.body(id), http.StatusBadRequest, nil)
 	f.post("/milestones/release", f.clientTok, f.body(id, "code", memory.VaultCode), http.StatusBadRequest, nil)
+	f.post("/wallet/escrow/refund", f.clientTok, map[string]any{"reference_id": ref, "code": memory.VaultCode}, http.StatusBadRequest, nil)
+	f.post("/webhooks/paypetal", "", map[string]any{"reference": ref}, http.StatusOK, nil)
+	var holdings []domain.EscrowHolding
+	f.get("/wallet/escrow", f.clientTok, http.StatusOK, &holdings)
+	if len(holdings) != 0 || len(f.payouts("due")) != 0 {
+		t.Fatalf("old record should be inert, got %#v", holdings)
+	}
 }
 
 // The webhook carries PayPetal's reference in "reference" for TrustVault
 // releases and ours in "idempotencyKey".
 func TestVault_WebhookUsesIdempotencyKey(t *testing.T) {
-	f := newEscrowFixtureWith(t, true)
+	f := newEscrowFixture(t)
 	id := f.acceptedMilestone(500)
 	ref := f.startFunding(id)
 	f.app.paypetal.SimulateVaultPaid(ref)

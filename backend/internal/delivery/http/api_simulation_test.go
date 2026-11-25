@@ -368,7 +368,7 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	if fundStart.PaymentURL == "" || fundStart.Reference == "" {
 		t.Fatalf("expected a payment URL and reference from milestone Fund, got %+v", fundStart)
 	}
-	app.paypetal.SimulatePaymentCompleted(fundStart.Reference)
+	app.paypetal.SimulateVaultPaid(fundStart.Reference)
 
 	var funded domain.Milestone
 	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": fundStart.Reference}, http.StatusOK, &funded)
@@ -377,12 +377,21 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	}
 
 	var released domain.Milestone
+	client.post("/milestones/release/code", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": proposed[0].ID}, http.StatusOK, nil)
 	client.post("/milestones/release", clientToken, map[string]any{
-		"contract_id": contracts[0].ID, "milestone_id": proposed[0].ID,
+		"contract_id": contracts[0].ID, "milestone_id": proposed[0].ID, "code": memory.VaultCode,
 	}, http.StatusOK, &released)
 	if released.Status != "released" {
 		t.Fatalf("expected milestone released, got %s", released.Status)
 	}
+
+	// The release lands in GigPurse's wallet; an admin sends it on.
+	var due []domain.Payout
+	client.get("/admin/payouts", adminToken, http.StatusOK, &due)
+	if len(due) != 1 || due[0].Amount != 90 {
+		t.Fatalf("expected one 90 payout due, got %#v", due)
+	}
+	client.post("/admin/payouts/mark-paid", adminToken, map[string]any{"id": due[0].ID, "note": "NIP-1"}, http.StatusOK, nil)
 
 	var musicianTxs []domain.Transaction
 	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxs)
@@ -431,7 +440,7 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 		Reference string `json:"reference"`
 	}
 	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": secondMilestoneID}, http.StatusOK, &secondFundStart)
-	app.paypetal.SimulatePaymentCompleted(secondFundStart.Reference)
+	app.paypetal.SimulateVaultPaid(secondFundStart.Reference)
 	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": secondFundStart.Reference}, http.StatusOK, nil)
 
 	var cancelled domain.Milestone
@@ -453,9 +462,8 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	}
 	client.post("/disputes/join", adminToken, map[string]any{"dispute_id": milestoneDispute.ID}, http.StatusOK, nil)
 
-	// Partial ruling: the escrowed take-home is 180 (200 minus 10% commission)
-	// — award the talent 100 of it. The rest goes back to the client, and a
-	// new settlement milestone should appear for exactly the awarded amount.
+	// Partial ruling: the talent's share is 180 (200 minus 10% commission) —
+	// award 100 of it. The client confirms, then both halves are owed.
 	var partialResolved domain.Dispute
 	client.post("/admin/disputes/resolve", adminToken, map[string]any{
 		"dispute_id": milestoneDispute.ID, "resolution": "Partial: some work was delivered", "talent_amount": 100,
@@ -463,119 +471,20 @@ func TestSimulateClientMusicianAPIFlow(t *testing.T) {
 	if partialResolved.TalentAmountNaira != 100 {
 		t.Fatalf("expected dispute to record a talent_amount of 100, got %v", partialResolved.TalentAmountNaira)
 	}
-
-	var afterResolve []domain.Milestone
-	client.get("/milestones?contract_id="+contracts[0].ID, clientToken, http.StatusOK, &afterResolve)
-	var original, settlement *domain.Milestone
-	for i := range afterResolve {
-		if afterResolve[i].ID == secondMilestoneID {
-			original = &afterResolve[i]
-		}
-		if afterResolve[i].Title == "Dispute settlement" {
-			settlement = &afterResolve[i]
-		}
+	second := map[string]any{"contract_id": contracts[0].ID, "milestone_id": secondMilestoneID, "code": memory.VaultCode}
+	client.post("/milestones/release/code", clientToken, second, http.StatusOK, nil)
+	var settled domain.Milestone
+	client.post("/milestones/release", clientToken, second, http.StatusOK, &settled)
+	if settled.Status != "released" {
+		t.Fatalf("expected the ruling to settle, got %q", settled.Status)
 	}
-	if original == nil || original.Status != "refunded" {
-		t.Fatalf("expected the original disputed milestone refunded, got %#v", original)
+	client.get("/admin/payouts", adminToken, http.StatusOK, &due)
+	owed := map[string]float64{}
+	for _, p := range due {
+		owed[p.Kind] = p.Amount
 	}
-	if settlement == nil || settlement.Amount != 100 || settlement.Status != "accepted" {
-		t.Fatalf("expected a new 'Dispute settlement' milestone for 100, accepted and awaiting funding, got %#v", settlement)
-	}
-
-	// The client funds the settlement milestone exactly like any other —
-	// but it should auto-release the moment it's funded, no separate
-	// Release click, since the moderator already ruled on it.
-	var settlementFundStart struct {
-		Reference string `json:"reference"`
-	}
-	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": settlement.ID}, http.StatusOK, &settlementFundStart)
-	app.paypetal.SimulatePaymentCompleted(settlementFundStart.Reference)
-	var settlementFinalized domain.Milestone
-	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": settlementFundStart.Reference}, http.StatusOK, &settlementFinalized)
-	if settlementFinalized.Status != "released" {
-		t.Fatalf("expected the settlement milestone to auto-release on funding, got %q", settlementFinalized.Status)
-	}
-
-	var musicianTxsAfterSettlement []domain.Transaction
-	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxsAfterSettlement)
-	foundSettlementPayment := false
-	for _, tx := range musicianTxsAfterSettlement {
-		// The full 100 — a dispute settlement is exempt from commission
-		// (see milestoneUsecase.Fund), unlike the earlier 90-of-100 payment.
-		if tx.Type == "payment_received" && tx.Amount == 100 && tx.Reference == settlementFundStart.Reference {
-			foundSettlementPayment = true
-		}
-	}
-	if !foundSettlementPayment {
-		t.Fatalf("expected a commission-free payment_received of 100 for the settlement, got %#v", musicianTxsAfterSettlement)
-	}
-
-	// Full-release ruling: the moderator decides the talent did all the work
-	// and should keep the entire escrowed amount, no refund at all. This
-	// exercises milestoneUsecase.ReleaseDisputed directly (never covered by
-	// the partial-resolution case above) — a live sandbox test caught this
-	// path silently no-opping (releaseMilestone's CAS required status
-	// "funded" to reach "released", but a disputed milestone is never
-	// "funded" by resolution time, so the swap always lost and nothing
-	// happened, with no error surfaced anywhere).
-	var thirdProposed []domain.Milestone
-	client.post("/milestones", clientToken, map[string]any{
-		"contract_id": contracts[0].ID,
-		"milestones":  []map[string]any{{"title": "Third milestone", "amount": 300}},
-	}, http.StatusCreated, &thirdProposed)
-	thirdMilestoneID := thirdProposed[0].ID
-	client.post("/milestones/accept", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, nil)
-
-	var thirdFundStart struct {
-		Reference string `json:"reference"`
-	}
-	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, &thirdFundStart)
-	app.paypetal.SimulatePaymentCompleted(thirdFundStart.Reference)
-	client.post("/milestones/fund/finalize", clientToken, map[string]any{"reference": thirdFundStart.Reference}, http.StatusOK, nil)
-
-	client.post("/milestones/cancel", musicianToken, map[string]any{"contract_id": contracts[0].ID, "milestone_id": thirdMilestoneID}, http.StatusOK, nil)
-
-	var openDisputesAfterThird []domain.Dispute
-	client.get("/admin/disputes?status=open", adminToken, http.StatusOK, &openDisputesAfterThird)
-	var thirdDispute domain.Dispute
-	for _, d := range openDisputesAfterThird {
-		if d.MilestoneID == thirdMilestoneID {
-			thirdDispute = d
-		}
-	}
-	if thirdDispute.ID == "" {
-		t.Fatalf("expected an auto-opened dispute scoped to the third milestone, got %#v", openDisputesAfterThird)
-	}
-	client.post("/disputes/join", adminToken, map[string]any{"dispute_id": thirdDispute.ID}, http.StatusOK, nil)
-
-	// Escrowed take-home is 270 (300 minus 10% commission) — award all of it.
-	var fullReleaseResolved domain.Dispute
-	client.post("/admin/disputes/resolve", adminToken, map[string]any{
-		"dispute_id": thirdDispute.ID, "resolution": "Work was fully delivered", "talent_amount": 270,
-	}, http.StatusOK, &fullReleaseResolved)
-
-	var afterFullRelease []domain.Milestone
-	client.get("/milestones?contract_id="+contracts[0].ID, clientToken, http.StatusOK, &afterFullRelease)
-	var thirdAfter *domain.Milestone
-	for i := range afterFullRelease {
-		if afterFullRelease[i].ID == thirdMilestoneID {
-			thirdAfter = &afterFullRelease[i]
-		}
-	}
-	if thirdAfter == nil || thirdAfter.Status != "released" {
-		t.Fatalf("expected a full-release ruling to actually release the disputed milestone, got %#v", thirdAfter)
-	}
-
-	var musicianTxsAfterFullRelease []domain.Transaction
-	client.get("/wallet/transactions", musicianToken, http.StatusOK, &musicianTxsAfterFullRelease)
-	foundFullReleasePayment := false
-	for _, tx := range musicianTxsAfterFullRelease {
-		if tx.Type == "payment_received" && tx.Amount == 270 && tx.Reference == thirdFundStart.Reference {
-			foundFullReleasePayment = true
-		}
-	}
-	if !foundFullReleasePayment {
-		t.Fatalf("expected a payment_received of 270 for the full-release ruling, got %#v", musicianTxsAfterFullRelease)
+	if len(due) != 2 || owed[domain.PayoutTalent] != 100 || owed[domain.PayoutRefund] != 110 {
+		t.Fatalf("expected 100 to the talent and 110 back to the client, got %#v", owed)
 	}
 
 	client.get("/admin/analytics", adminToken, http.StatusOK, nil)
@@ -656,7 +565,7 @@ func TestFinalizeFund_ConcurrentCallsAreSerialized(t *testing.T) {
 		Reference  string `json:"reference"`
 	}
 	client.post("/milestones/fund", clientToken, map[string]any{"contract_id": contract.ID, "milestone_id": milestoneID}, http.StatusOK, &fundStart)
-	app.paypetal.SimulatePaymentCompleted(fundStart.Reference)
+	app.paypetal.SimulateVaultPaid(fundStart.Reference)
 
 	const concurrentCalls = 20
 	var wg sync.WaitGroup
@@ -729,9 +638,7 @@ type testApp struct {
 	milestones      domain.MilestoneUsecase
 }
 
-func newTestApp() *testApp { return newTestAppWith(false) }
-
-func newTestAppWith(vault bool) *testApp {
+func newTestApp() *testApp {
 	userRepo := newMemoryUserRepo()
 	jobRepo := newMemoryJobRepo()
 	chatRepo := newMemoryChatRepo()
@@ -757,7 +664,7 @@ func newTestAppWith(vault bool) *testApp {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := &memoryAdminUsecase{users: userRepo, jobs: jobRepo, chats: chatRepo, contracts: contractRepo, disputes: disputeRepo, milestones: milestoneRepo, escrow: escrowRepo, jobUsecase: jobUsecase}
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL, usecase.VaultConfig{Enabled: vault, Payouts: payoutRepo})
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalFake, userRepo, escrowRepo, testFrontendBaseURL, payoutRepo)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalFake, escrowRepo)
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalFake, userRepo, contractRepo, milestoneRepo, notifRepo)
@@ -785,7 +692,7 @@ func newTestAppWith(vault bool) *testApp {
 	delivery.NewMilestoneHandler(milestoneUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutHandler(usecase.NewPayoutUsecase(payoutRepo, escrowRepo, walletRepo, userRepo, notifRepo)).RegisterRoutes(mux)
-	delivery.NewPayPetalWebhookHandler(paypetalFake, escrowRepo, jobUsecase, milestoneUsecase, notifRepo).RegisterRoutes(mux)
+	delivery.NewPayPetalWebhookHandler(escrowRepo, milestoneUsecase).RegisterRoutes(mux)
 
 	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo, payoutRepo: payoutRepo, milestones: milestoneUsecase}
 }
@@ -1927,13 +1834,8 @@ func TestMemoryChatRepo_UnreadDigestFlow(t *testing.T) {
 	}
 }
 
-// TestPayoutAccount_RelinkSelfHeals covers the real production bug: PayPetal
-// allows exactly one bank account per customer, ever, and a second
-// LinkPayoutAccount call for the same customer fails with "A bank account
-// has already been added for this customer" — confirmed live against
-// PayPetal's sandbox. Before the fix this left a user permanently stuck,
-// unable to add or change a payout account after the first attempt.
-func TestPayoutAccount_RelinkSelfHeals(t *testing.T) {
+// TestPayoutAccount_Replace: a user can change the bank account on file.
+func TestPayoutAccount_Replace(t *testing.T) {
 	t.Setenv("JWT_SECRET", "payout-relink-secret")
 
 	app := newTestApp()
@@ -1953,9 +1855,6 @@ func TestPayoutAccount_RelinkSelfHeals(t *testing.T) {
 		"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0000000000",
 	}, http.StatusOK, nil)
 
-	// A second link for the same PayPetal customer, with a different
-	// account — this used to return the "already added" error verbatim and
-	// leave user.PayoutAccount unchanged. It should now self-heal.
 	client.post("/payout-account/validate", musicianToken, map[string]any{
 		"bank_code": "000", "account_number": "1111111111",
 	}, http.StatusOK, nil)

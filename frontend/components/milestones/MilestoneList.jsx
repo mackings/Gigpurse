@@ -24,10 +24,9 @@ import { openPaymentPopup } from "@/lib/payment-popup";
 import ReleaseCodeDialog from "@/components/milestones/ReleaseCodeDialog";
 import MilestoneCounterModal from "@/components/milestones/MilestoneCounterModal";
 
-// GigPurse's cut isn't deducted from the milestone amount shown — it can't
-// be (PayPetal has no partial-release), so it rides along as an additional
-// charge to the client / a smaller release to the talent. Worth surfacing
-// right where "Fund escrow" appears, or the checkout total looks wrong.
+// GigPurse's fee isn't part of the milestone amount shown: the client pays a
+// little more and the talent receives a little less. Worth surfacing right
+// where "Fund escrow" appears, or the checkout total looks wrong.
 function usePricing() {
   const { data } = useQuery({ queryKey: ["pricing"], queryFn: () => apiGet("/pricing"), staleTime: Infinity });
   return {
@@ -128,8 +127,7 @@ export default function MilestoneList({
         const StatusIcon = STATUS_ICON[m.status] || Flag;
         const cardPending = pendingKey?.startsWith(`${m.id}:`);
         const isPending = (action) => pendingKey === `${m.id}:${action}`;
-        // TrustVault money only moves with a code emailed to the client.
-        const needsCode = m.escrow_provider === "trustvault";
+        // Escrowed money only moves with a code emailed to the client.
         const sendCode = () => apiPost("/milestones/release/code", { contract_id: m.contract_id, milestone_id: m.id });
         const talentShare = m.dispute_id ? m.amount : m.amount * (1 - talentRate);
         return (
@@ -213,7 +211,7 @@ export default function MilestoneList({
                   Fund escrow
                 </Button>
               )}
-              {role === "client" && m.status === "funded" && needsCode && (
+              {role === "client" && m.status === "funded" && (
                 <ReleaseCodeDialog
                   title="Release this payment?"
                   description={`${formatMoney(talentShare)} goes to the talent for '${m.title}'. PayPetal emails you a code to confirm it.`}
@@ -252,37 +250,17 @@ export default function MilestoneList({
                   {formatMoney(m.settlement_talent || 0)} awarded, waiting for the client to confirm
                 </span>
               )}
-              {role === "client" && m.status === "funded" && !needsCode && (
-                <Button
-                  size="sm"
-                  disabled={cardPending}
-                  onClick={() => run(onRelease, m, "release", "Payment released to the Talent.")}
-                  className="gap-1.5"
-                >
-                  {isPending("release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                  Release payment
-                </Button>
-              )}
               {role === "musician" && m.status === "funded" && !m.dispute_id && (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={cardPending || !!m.release_requested_at}
-                  onClick={() =>
-                    run(
-                      onRequestRelease,
-                      m,
-                      "request-release",
-                      needsCode ? "Release requested. The client has been asked to confirm." : "Release requested — the client has 48h to act before it auto-releases."
-                    )
-                  }
+                  onClick={() => run(onRequestRelease, m, "request-release", "Release requested. The client has been asked to confirm.")}
                   className="gap-1.5"
                   title={
-                    !m.release_requested_at
-                      ? "Ask the client to release this payment"
-                      : needsCode
-                        ? "Already requested. If the client doesn't respond, open a dispute."
-                        : "Already requested — auto-releases if the client doesn't act within 48h"
+                    m.release_requested_at
+                      ? "Already requested. If the client doesn't respond, open a dispute."
+                      : "Ask the client to release this payment"
                   }
                 >
                   {isPending("request-release") ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BellRing className="w-3.5 h-3.5" />}

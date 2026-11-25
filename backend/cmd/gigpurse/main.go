@@ -95,15 +95,6 @@ func main() {
 	if paypetalSecretKey == "" || paypetalAppID == "" {
 		log.Println("PAYPETAL_SECRET_KEY/PAYPETAL_APP_ID not set — escrow payment features will fail.")
 	}
-	// Which PayPetal escrow product new milestone payments use. Existing
-	// payments keep whichever they were created with.
-	escrowProduct := os.Getenv("PAYPETAL_ESCROW_PRODUCT")
-	if escrowProduct == "" {
-		escrowProduct = "trustvault"
-	}
-	if escrowProduct != "trustvault" && escrowProduct != "trustcore" {
-		log.Fatalf("PAYPETAL_ESCROW_PRODUCT must be trustvault or trustcore, got %q", escrowProduct)
-	}
 	paypetalClient := paypetal.NewClient(paypetalBaseURL, paypetalSecretKey, paypetalAppID)
 	// Where PayPetal redirects the client back to after hosted checkout.
 	frontendBaseURL := os.Getenv("FRONTEND_BASE_URL")
@@ -120,15 +111,14 @@ func main() {
 	notifUsecase := usecase.NewNotificationUsecase(notifRepo)
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo, contractRepo, milestoneRepo, escrowAgreementRepo, jobUsecase, frontendBaseURL)
-	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL, usecase.VaultConfig{Enabled: escrowProduct == "trustvault", Payouts: payoutRepo})
+	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL, payoutRepo)
 	payoutUsecase := usecase.NewPayoutUsecase(payoutRepo, escrowAgreementRepo, walletRepo, userRepo, notifRepo)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowAgreementRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, contractRepo, milestoneRepo, notifRepo)
 	milestoneUsecase.StartReminderScanner(context.Background(), time.Minute, 5*time.Minute, 24*time.Hour)
-	milestoneUsecase.StartAutoReleaseScanner(context.Background(), 5*time.Minute)
-	jobUsecase.StartAbandonedHireSweep(context.Background(), 5*time.Minute)
-	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, jobUsecase, milestoneUsecase, 30*time.Second)
+	milestoneUsecase.StartReleaseNudgeScanner(context.Background(), 5*time.Minute)
+	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, milestoneUsecase, 30*time.Second)
 	chatUsecase.StartUnreadEmailScanner(context.Background(), 15*time.Minute, 24*time.Hour)
 
 	uploadDir := os.Getenv("MEDIA_UPLOAD_DIR")
@@ -155,7 +145,7 @@ func main() {
 	pricingHandler := delivery.NewPricingHandler()
 	payoutHandler := delivery.NewPayoutHandler(payoutUsecase)
 	payoutAccountHandler := delivery.NewPayoutAccountHandler(payoutAccountUsecase)
-	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(paypetalClient, escrowAgreementRepo, jobUsecase, milestoneUsecase, notifRepo)
+	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(escrowAgreementRepo, milestoneUsecase)
 
 	// 5. Register HTTP Routes
 	mux := http.NewServeMux()

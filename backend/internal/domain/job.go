@@ -23,12 +23,10 @@ type Job struct {
 	Skills          []string `json:"skills,omitempty" bson:"skills,omitempty"`
 
 	// Legacy fields from when job hires paid the full budget upfront via one
-	// PayPetal TrustCore agreement, before that moved to per-milestone
+	// PayPetal escrow agreement, before that moved to per-milestone
 	// payment (see jobUsecase.AcceptApplication) — PayPetal has no way to
 	// partially release one agreement, so incremental payment needs each
-	// milestone to be its own. Never set on a job hired after that change;
-	// kept only so a legacy contract's already-collected escrow still
-	// releases correctly on completion (see releaseJobEscrow).
+	// milestone to be its own. Nothing sets or acts on these anymore.
 	EscrowFunded    bool    `json:"escrow_funded" bson:"escrow_funded"`
 	EscrowAmount    float64 `json:"escrow_amount,omitempty" bson:"escrow_amount,omitempty"`
 	EscrowReference string  `json:"-" bson:"escrow_reference,omitempty"`
@@ -148,7 +146,6 @@ type JobUsecase interface {
 	UpdateJob(ctx context.Context, clientID, jobID string, input JobPostInput) (*Job, error)
 	CloseJob(ctx context.Context, clientID, jobID string) (*Job, error)
 	DeleteJob(ctx context.Context, clientID, jobID string) error
-	RequestHireRefund(ctx context.Context, clientID, referenceID string) error
 	FundEscrow(ctx context.Context, clientID, jobID string) (*Job, error)
 	GetJob(ctx context.Context, id string) (*Job, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]*Job, error)
@@ -171,14 +168,6 @@ type JobUsecase interface {
 	// can't partially release one upfront payment. Creates the Contract
 	// synchronously; no payment URL, no polling, no webhook involved.
 	AcceptApplication(ctx context.Context, clientID, applicationID string) (*Contract, error)
-	// FinalizeHire only matters for legacy escrow agreements created before
-	// AcceptApplication stopped charging upfront — see its own doc comment.
-	FinalizeHire(ctx context.Context, reference string) (*Contract, error)
-	// StartAbandonedHireSweep runs in the background for the lifetime of
-	// ctx, reverting a job stuck in "pending_hire_funding" back to "open"
-	// if the client never completed checkout — only reachable by legacy
-	// agreements today. Mirrors MilestoneUsecase.StartReminderScanner's shape.
-	StartAbandonedHireSweep(ctx context.Context, checkInterval time.Duration)
 
 	SaveJob(ctx context.Context, musicianID, jobID string) error
 	UnsaveJob(ctx context.Context, musicianID, jobID string) error

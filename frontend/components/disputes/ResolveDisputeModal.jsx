@@ -12,11 +12,8 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatMoney } from "@/lib/utils";
 
-// PayPetal has no partial-release/refund call, so a "pay talent X of Y"
-// ruling is: refund the client in full immediately (the only thing PayPetal
-// itself supports), then — if X > 0 — a new "Dispute settlement" milestone
-// for X is created that the client funds separately. See the backend's
-// DisputeUsecase.ResolveDispute for the full mechanics.
+// The talent gets whatever amount is entered and the client gets the rest back,
+// once the client confirms with the code PayPetal emails them.
 //
 // Controlled-only (no built-in trigger) — resolving requires having actually
 // read the dispute's chat first, so the only place this opens from is the
@@ -124,19 +121,8 @@ export default function ResolveDisputeModal({ dispute, clientName, musicianName,
             />
             {talentAmount !== "" && !isFullRefund && !isFullRelease && Number(talentAmount) >= 0 && Number(talentAmount) <= totalHeld && (
               <p className="text-xs text-muted-foreground mt-1.5">
-                {inScope.some((m) => m.escrow_provider === "trustvault") ? (
-                  <>
-                    Split: {musicianName || "the talent"} gets {formatMoney(Number(talentAmount))} and{" "}
-                    {clientName || "the client"} gets the rest back, once {clientName || "the client"} confirms with the
-                    code emailed to them.
-                  </>
-                ) : (
-                  <>
-                    Partial: {clientName || "the client"} is refunded in full now, then separately pays{" "}
-                    {formatMoney(Number(talentAmount))} to {musicianName || "the talent"} — they&apos;re blocked from posting
-                    new jobs or hiring until they do.
-                  </>
-                )}
+                Split: {musicianName || "the talent"} gets {formatMoney(Number(talentAmount))} and {clientName || "the client"}{" "}
+                gets the rest back, once {clientName || "the client"} confirms with the code emailed to them.
               </p>
             )}
           </div>

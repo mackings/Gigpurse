@@ -26,12 +26,10 @@ export default function PendingPaymentView({ reference: referenceProp } = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const reference = referenceProp || searchParams.get("reference");
-  const isMilestone = reference?.startsWith("ms");
-  const finalizeURL = isMilestone ? "/milestones/fund/finalize" : "/jobs/hire/finalize";
 
   const finalizeQuery = useQuery({
-    queryKey: ["finalize-payment", reference, finalizeURL],
-    queryFn: () => apiPost(finalizeURL, { reference }),
+    queryKey: ["finalize-payment", reference],
+    queryFn: () => apiPost("/milestones/fund/finalize", { reference }),
     enabled: !!reference,
     retry: false,
     refetchInterval: (query) => {
@@ -70,7 +68,7 @@ export default function PendingPaymentView({ reference: referenceProp } = {}) {
                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
                 <CardTitle className="text-2xl">Payment confirmed</CardTitle>
                 <CardDescription>
-                  {isMilestone ? "Escrow has been funded for this milestone." : "Your hire is confirmed — the gig is now active."}
+                  Escrow has been funded for this milestone.
                 </CardDescription>
               </>
             ) : status === "missing" ? (

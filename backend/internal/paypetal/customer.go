@@ -99,7 +99,7 @@ func (c *Client) ListCustomers(ctx context.Context) ([]Customer, error) {
 }
 
 // DeleteCustomer permanently removes a customer record — irreversible, per
-// PayPetal's own docs. Existing TrustCore agreements referencing this
+// PayPetal's own docs. Existing escrow agreements referencing this
 // customer aren't affected, but the customer profile itself becomes
 // unlookupable afterward. Not used by any GigPurse feature today — this
 // exists purely for ops cleanup (e.g. clearing sandbox test data), called

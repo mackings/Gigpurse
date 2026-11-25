@@ -67,31 +67,3 @@ func TestCustomerExists(t *testing.T) {
 		})
 	}
 }
-
-// The paths PayPetal currently documents; the ones used before are retired
-// aliases.
-func TestDocumentedPaths(t *testing.T) {
-	var got []string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		got = append(got, r.Method+" "+r.URL.RequestURI())
-		fmt.Fprint(w, `{"status":"success","responseData":{}}`)
-	})
-	ctx := context.Background()
-	_, _ = c.GetTrustCoreAgreement(ctx, "ms123")
-	_ = c.CompleteTrustCoreAgreement(ctx, "ms123")
-	_ = c.RefundTrustCoreAgreement(ctx, "ms123")
-	_ = c.LinkPayoutAccount(ctx, "cust_1", "0123456789", "000013")
-	_ = c.RemovePayoutAccount(ctx, "cust_1")
-	_ = c.DeleteCustomer(ctx, "cust_1")
-	want := []string{
-		"GET /api/v1/escrow/trustcore/ms123",
-		"PUT /api/v1/escrow/trustcore/ms123/complete",
-		"PUT /api/v1/escrow/trustcore/ms123/refund",
-		"POST /api/v1/escrow/payout-accounts/cust_1",
-		"DELETE /api/v1/escrow/payout-accounts/cust_1",
-		"DELETE /api/v1/customer/cust_1",
-	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("got  %v\nwant %v", got, want)
-	}
-}

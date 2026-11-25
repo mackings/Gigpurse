@@ -8,55 +8,23 @@ import (
 	"time"
 
 	"gigpurse/internal/domain"
-	"gigpurse/internal/paypetal"
 )
-
-// VaultConfig turns on TrustVault for new milestone payments. Each agreement
-// records which product it was created with, so flipping this never affects
-// payments already in flight.
-type VaultConfig struct {
-	Enabled bool
-	Payouts domain.PayoutRepository
-}
 
 // ErrReleaseCodeRequired means this money is in TrustVault, where nothing can
 // move — release or refund — without the 6-digit code PayPetal emails to the
 // client who paid. Exported so handlers can answer "release_code_required".
 var ErrReleaseCodeRequired = errors.New("this payment needs the 6-digit code emailed to the client before it can be released")
 
-const vaultNudgeEvery = 24 * time.Hour
+// errLegacyPayment is any record from before TrustVault. GigPurse no longer
+// talks to the product those used.
+var errLegacyPayment = errors.New("this payment was made on an older system — contact support")
 
-func (u *milestoneUsecase) createVaultPayment(ctx context.Context, reference, customerID, title, redirectURL string, totalNaira float64) (paymentURL, transactionID string, err error) {
-	result, err := u.client.CreateVaultAgreement(ctx, paypetal.CreateVaultInput{
-		ReferenceID: reference,
-		CustomerID:  customerID,
-		Currency:    "NGN",
-		Amount:      paypetal.FormatAmount(totalNaira),
-		Description: fmt.Sprintf("GigPurse milestone: %s", title),
-		RedirectURL: redirectURL,
-	})
-	if err != nil {
-		return "", "", err
-	}
-	return result.PaymentURL, result.Reference, nil
-}
-
-// paymentConfirmed asks PayPetal whether an agreement has been paid, and
-// returns its statuses in the shared (TrustCore) vocabulary.
-func (u *milestoneUsecase) paymentConfirmed(ctx context.Context, agreement *domain.EscrowAgreement) (*paypetal.AgreementState, error) {
-	if !agreement.IsVault() {
-		return u.client.GetTrustCoreAgreement(ctx, agreement.ReferenceID)
-	}
-	state, err := u.client.GetVaultAgreement(ctx, agreement.ReferenceID)
-	if err != nil {
-		return nil, err
-	}
-	out := &paypetal.AgreementState{Reference: agreement.ReferenceID, Status: "PENDING", PayoutStatus: "NONE", RefundStatus: "NONE"}
-	if state.Status == "PAID" || state.Status == "COMPLETED" {
-		out.Status = "ONGOING"
-	}
-	return out, nil
-}
+const (
+	// nudgeReleaseAfter is how long a client gets after a release request
+	// before reminders start; vaultNudgeEvery is how often they repeat.
+	nudgeReleaseAfter = 48 * time.Hour
+	vaultNudgeEvery   = 24 * time.Hour
+)
 
 // vaultAgreementFor loads the agreement behind a milestone and checks the
 // caller is the client who paid it — the only person PayPetal sends codes to.
@@ -69,7 +37,7 @@ func (u *milestoneUsecase) vaultAgreementFor(ctx context.Context, userID, refere
 		return nil, nil, errors.New("unauthorized: only the client who paid can do this")
 	}
 	if !agreement.IsVault() {
-		return nil, nil, errors.New("this payment doesn't use a release code")
+		return nil, nil, errLegacyPayment
 	}
 	milestone, err := u.milestoneRepo.GetByID(ctx, agreement.ScopeID)
 	if err != nil {
@@ -113,9 +81,9 @@ func codeUsable(m *domain.Milestone) error {
 	}
 }
 
-// ReleaseWithCode pays out a TrustVault milestone: to the talent if it's
+// Release pays out a milestone with the client's code: to the talent if it's
 // simply funded, or however the moderator ruled if it's settling.
-func (u *milestoneUsecase) ReleaseWithCode(ctx context.Context, contractID, milestoneID, userID, code string) (*domain.Milestone, error) {
+func (u *milestoneUsecase) Release(ctx context.Context, contractID, milestoneID, userID, code string) (*domain.Milestone, error) {
 	_, loaded, _, err := u.loadForTransition(ctx, contractID, milestoneID, userID)
 	if err != nil {
 		return nil, err
@@ -134,11 +102,6 @@ func (u *milestoneUsecase) ReleaseWithCode(ctx context.Context, contractID, mile
 	return u.settleVault(ctx, agreement, milestone, award, code)
 }
 
-func (u *milestoneUsecase) refundVault(ctx context.Context, agreement *domain.EscrowAgreement, milestone *domain.Milestone, code string) error {
-	_, err := u.settleVault(ctx, agreement, milestone, 0, code)
-	return err
-}
-
 // settleVault moves everything held to GigPurse's wallet with the client's
 // code, and records what GigPurse then owes: the talent's award, and whatever
 // part goes back to the client. A full award keeps GigPurse's fee; anything
@@ -150,9 +113,6 @@ func (u *milestoneUsecase) refundVault(ctx context.Context, agreement *domain.Es
 func (u *milestoneUsecase) settleVault(ctx context.Context, agreement *domain.EscrowAgreement, milestone *domain.Milestone, award float64, code string) (*domain.Milestone, error) {
 	if code == "" {
 		return nil, ErrReleaseCodeRequired
-	}
-	if u.vault.Payouts == nil {
-		return nil, errors.New("payouts aren't configured")
 	}
 	start, final := milestone.Status, "released"
 	refund := agreement.RefundTotal() - award
@@ -183,7 +143,7 @@ func (u *milestoneUsecase) settleVault(ctx context.Context, agreement *domain.Es
 	}
 	add(domain.PayoutTalent, agreement.CounterpartyUserID, award)
 	add(domain.PayoutRefund, agreement.InitiatorUserID, refund)
-	if err := u.vault.Payouts.ReplacePending(ctx, agreement.ReferenceID, owed); err != nil {
+	if err := u.payouts.ReplacePending(ctx, agreement.ReferenceID, owed); err != nil {
 		revert()
 		return nil, fmt.Errorf("couldn't record the payout: %w", err)
 	}
@@ -198,7 +158,7 @@ func (u *milestoneUsecase) settleVault(ctx context.Context, agreement *domain.Es
 			log.Printf("vault %s: release outcome unknown (%v; %v) — leaving for the reconciler", agreement.ReferenceID, err, stateErr)
 			return nil, errors.New("PayPetal hasn't confirmed this release yet — we're checking, please don't try again")
 		case state.Status != "COMPLETED":
-			_ = u.vault.Payouts.ReplacePending(ctx, agreement.ReferenceID, nil)
+			_ = u.payouts.ReplacePending(ctx, agreement.ReferenceID, nil)
 			revert()
 			return nil, fmt.Errorf("couldn't release the payment: %w", err)
 		}
@@ -213,7 +173,7 @@ func (u *milestoneUsecase) settleVault(ctx context.Context, agreement *domain.Es
 // path and the reconciler can both reach here safely.
 func (u *milestoneUsecase) confirmVaultRelease(ctx context.Context, agreement *domain.EscrowAgreement, owed []*domain.Payout) {
 	for _, p := range owed {
-		won, err := u.vault.Payouts.CompareAndSwapStatus(ctx, p.ID, "pending", "due")
+		won, err := u.payouts.CompareAndSwapStatus(ctx, p.ID, "pending", "due")
 		if err != nil || !won {
 			if err != nil {
 				log.Printf("vault %s: marking %s due failed: %v", agreement.ReferenceID, p.ID, err)
@@ -244,10 +204,7 @@ func (u *milestoneUsecase) confirmVaultRelease(ctx context.Context, agreement *d
 // ReconcileVault settles releases whose outcome PayPetal hadn't confirmed
 // when the client entered their code.
 func (u *milestoneUsecase) ReconcileVault(ctx context.Context) {
-	if u.vault.Payouts == nil {
-		return
-	}
-	pending, err := u.vault.Payouts.ListByStatus(ctx, "pending")
+	pending, err := u.payouts.ListByStatus(ctx, "pending")
 	if err != nil {
 		return
 	}
@@ -272,7 +229,7 @@ func (u *milestoneUsecase) ReconcileVault(ctx context.Context) {
 			continue
 		}
 		log.Printf("vault %s: release never happened, reopening", ref)
-		if err := u.vault.Payouts.ReplacePending(ctx, ref, nil); err != nil {
+		if err := u.payouts.ReplacePending(ctx, ref, nil); err != nil {
 			continue
 		}
 		for _, from := range []string{"released", "refunded"} {
@@ -312,9 +269,41 @@ func (u *milestoneUsecase) BeginVaultSettlement(ctx context.Context, milestoneID
 	return nil
 }
 
-// nudgeVaultRelease replaces the 48-hour auto-release for TrustVault: nobody
-// but the client can release it, so all the system can do is keep asking them
-// and tell the talent how to escalate.
+// StartReleaseNudgeScanner runs for the lifetime of ctx, reminding clients
+// about release requests they've left unanswered.
+func (u *milestoneUsecase) StartReleaseNudgeScanner(ctx context.Context, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				u.nudgeOverdueReleases(ctx)
+			}
+		}
+	}()
+}
+
+func (u *milestoneUsecase) nudgeOverdueReleases(ctx context.Context) {
+	funded, err := u.milestoneRepo.ListByStatus(ctx, "funded")
+	if err != nil {
+		return
+	}
+	for _, m := range funded {
+		if m.EscrowProvider != domain.ProviderVault || m.ReleaseRequestedAt == nil || time.Since(*m.ReleaseRequestedAt) < nudgeReleaseAfter {
+			continue
+		}
+		if contract, err := u.contractRepo.GetByID(ctx, m.ContractID); err == nil {
+			u.nudgeVaultRelease(ctx, contract, m)
+		}
+	}
+}
+
+// nudgeVaultRelease: nobody but the client can release TrustVault money, so
+// all the system can do is keep asking them and tell the talent how to
+// escalate.
 func (u *milestoneUsecase) nudgeVaultRelease(ctx context.Context, contract *domain.Contract, m *domain.Milestone) {
 	now := time.Now()
 	if m.ReleaseNudgedAt != nil && now.Sub(*m.ReleaseNudgedAt) < vaultNudgeEvery {

@@ -7,22 +7,11 @@ import (
 	"gigpurse/internal/domain"
 )
 
-// StartEscrowReconciler is the actual safety net behind payment
-// confirmation. PayPetal's docs describe webhook events only in prose —
-// there's no documented endpoint to register a webhook URL, no way to
-// verify one is even configured, and CreateTrustCoreAgreement never sends
-// one — so whether PayPetal ever calls /webhooks/paypetal at all is
-// unverified. Confirmation can't be allowed to depend solely on that, or on
-// a user's browser staying on /contracts/pending long enough for its own
-// short poll to succeed (checkout redirects, popup closes, connection
-// drops — none of that should mean a real payment silently never lands).
-//
-// This periodically re-checks every locally-PENDING agreement directly
-// against PayPetal and finalizes whichever have actually gone ONGOING —
-// same effect as the webhook firing, just on a timer instead of a push.
-// jobUsecase's own abandoned-hire sweep (and the equivalent for milestones)
-// still separately reverts ones that are genuinely never completed.
-func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, jobUC domain.JobUsecase, milestoneUC domain.MilestoneUsecase, checkInterval time.Duration) {
+// StartEscrowReconciler is the actual safety net behind payment confirmation:
+// PayPetal's webhooks are best-effort, and a user's browser can't be relied on
+// to stay open. It re-checks every locally-PENDING payment against PayPetal,
+// and settles releases whose outcome wasn't known at the time.
+func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase, checkInterval time.Duration) {
 	ticker := time.NewTicker(checkInterval)
 	go func() {
 		defer ticker.Stop()
@@ -31,26 +20,21 @@ func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreemen
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				reconcilePendingEscrow(ctx, escrowRepo, jobUC, milestoneUC)
+				reconcilePendingEscrow(ctx, escrowRepo, milestoneUC)
 				milestoneUC.ReconcileVault(ctx)
 			}
 		}
 	}()
 }
 
-func reconcilePendingEscrow(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, jobUC domain.JobUsecase, milestoneUC domain.MilestoneUsecase) {
+func reconcilePendingEscrow(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase) {
 	pending, err := escrowRepo.ListPending(ctx)
 	if err != nil {
 		return
 	}
 	for _, a := range pending {
-		switch a.ScopeType {
-		case "job_hire":
-			// Errors here just mean PayPetal still reports it PENDING (not
-			// yet paid, or genuinely abandoned) — nothing to do until either
-			// the client pays or the abandoned-hire sweep reverts it.
-			_, _ = jobUC.FinalizeHire(ctx, a.ReferenceID)
-		case "milestone":
+		if a.IsVault() {
+			// An error just means it isn't paid yet.
 			_, _ = milestoneUC.FinalizeFund(ctx, a.ReferenceID)
 		}
 	}

@@ -6,7 +6,7 @@ import "encoding/json"
 // depending on which product group answered:
 //
 //	style 1 (auth, customer, trustvault, payment): {status: bool, statusCode, message, dataResponse}
-//	style 2 (TrustCore, bank):                     {status: "success"|"error", responseCode, message, responseData}
+//	style 2 (escrow, bank):                        {status: "success"|"error", responseCode, message, responseData}
 //
 // decode() hides that difference from every call site: it figures out
 // whether the call succeeded, unmarshals whichever data field is present

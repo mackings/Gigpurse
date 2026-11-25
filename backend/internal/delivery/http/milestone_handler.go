@@ -120,7 +120,7 @@ func (h *MilestoneHandler) HandleMilestones(w http.ResponseWriter, r *http.Reque
 type milestoneActionRequest struct {
 	ContractID  string `json:"contract_id"`
 	MilestoneID string `json:"milestone_id"`
-	Code        string `json:"code"` // release only, TrustVault only
+	Code        string `json:"code"` // release only
 }
 
 func (h *MilestoneHandler) Accept(w http.ResponseWriter, r *http.Request) {
@@ -294,13 +294,7 @@ func (h *MilestoneHandler) Release(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
-	var milestone *domain.Milestone
-	var err error
-	if req.Code != "" {
-		milestone, err = h.milestoneUsecase.ReleaseWithCode(r.Context(), req.ContractID, req.MilestoneID, userID, req.Code)
-	} else {
-		milestone, err = h.milestoneUsecase.Release(r.Context(), req.ContractID, req.MilestoneID, userID)
-	}
+	milestone, err := h.milestoneUsecase.Release(r.Context(), req.ContractID, req.MilestoneID, userID, req.Code)
 	if err != nil {
 		if errors.Is(err, usecase.ErrReleaseCodeRequired) {
 			respondError(w, http.StatusConflict, "release_code_required", err.Error())

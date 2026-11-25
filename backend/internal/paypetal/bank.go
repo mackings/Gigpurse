@@ -11,7 +11,7 @@ type Bank struct {
 }
 
 // ListBanks returns every Nigerian bank PayPetal supports, for a bank-picker
-// dropdown ahead of ValidateBankAccount/LinkPayoutAccount.
+// dropdown ahead of ValidateBankAccount.
 func (c *Client) ListBanks(ctx context.Context) ([]Bank, error) {
 	var out []Bank
 	if err := c.do(ctx, http.MethodGet, "/api/v1/account/banks", nil, &out); err != nil {
@@ -35,22 +35,4 @@ func (c *Client) ValidateBankAccount(ctx context.Context, accountNumber, bankCod
 		return "", err
 	}
 	return out.AccountName, nil
-}
-
-// LinkPayoutAccount associates a pre-validated bank account with a customer
-// so they can receive TrustCore releases/refunds. Call ValidateBankAccount
-// first — this endpoint expects an already-validated account.
-func (c *Client) LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error {
-	body := map[string]string{"accountNumber": accountNumber, "bankCode": bankCode}
-	return c.do(ctx, http.MethodPost, "/api/v1/escrow/payout-accounts/"+customerID, body, nil)
-}
-
-// RemovePayoutAccount unlinks a customer's payout account — discovered as a
-// precondition for DeleteCustomer: PayPetal refuses to delete a customer
-// that still has one linked (returned as a misleading 401 rather than 409,
-// confirmed live against sandbox). Also used by payoutAccountUsecase.Link to
-// self-heal a customer PayPetal already has a (possibly stale) bank account
-// on file for — see isBankAlreadyLinkedError.
-func (c *Client) RemovePayoutAccount(ctx context.Context, customerID string) error {
-	return c.do(ctx, http.MethodDelete, "/api/v1/escrow/payout-accounts/"+customerID, nil, nil)
 }

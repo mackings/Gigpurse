@@ -431,18 +431,14 @@ func (u *disputeUsecase) ListDisputeMessages(ctx context.Context, requesterID, d
 	return u.chatRepo.ListByDispute(ctx, disputeID)
 }
 
-// ResolveDispute settles the dispute for talentAmountNaira — 0 refunds the
-// client in full, the full in-scope funded amount releases it all to the
-// talent, anything in between refunds the client in full (the only
-// settlement PayPetal itself supports) and creates a new "Dispute
-// settlement" milestone for the awarded amount, which the client funds
-// through the ordinary Fund flow. Scope is dispute.MilestoneID (one
-// milestone) if set, else every currently `funded` milestone on the
-// contract. Also settles job-level escrow for a job-sourced contract that
-// never used milestones (see resolveJobEscrow) — that path stays binary
-// since it has no milestone/partial concept at all.
+// settlementEpsilon absorbs float rounding when comparing naira amounts.
 const settlementEpsilon = 0.01
 
+// ResolveDispute rules that the talent gets talentAmountNaira of what's held;
+// the client gets the rest back. Scope is dispute.MilestoneID (one milestone)
+// if set, else every milestone this dispute locked. Nothing moves until the
+// client confirms with the code PayPetal emails them — see
+// MilestoneUsecase.BeginVaultSettlement.
 func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, disputeID, resolution string, talentAmountNaira float64) (*domain.Dispute, error) {
 	if disputeID == "" || resolution == "" {
 		return nil, errors.New("dispute_id and resolution are required")
@@ -459,14 +455,13 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 	if err != nil {
 		return nil, err
 	}
-	var inScope, vault []*domain.Milestone
-	vaultHeld := map[string]float64{} // milestone ID -> talent's share in TrustVault
-	var totalFunded, totalVault float64
+	var inScope []*domain.Milestone
+	held := map[string]float64{} // milestone ID -> the talent's full share
+	var totalHeld float64
 	for _, m := range allMilestones {
-		// OpenDispute/EndContract/CancelMilestone all mark a milestone "disputed" the
-		// moment its dispute opens (see MarkDisputed) — it's never still
-		// "funded" by the time a moderator resolves it.
-		if m.Status != "disputed" {
+		// OpenDispute/EndContract/CancelMilestone all mark a milestone
+		// "disputed" the moment its dispute opens (see MarkDisputed).
+		if m.Status != "disputed" || m.EscrowReference == "" {
 			continue
 		}
 		if dispute.MilestoneID != "" && m.ID != dispute.MilestoneID {
@@ -478,90 +473,46 @@ func (u *disputeUsecase) ResolveDispute(ctx context.Context, resolverID, dispute
 		if m.DisputeID != "" && m.DisputeID != dispute.ID {
 			continue
 		}
-		// The bound is what's actually sitting in escrow (the talent's
-		// take-home after commission), not milestone.Amount — the agreed
-		// price is bigger than that by GigPurse's cut, which was never
-		// escrowed in the first place and so isn't available to award.
-		if m.EscrowReference != "" {
-			if agreement, err := u.escrowRepo.GetByReference(ctx, m.EscrowReference); err == nil {
-				if agreement.IsVault() {
-					vault = append(vault, m)
-					vaultHeld[m.ID] = agreement.AmountNaira
-					totalVault += agreement.AmountNaira
-					continue
-				}
-				totalFunded += agreement.AmountNaira
-			}
+		agreement, err := u.escrowRepo.GetByReference(ctx, m.EscrowReference)
+		if err != nil || !agreement.IsVault() {
+			continue
 		}
+		// The bound is the talent's take-home, not milestone.Amount — the
+		// agreed price also includes GigPurse's commission.
 		inScope = append(inScope, m)
+		held[m.ID] = agreement.AmountNaira
+		totalHeld += agreement.AmountNaira
 	}
-	awarded := talentAmountNaira
-	if awarded < 0 || awarded > totalFunded+totalVault+settlementEpsilon {
-		return nil, fmt.Errorf("talent_amount must be between 0 and %.2f (the amount actually held in escrow for this dispute)", totalFunded+totalVault)
-	}
-	// TrustVault milestones take their share of the award first: that money
-	// can be split any way, while TrustCore's can only go all one way.
-	vaultAward := map[string]float64{}
-	talentAmountNaira = awarded
-	for _, m := range vault {
-		share := min(talentAmountNaira, vaultHeld[m.ID])
-		vaultAward[m.ID] = share
-		talentAmountNaira -= share
+	if talentAmountNaira < 0 || talentAmountNaira > totalHeld+settlementEpsilon {
+		return nil, fmt.Errorf("talent_amount must be between 0 and %.2f (the amount actually held in escrow for this dispute)", totalHeld)
 	}
 
-	fullRelease := talentAmountNaira >= totalFunded-settlementEpsilon && totalFunded > 0
-	partial := !fullRelease && talentAmountNaira > settlementEpsilon
+	// Rulings are recorded before the dispute closes, so a failure leaves it
+	// open to retry rather than closed with the money still locked.
+	remaining := talentAmountNaira
+	for _, m := range inScope {
+		share := min(remaining, held[m.ID])
+		if err := u.milestoneUsecase.BeginVaultSettlement(ctx, m.ID, share); err != nil {
+			return nil, fmt.Errorf("couldn't record the ruling on '%s': %w", m.Title, err)
+		}
+		remaining -= share
+	}
 
 	dispute.Status = "resolved"
 	dispute.Resolution = resolution
-	dispute.TalentAmountNaira = awarded
+	dispute.TalentAmountNaira = talentAmountNaira
 	dispute.UpdatedAt = time.Now()
 	if err := u.disputeRepo.Update(ctx, dispute); err != nil {
 		return nil, fmt.Errorf("failed to resolve dispute: %w", err)
 	}
 
-	for _, m := range vault {
-		if err := u.milestoneUsecase.BeginVaultSettlement(ctx, m.ID, vaultAward[m.ID]); err != nil {
-			log.Printf("dispute %s: milestone %s settlement failed: %v", disputeID, m.ID, err)
+	summary := resolution
+	if len(inScope) > 0 {
+		award := "client refunded in full"
+		if talentAmountNaira > settlementEpsilon {
+			award = "talent awarded " + formatNaira(talentAmountNaira)
 		}
-	}
-	if fullRelease {
-		for _, m := range inScope {
-			if _, err := u.milestoneUsecase.ReleaseDisputed(ctx, dispute.ContractID, m.ID); err != nil {
-				log.Printf("dispute %s: milestone %s release failed: %v", disputeID, m.ID, err)
-			}
-		}
-	} else {
-		// Full refund and partial both start the same way: everything
-		// funded goes back to the client first, since that's the only
-		// direction PayPetal actually settles in one call.
-		for _, m := range inScope {
-			if err := u.milestoneUsecase.RefundMilestone(ctx, m.ID); err != nil {
-				log.Printf("dispute %s: milestone %s refund failed: %v", disputeID, m.ID, err)
-			}
-		}
-		if partial {
-			if _, err := u.milestoneUsecase.CreateSettlementMilestone(ctx, dispute.ContractID, dispute.ID, resolverID, talentAmountNaira); err != nil {
-				log.Printf("dispute %s: creating settlement milestone failed: %v", disputeID, err)
-			}
-		}
-	}
-
-	// Legacy job-level (pre-milestone, whole-budget-upfront) escrow has no
-	// partial concept — anything above a token amount counts as "talent won"
-	// for that portion specifically.
-	u.resolveJobEscrow(ctx, dispute, awarded <= settlementEpsilon)
-
-	var summary string
-	switch {
-	case len(vault) > 0:
-		summary = fmt.Sprintf("%s — talent awarded %s; the client must confirm it with the code PayPetal emails them.", resolution, formatNaira(awarded))
-	case fullRelease:
-		summary = fmt.Sprintf("%s — full amount released to the talent.", resolution)
-	case partial:
-		summary = fmt.Sprintf("%s — client refunded in full; talent awarded %s, which the client must now pay separately.", resolution, formatNaira(talentAmountNaira))
-	default:
-		summary = fmt.Sprintf("%s — client refunded in full.", resolution)
+		summary = fmt.Sprintf("%s — %s; the client must confirm it with the code PayPetal emails them.", resolution, award)
 	}
 	u.notify(ctx, dispute.ClientID, "Dispute Resolved", summary, "/messages?dispute="+disputeID)
 	u.notify(ctx, dispute.MusicianID, "Dispute Resolved", summary, "/messages?dispute="+disputeID)
@@ -588,61 +539,6 @@ func (u *disputeUsecase) milestonesFor(ctx context.Context, contractID string) (
 		return nil, fmt.Errorf("contract not found: %w", err)
 	}
 	return u.milestoneUsecase.List(ctx, contractID, contract.ClientID, "")
-}
-
-// resolveJobEscrow handles the case where the contract came straight from a
-// job whose whole budget was funded up front and never split into
-// milestones. clientWon refunds the initiator (client); otherwise the
-// escrow is released to the counterparty (musician) — PayPetal already
-// knows both parties from the agreement, so there's no manual wallet
-// routing to do, just telling TrustCore which direction to settle.
-func (u *disputeUsecase) resolveJobEscrow(ctx context.Context, dispute *domain.Dispute, clientWon bool) {
-	contract, err := u.contractRepo.GetByID(ctx, dispute.ContractID)
-	if err != nil || contract.JobID == "" || contract.EscrowReference == "" {
-		return
-	}
-	agreement, err := u.escrowRepo.GetByReference(ctx, contract.EscrowReference)
-	if err != nil || agreement.PayoutStatus != "NONE" || agreement.RefundStatus != "NONE" {
-		return // already settled (or never confirmed funded) — nothing to do
-	}
-
-	job, err := u.jobRepo.GetByID(ctx, contract.JobID)
-	if err != nil {
-		return
-	}
-
-	var settleErr error
-	if clientWon {
-		settleErr = u.client.RefundTrustCoreAgreement(ctx, contract.EscrowReference)
-		agreement.RefundStatus = "PENDING"
-	} else {
-		settleErr = u.client.CompleteTrustCoreAgreement(ctx, contract.EscrowReference)
-		agreement.PayoutStatus = "PENDING"
-	}
-	if settleErr != nil {
-		log.Printf("dispute %s: job escrow settle failed: %v", dispute.ID, settleErr)
-		return
-	}
-	_ = u.escrowRepo.Update(ctx, agreement)
-
-	// Same convention as the milestone-based dispute settlement: a credit
-	// to the client is a "refund" (money back), a credit to the musician is
-	// "payment_received" (money earned) — never the generic "escrow_release"
-	// a payer's own wallet uses for money that left it.
-	payeeID := dispute.MusicianID
-	txType := "payment_received"
-	if clientWon {
-		payeeID = dispute.ClientID
-		txType = "refund"
-	}
-	_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
-		UserID: payeeID, Type: txType, Amount: job.EscrowAmount,
-		Description: fmt.Sprintf("Dispute resolved — escrow settled for gig: %s", job.Title), Reference: contract.EscrowReference,
-	})
-
-	job.EscrowAmount = 0
-	job.EscrowFunded = false
-	_ = u.jobRepo.Update(ctx, job)
 }
 
 func (u *disputeUsecase) notify(ctx context.Context, userID, title, message, link string) {

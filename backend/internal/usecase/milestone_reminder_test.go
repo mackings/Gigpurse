@@ -64,3 +64,43 @@ func TestReminders_FirstNudgeThenOncePerDay(t *testing.T) {
 		}
 	})
 }
+
+// Nobody but the client can release TrustVault money, so an unanswered
+// request is chased daily — and never released automatically.
+func TestReleaseNudges(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewMilestoneRepository()
+	ago := func(d time.Duration) *time.Time { v := time.Now().Add(-d); return &v }
+	mk := func(title string, asked *time.Time, provider string) *domain.Milestone {
+		m := &domain.Milestone{ContractID: "c1", Title: title, Status: "funded", ReleaseRequestedAt: asked, EscrowProvider: provider}
+		_ = repo.Create(ctx, m)
+		return m
+	}
+	late := mk("late", ago(49*time.Hour), domain.ProviderVault)
+	mk("early", ago(47*time.Hour), domain.ProviderVault)
+	mk("unasked", nil, domain.ProviderVault)
+	mk("old", ago(90*time.Hour), "")
+	u := &milestoneUsecase{
+		paypetalDeps: paypetalDeps{userRepo: &testUserRepo{byID: map[string]*domain.User{
+			"client": {ID: "client", Email: "client@example.com"}, "talent": {ID: "talent", Email: "talent@example.com"},
+		}}},
+		milestoneRepo: repo, contractRepo: reminderContractRepo{}, notifRepo: &testNotifRepo{},
+	}
+	withCapturedEmails(func(capture func() []capturedEmail) {
+		u.nudgeOverdueReleases(ctx)
+		u.nudgeOverdueReleases(ctx)
+		if got := capture(); len(got) != 2 || got[0].to != "client@example.com" || got[1].to != "talent@example.com" {
+			t.Fatalf("expected one email each, got %#v", got)
+		}
+		m, _ := repo.GetByID(ctx, late.ID)
+		m.ReleaseNudgedAt = ago(25 * time.Hour)
+		_ = repo.Update(ctx, m)
+		u.nudgeOverdueReleases(ctx)
+		if got := capture(); len(got) != 3 || got[2].to != "client@example.com" {
+			t.Fatalf("expected only the client chased again, got %#v", got)
+		}
+		if m, _ := repo.GetByID(ctx, late.ID); m.Status != "funded" {
+			t.Fatalf("must never release by itself, got %q", m.Status)
+		}
+	})
+}

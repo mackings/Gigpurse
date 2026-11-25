@@ -25,7 +25,7 @@ import (
 //	             ending the contract, or by withdrawing the milestone) —
 //	             locked from Release/RequestRefund/auto-release until a
 //	             moderator resolves that dispute
-//	settling  -- TrustVault only: a moderator has ruled, and the client still
+//	settling  -- a moderator has ruled, and the client still
 //	             has to enter their emailed code before the money can move
 type Milestone struct {
 	ID         string                      `json:"id" bson:"_id"`
@@ -46,7 +46,7 @@ type Milestone struct {
 	LastReminderAt *time.Time `json:"last_reminder_at,omitempty" bson:"last_reminder_at,omitempty"`
 
 	// EscrowReference points at the EscrowAgreement backing this milestone's
-	// PayPetal TrustCore payment — set by Fund, confirmed by FinalizeFund.
+	// PayPetal TrustVault payment — set by Fund, confirmed by FinalizeFund.
 	EscrowReference string `json:"-" bson:"escrow_reference,omitempty"`
 	// EscrowProvider mirrors the agreement's Provider so the frontend knows
 	// whether releasing needs a code.
@@ -75,8 +75,8 @@ type Milestone struct {
 }
 
 // AwaitingClientSettlement reports whether a moderator has ruled on this and
-// the client still owes the next step: paying a settlement (TrustCore) or
-// confirming the ruling with their code (TrustVault).
+// the client still owes the next step: confirming the ruling with their code
+// (or paying a settlement ordered before TrustVault).
 func (m *Milestone) AwaitingClientSettlement() bool {
 	return m.Status == "settling" || (m.Status == "accepted" && m.DisputeID != "")
 }
@@ -132,18 +132,14 @@ type MilestoneUsecase interface {
 	// one — only while it's awaiting a response, before it clutters the
 	// history with a rejected/superseded entry.
 	Withdraw(ctx context.Context, contractID, milestoneID, userID string) error
-	// Fund starts a PayPetal TrustCore payment for an accepted milestone and
+	// Fund starts a PayPetal TrustVault payment for an accepted milestone and
 	// returns a hosted checkout URL — it no longer moves money itself or
 	// flips the milestone to "funded" synchronously; FinalizeFund does that
 	// once the payment is confirmed (by the webhook or a frontend poll).
 	Fund(ctx context.Context, contractID, milestoneID, userID string) (paymentURL, reference string, err error)
 	FinalizeFund(ctx context.Context, reference string) (*Milestone, error)
-	Release(ctx context.Context, contractID, milestoneID, userID string) (*Milestone, error)
-	// ReleaseDisputed is Release's ungated counterpart for a moderator's
-	// full-release ruling on a "disputed" (not "funded") milestone — never
-	// exposed on any HTTP route. See the implementation's doc comment for
-	// why this can't just be Release with a relaxed status check.
-	ReleaseDisputed(ctx context.Context, contractID, milestoneID string) (*Milestone, error)
+	// Release pays out a milestone with the code PayPetal emailed the client.
+	Release(ctx context.Context, contractID, milestoneID, userID, code string) (*Milestone, error)
 	// List returns a contract's milestones for a client/musician participant,
 	// or for an admin/moderator (requesterRole) reviewing a dispute — pass
 	// "" for requesterRole from any ordinary participant-only call site.
@@ -151,34 +147,16 @@ type MilestoneUsecase interface {
 
 	// TrustVault payments only move with a 6-digit code PayPetal emails the
 	// client. SendMilestoneReleaseCode/SendReleaseCode trigger that email;
-	// ReleaseWithCode and RequestRefund use the code.
+	// Release and RequestRefund use the code.
 	SendMilestoneReleaseCode(ctx context.Context, contractID, milestoneID, userID string) error
 	SendReleaseCode(ctx context.Context, userID, referenceID string) error
-	ReleaseWithCode(ctx context.Context, contractID, milestoneID, userID, code string) (*Milestone, error)
 	// BeginVaultSettlement records a moderator's ruling on a disputed
 	// TrustVault milestone — never exposed on any HTTP route.
 	BeginVaultSettlement(ctx context.Context, milestoneID string, talentAward float64) error
 	// ReconcileVault finishes or undoes releases PayPetal hadn't confirmed.
 	ReconcileVault(ctx context.Context)
 
-	// RefundHeldForContract sweeps every still-`funded` milestone on a
-	// contract back to the client's wallet balance — used when a dispute
-	// resolves in the client's favor. Unlike Release/Fund this isn't gated
-	// by a caller userID: the caller (dispute resolution) has already
-	// established the resolver is a moderator/admin, so this is meant to be
-	// invoked internally rather than exposed as its own end-user action.
-	RefundHeldForContract(ctx context.Context, contractID string) error
-
-	// RefundMilestone is RefundHeldForContract's single-milestone
-	// counterpart — refunds just this one funded milestone, for a dispute
-	// scoped to one milestone rather than the whole contract. Same
-	// ungated-by-design contract as RefundHeldForContract.
-	RefundMilestone(ctx context.Context, milestoneID string) error
-
-	// RequestRefund is the client-initiated, single-item counterpart to
-	// RefundHeldForContract — gated by clientID, callable directly (e.g.
-	// from the wallet), not just from dispute resolution.
-	// code is required for TrustVault payments and ignored otherwise.
+	// RequestRefund returns a funded payment to the client, with their code.
 	RequestRefund(ctx context.Context, clientID, referenceID, code string) error
 
 	// CancelAccepted cancels a still-`accepted` (not yet funded) milestone —
@@ -192,19 +170,8 @@ type MilestoneUsecase interface {
 	// it is pending. Ungated for the same reason as CancelAccepted.
 	MarkDisputed(ctx context.Context, milestoneID, disputeID string) error
 
-	// CreateSettlementMilestone is how ResolveDispute pays out a partial
-	// award: a moderator can't make PayPetal split a payment, so this
-	// creates a normal milestone (pre-`accepted`, skipping the usual
-	// propose/accept dance since a dispute ruling doesn't need the talent's
-	// separate buy-in) that the client funds through the ordinary
-	// Fund/FinalizeFund flow — FinalizeFund auto-releases it on funding
-	// instead of waiting for a manual Release, since the moderator already
-	// adjudicated whether the work was done.
-	CreateSettlementMilestone(ctx context.Context, contractID, disputeID, resolverID string, amountNaira float64) (*Milestone, error)
-
-	// RequestRelease lets the talent ask for a `funded` milestone to be
-	// paid out — the auto-release scanner releases it after 48h of client
-	// silence (no manual Release, RequestRefund, or dispute in that window).
+	// RequestRelease lets the talent ask for a `funded` milestone to be paid
+	// out — the client is reminded if they leave it unanswered.
 	RequestRelease(ctx context.Context, contractID, milestoneID, talentID string) error
 
 	// StartReminderScanner runs in the background for the lifetime of ctx,
@@ -213,8 +180,7 @@ type MilestoneUsecase interface {
 	// Called once at startup from main.go.
 	StartReminderScanner(ctx context.Context, checkInterval, nudgeAfter, repeatAfter time.Duration)
 
-	// StartAutoReleaseScanner runs in the background for the lifetime of
-	// ctx, releasing any `funded` milestone whose RequestRelease window has
-	// elapsed. Called once at startup from main.go.
-	StartAutoReleaseScanner(ctx context.Context, checkInterval time.Duration)
+	// StartReleaseNudgeScanner reminds clients about unanswered release
+	// requests. Called once at startup from main.go.
+	StartReleaseNudgeScanner(ctx context.Context, checkInterval time.Duration)
 }

@@ -6,7 +6,7 @@ import (
 )
 
 // Wallet is a legacy internal record — Balance/EscrowBalance haven't been
-// authoritative since money moved to PayPetal TrustCore (nothing mutates
+// authoritative since money moved to PayPetal escrow (nothing mutates
 // them anymore; every real transfer is either a one-off checkout or a
 // direct bank payout, neither of which has a reloadable-balance concept).
 // Kept only so WalletRepository's storage shape doesn't need a migration;
@@ -57,7 +57,7 @@ type WalletRepository interface {
 // with its own refund action.
 type EscrowHolding struct {
 	ReferenceID      string  `json:"reference_id"`
-	ScopeType        string  `json:"scope_type"` // "job_hire" | "milestone"
+	ScopeType        string  `json:"scope_type"` // "milestone"
 	Title            string  `json:"title"`
 	CounterpartyName string  `json:"counterparty_name"`
 	Amount           float64 `json:"amount"`
@@ -65,7 +65,6 @@ type EscrowHolding struct {
 	// platform fee the client paid on top of it.
 	RefundAmount float64   `json:"refund_amount"`
 	Disputed     bool      `json:"disputed"`
-	NeedsCode    bool      `json:"needs_code"` // TrustVault
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -77,9 +76,8 @@ type WalletUsecase interface {
 	// held in escrow (paid in, not yet paid out or refunded) — job hires
 	// and funded milestones alike.
 	ListEscrowHoldings(ctx context.Context, userID string) ([]*EscrowHolding, error)
-	// RequestRefund pulls a specific holding back to the client — routed to
-	// jobUsecase.RequestHireRefund or milestoneUsecase.RequestRefund
-	// depending on the holding's scope type.
+	// RequestRefund pulls a specific holding back to the client, with the code
+	// PayPetal emails them.
 	RequestRefund(ctx context.Context, userID, referenceID, code string) error
 	// SendReleaseCode emails the client the code a TrustVault refund needs.
 	SendReleaseCode(ctx context.Context, userID, referenceID string) error

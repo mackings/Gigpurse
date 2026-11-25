@@ -76,23 +76,6 @@ func (u *payoutAccountUsecase) Link(ctx context.Context, userID, bankCode, bankN
 		return nil, err
 	}
 
-	// user.Phone is required (collected at signup) — ensureCustomer returns
-	// ErrPhoneRequired if it's somehow still missing (an account predating
-	// signup requiring a phone), surfaced by the handler as a specific
-	// "phone_required" error.
-	//
-	// The account on file is about to be replaced, so there's nothing for
-	// ensureCustomer to carry over to a recreated customer.
-	user.PayoutAccount = nil
-	customerID, err := u.ensureCustomer(ctx, user)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := u.linkPayoutAccount(ctx, customerID, accountNumber, bankCode); err != nil {
-		return nil, err
-	}
-
 	user.PayoutAccount = &domain.PayoutAccount{
 		BankCode:      bankCode,
 		BankName:      bankName,

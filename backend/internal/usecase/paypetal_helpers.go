@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"gigpurse/internal/domain"
 	"gigpurse/internal/paypetal"
@@ -47,8 +46,7 @@ type paypetalDeps struct {
 //
 // A stored ID is checked against PayPetal before being reused: IDs are
 // per-environment, so one saved while pointed at sandbox is unknown to live
-// and every payment or payout-account call made with it fails. Such a user
-// simply gets a new customer, with their payout account carried over.
+// and every payment made with it fails. Such a user simply gets a new one.
 func (d paypetalDeps) ensureCustomer(ctx context.Context, user *domain.User) (string, error) {
 	if user.PayPetalCustomerID != "" {
 		exists, err := d.client.CustomerExists(ctx, user.PayPetalCustomerID)
@@ -78,46 +76,11 @@ func (d paypetalDeps) ensureCustomer(ctx context.Context, user *domain.User) (st
 			return "", err
 		}
 	}
-	if err := d.carryOverPayoutAccount(ctx, user, customerID); err != nil {
-		return "", err
-	}
 	user.PayPetalCustomerID = customerID
 	if err := d.userRepo.Update(ctx, user); err != nil {
 		return "", err
 	}
 	return customerID, nil
-}
-
-// carryOverPayoutAccount links the bank account GigPurse has on file to a
-// newly assigned PayPetal customer, which starts out with none. PayPetal
-// doesn't check for one when an agreement is created, only at release — so
-// leaving the stored account unlinked would let a client pay into escrow
-// that then can't be paid out.
-//
-// The account is re-validated first and only carried over if it still
-// resolves to the same holder. If it doesn't (a sandbox-only account, say),
-// the stored copy is dropped in memory so the user is asked to add one; the
-// caller persists that along with the new customer ID.
-func (d paypetalDeps) carryOverPayoutAccount(ctx context.Context, user *domain.User, customerID string) error {
-	acct := user.PayoutAccount
-	if acct == nil {
-		return nil
-	}
-	name, err := d.client.ValidateBankAccount(ctx, acct.AccountNumber, acct.BankCode)
-	if err == nil && strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(acct.AccountName)) {
-		if err = d.linkPayoutAccount(ctx, customerID, acct.AccountNumber, acct.BankCode); err == nil {
-			return nil
-		}
-	}
-	// Anything short of PayPetal actually rejecting it (network trouble, a
-	// 5xx, rate limiting) says nothing about the account — fail and let the
-	// user retry rather than throwing their details away.
-	if err != nil && !isRejection(err) {
-		return err
-	}
-	log.Printf("paypetal: payout account on file for user %s couldn't be carried over, they'll need to add it again", user.ID)
-	user.PayoutAccount = nil
-	return nil
 }
 
 // isRejection reports whether PayPetal definitively refused a request, as
@@ -128,57 +91,12 @@ func isRejection(err error) bool {
 		apiErr.HTTPStatus != http.StatusUnauthorized && apiErr.HTTPStatus != http.StatusTooManyRequests
 }
 
-// linkPayoutAccount links an already-validated bank account to a customer,
-// replacing whatever PayPetal has on file for them — it allows exactly one,
-// so without the remove-and-relink a genuine bank change (or recovering from
-// GigPurse having lost its own record of an earlier link) dead-ends on an
-// error that repeats on every retry.
-func (d paypetalDeps) linkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error {
-	err := d.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode)
-	if err == nil || !isBankAlreadyLinkedError(err) {
-		return err
-	}
-	if removeErr := d.client.RemovePayoutAccount(ctx, customerID); removeErr != nil {
-		return err
-	}
-	return d.client.LinkPayoutAccount(ctx, customerID, accountNumber, bankCode)
-}
-
 func isAlreadyExistsError(err error) bool {
 	var apiErr *paypetal.APIError
 	if !errors.As(err, &apiErr) {
 		return false
 	}
 	return strings.Contains(strings.ToLower(apiErr.Message), "already exist")
-}
-
-// isBankAlreadyLinkedError recognizes PayPetal's response to LinkPayoutAccount
-// when the target customer already has a bank account on file — PayPetal
-// allows exactly one per customer, ever, with no "replace" endpoint.
-// Confirmed live: a customer's *second* LinkPayoutAccount call fails with
-// this even for a perfectly valid, newly-validated account. Without
-// recognizing this, whoever hits it (a genuine bank change, or GigPurse's
-// own record of an earlier successful link having been lost) is stuck
-// forever — every retry fails identically.
-func isBankAlreadyLinkedError(err error) bool {
-	var apiErr *paypetal.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return strings.Contains(strings.ToLower(apiErr.Message), "already been added")
-}
-
-// isPayoutInProgress recognizes PayPetal's response to a second completion
-// call on an agreement whose payout is already running — confirmed live
-// when a race let two concurrent FinalizeFund calls both attempt the same
-// release. Not a real failure: an earlier attempt already succeeded on
-// PayPetal's side, so this should be treated as success, not reverted.
-func isPayoutInProgress(err error) bool {
-	var apiErr *paypetal.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.Code == "payout_in_progress"
 }
 
 func (d paypetalDeps) findExistingCustomer(ctx context.Context, user *domain.User) (string, error) {
@@ -205,10 +123,9 @@ func (d paypetalDeps) findExistingCustomer(ctx context.Context, user *domain.Use
 	return "", errors.New("paypetal reported this customer already exists, but it couldn't be found in the customer list to reuse")
 }
 
-// requirePayoutAccount gates any flow where user is about to become the
-// counterparty on a new escrow agreement (the party who'd eventually be
-// paid out to) — checked before creating the agreement, not after, since a
-// missing payout account can't be fixed by anyone except that user.
+// requirePayoutAccount gates any flow where user is about to be owed money —
+// checked before any is paid in, since a missing account can't be fixed by
+// anyone except that user.
 func (d paypetalDeps) requirePayoutAccount(user *domain.User) error {
 	if user.PayoutAccount == nil {
 		return ErrPayoutAccountRequired
@@ -216,6 +133,16 @@ func (d paypetalDeps) requirePayoutAccount(user *domain.User) error {
 	return nil
 }
 
-// escrowReferenceStale is the abandoned-checkout cutoff shared by every
-// "revert if nobody paid" sweep (job hires, milestone funding).
-const escrowReferenceStaleAfter = 30 * time.Minute
+// verifyPayoutAccount checks with PayPetal that the bank account on file can
+// still be resolved. Payouts are bank transfers an admin makes by hand, so a
+// dead account has to be caught before money is paid in, not after.
+func (d paypetalDeps) verifyPayoutAccount(ctx context.Context, user *domain.User) error {
+	if err := d.requirePayoutAccount(user); err != nil {
+		return err
+	}
+	_, err := d.client.ValidateBankAccount(ctx, user.PayoutAccount.AccountNumber, user.PayoutAccount.BankCode)
+	if isRejection(err) {
+		return ErrPayoutAccountRequired
+	}
+	return err
+}

@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -73,7 +72,7 @@ func (u *walletUsecase) ListTransactions(ctx context.Context, userID string) ([]
 	return u.walletRepo.ListTransactions(ctx, userID)
 }
 
-// ListEscrowHoldings is a client's view of PayPetal's TrustCore: every
+// ListEscrowHoldings is a client's view of their escrow: every
 // payment they've made that's still actually held (paid in, not yet paid
 // out to the other side or refunded back to them), enriched with what it's
 // for and who the other party is so the wallet page can list each one with
@@ -89,19 +88,13 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 		// Only money genuinely still held counts: PENDING means the
 		// checkout was never completed, and any payout/refund status other
 		// than NONE means it's already settled away from escrow.
-		if a.Status != "ONGOING" || a.PayoutStatus != "NONE" || a.RefundStatus != "NONE" {
+		if !a.IsVault() || a.Status != "ONGOING" || a.PayoutStatus != "NONE" || a.RefundStatus != "NONE" {
 			continue
 		}
 
 		var title string
 		var disputed bool
 		switch a.ScopeType {
-		case "job_hire":
-			if app, err := u.jobRepo.GetApplicationByID(ctx, a.ScopeID); err == nil {
-				if job, err := u.jobRepo.GetByID(ctx, app.JobID); err == nil {
-					title = job.Title
-				}
-			}
 		case "milestone":
 			if m, err := u.milestoneRepo.GetByID(ctx, a.ScopeID); err == nil {
 				title = m.Title
@@ -125,7 +118,6 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 			Amount:           a.AmountNaira,
 			RefundAmount:     a.RefundTotal(),
 			Disputed:         disputed,
-			NeedsCode:        a.IsVault(),
 			CreatedAt:        a.CreatedAt,
 		})
 	}
@@ -134,22 +126,10 @@ func (u *walletUsecase) ListEscrowHoldings(ctx context.Context, userID string) (
 	return holdings, nil
 }
 
-// RequestRefund routes to whichever usecase actually owns the money-moving
-// logic for this holding's scope — wallet itself never talks to PayPetal
-// directly, it just picks the right specialist.
+// RequestRefund hands off to the usecase that owns the money — wallet itself
+// never talks to PayPetal directly.
 func (u *walletUsecase) RequestRefund(ctx context.Context, userID, referenceID, code string) error {
-	agreement, err := u.escrowRepo.GetByReference(ctx, referenceID)
-	if err != nil {
-		return fmt.Errorf("escrow agreement not found: %w", err)
-	}
-	switch agreement.ScopeType {
-	case "job_hire":
-		return u.jobUsecase.RequestHireRefund(ctx, userID, referenceID)
-	case "milestone":
-		return u.milestoneUsecase.RequestRefund(ctx, userID, referenceID, code)
-	default:
-		return errors.New("unknown escrow scope type")
-	}
+	return u.milestoneUsecase.RequestRefund(ctx, userID, referenceID, code)
 }
 
 func (u *walletUsecase) SendReleaseCode(ctx context.Context, userID, referenceID string) error {
