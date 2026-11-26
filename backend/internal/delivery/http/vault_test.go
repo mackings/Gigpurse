@@ -264,3 +264,23 @@ func TestVault_WebhookUsesIdempotencyKey(t *testing.T) {
 		t.Fatalf("expected funded, got %q", m.Status)
 	}
 }
+
+// Completing a contract moves no money, so it's blocked while any is held.
+func TestCompleteContract_BlockedWhileMoneyHeld(t *testing.T) {
+	f := newEscrowFixture(t)
+	complete := map[string]any{"contract_id": f.contractID}
+	f.acceptedMilestone(300) // agreed but unpaid: doesn't block
+	id, _ := f.vaultFunded(500)
+	f.post("/contracts/complete", f.clientTok, complete, http.StatusConflict, nil)
+
+	var d domain.Dispute
+	f.post("/disputes", f.musicianTok, map[string]any{"contract_id": f.contractID, "reason": "x"}, http.StatusCreated, &d)
+	f.post("/contracts/complete", f.clientTok, complete, http.StatusConflict, nil) // disputed
+	f.post("/disputes/join", f.admTok, map[string]any{"dispute_id": d.ID}, http.StatusOK, nil)
+	f.post("/admin/disputes/resolve", f.admTok, map[string]any{"dispute_id": d.ID, "resolution": "x", "talent_amount": 450}, http.StatusOK, nil)
+	f.post("/contracts/complete", f.clientTok, complete, http.StatusConflict, nil) // settling
+
+	f.sendCode(id)
+	f.post("/milestones/release", f.clientTok, f.body(id, "code", memory.VaultCode), http.StatusOK, nil)
+	f.post("/contracts/complete", f.clientTok, complete, http.StatusOK, nil)
+}

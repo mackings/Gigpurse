@@ -74,6 +74,12 @@ type Milestone struct {
 	ReleaseRequestedAt *time.Time `json:"release_requested_at,omitempty" bson:"release_requested_at,omitempty"`
 }
 
+// MilestoneHoldsMoney reports whether a milestone in this status still has
+// the client's money in escrow.
+func MilestoneHoldsMoney(status string) bool {
+	return status == "funded" || status == "disputed" || status == "settling"
+}
+
 // AwaitingClientSettlement reports whether a moderator has ruled on this and
 // the client still owes the next step: confirming the ruling with their code
 // (or paying a settlement ordered before TrustVault).

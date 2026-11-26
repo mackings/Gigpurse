@@ -13,11 +13,12 @@ import (
 
 type contractUsecase struct {
 	paypetalDeps
-	contractRepo domain.ContractRepository
-	jobRepo      domain.JobRepository
-	notifRepo    domain.NotificationRepository
-	walletRepo   domain.WalletRepository
-	escrowRepo   domain.EscrowAgreementRepository
+	contractRepo  domain.ContractRepository
+	jobRepo       domain.JobRepository
+	notifRepo     domain.NotificationRepository
+	walletRepo    domain.WalletRepository
+	escrowRepo    domain.EscrowAgreementRepository
+	milestoneRepo domain.MilestoneRepository
 }
 
 func NewContractUsecase(
@@ -28,14 +29,16 @@ func NewContractUsecase(
 	walletRepo domain.WalletRepository,
 	paypetalClient paypetal.API,
 	escrowRepo domain.EscrowAgreementRepository,
+	milestoneRepo domain.MilestoneRepository,
 ) domain.ContractUsecase {
 	return &contractUsecase{
-		paypetalDeps: paypetalDeps{client: paypetalClient, userRepo: userRepo},
-		contractRepo: contractRepo,
-		jobRepo:      jobRepo,
-		notifRepo:    notifRepo,
-		walletRepo:   walletRepo,
-		escrowRepo:   escrowRepo,
+		paypetalDeps:  paypetalDeps{client: paypetalClient, userRepo: userRepo},
+		contractRepo:  contractRepo,
+		jobRepo:       jobRepo,
+		notifRepo:     notifRepo,
+		walletRepo:    walletRepo,
+		escrowRepo:    escrowRepo,
+		milestoneRepo: milestoneRepo,
 	}
 }
 
@@ -54,6 +57,10 @@ func (u *contractUsecase) ListUserContracts(ctx context.Context, userID, role st
 	return u.contractRepo.ListForUser(ctx, userID, role)
 }
 
+// ErrFundsStillHeld blocks completing a contract while a milestone still has
+// money in escrow — it has to be released (or settled) first.
+var ErrFundsStillHeld = errors.New("release or settle every paid milestone before completing this contract")
+
 func (u *contractUsecase) CompleteContract(ctx context.Context, clientID, contractID string) error {
 	contract, err := u.contractRepo.GetByID(ctx, contractID)
 	if err != nil {
@@ -66,6 +73,18 @@ func (u *contractUsecase) CompleteContract(ctx context.Context, clientID, contra
 
 	if contract.Status != "active" {
 		return fmt.Errorf("cannot complete contract in status: %s", contract.Status)
+	}
+
+	// Completing a contract moves no money, so closing it while some is still
+	// held would leave the talent unpaid with nothing prompting anyone.
+	milestones, err := u.milestoneRepo.ListByContract(ctx, contractID)
+	if err != nil {
+		return fmt.Errorf("failed to check milestones: %w", err)
+	}
+	for _, m := range milestones {
+		if domain.MilestoneHoldsMoney(m.Status) {
+			return fmt.Errorf("%w: '%s' is %s", ErrFundsStillHeld, m.Title, m.Status)
+		}
 	}
 
 	// Update contract

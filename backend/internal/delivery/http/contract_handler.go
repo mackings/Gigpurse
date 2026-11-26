@@ -127,6 +127,10 @@ func (h *ContractHandler) CompleteContract(w http.ResponseWriter, r *http.Reques
 	}
 
 	err := h.contractUsecase.CompleteContract(r.Context(), userID, req.ContractID)
+	if errors.Is(err, usecase.ErrFundsStillHeld) {
+		respondError(w, http.StatusConflict, "funds_still_held", err.Error())
+		return
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "contract_complete_failed", err.Error())
 		return

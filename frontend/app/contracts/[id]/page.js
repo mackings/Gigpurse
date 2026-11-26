@@ -61,6 +61,10 @@ export default function ContractDetailPage() {
 
   const { milestones, propose, accept, reject, withdraw, counter, fund, release, cancel, requestRelease, refresh } = useMilestones(id);
 
+  // Completing a contract doesn't move money, so it waits until nothing paid
+  // is still held in escrow (the backend enforces the same rule).
+  const heldMilestone = milestones.find((m) => ["funded", "disputed", "settling"].includes(m.status));
+
   async function handleComplete() {
     setIsCompleting(true);
     try {
@@ -137,7 +141,7 @@ export default function ContractDetailPage() {
               </Button>
             </Link>
             {role === "client" && contract.status === "active" && (
-              <Button size="sm" disabled={isCompleting} onClick={handleComplete} className="gap-1.5">
+              <Button size="sm" disabled={isCompleting || !!heldMilestone} onClick={handleComplete} className="gap-1.5">
                 {isCompleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Mark complete
               </Button>
@@ -186,6 +190,12 @@ export default function ContractDetailPage() {
               }
             />
           </div>
+          {role === "client" && contract.status === "active" && heldMilestone && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Release or settle &apos;{heldMilestone.title}&apos; before marking this contract complete. Completing it doesn&apos;t pay the
+              talent.
+            </p>
+          )}
         </div>
 
         <div className="bg-card rounded-2xl border border-border p-6">
