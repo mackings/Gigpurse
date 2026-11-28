@@ -23,9 +23,13 @@ type escrowFixture struct {
 
 func newEscrowFixture(t *testing.T) *escrowFixture {
 	t.Helper()
+	return newEscrowFixtureOn(t, newTestApp())
+}
+
+func newEscrowFixtureOn(t *testing.T, app *testApp) *escrowFixture {
+	t.Helper()
 	t.Setenv("JWT_SECRET", "escrow-regression-secret")
 	t.Setenv("ALLOW_ADMIN_SIGNUP", "true")
-	app := newTestApp()
 	server := httptest.NewServer(app.mux)
 	t.Cleanup(server.Close)
 	c := &apiClient{t: t, baseURL: server.URL, http: server.Client()}

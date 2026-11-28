@@ -9,17 +9,19 @@ import (
 	"gigpurse/internal/domain"
 )
 
-// PayPetalWebhookHandler receives PayPetal's TrustVault event notifications.
+// PayPetalWebhookHandler receives PayPetal's TrustVault events, and the
+// TrustCore events for automatic payouts.
 // It NEVER trusts the inbound payload for a money decision — the payload only
 // says which local agreement to re-check, and PayPetal is then asked with our
 // own token. A forged POST can at worst trigger one wasted re-fetch.
 type PayPetalWebhookHandler struct {
 	escrowRepo  domain.EscrowAgreementRepository
 	milestoneUC domain.MilestoneUsecase
+	payoutUC    domain.PayoutUsecase
 }
 
-func NewPayPetalWebhookHandler(escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase) *PayPetalWebhookHandler {
-	return &PayPetalWebhookHandler{escrowRepo: escrowRepo, milestoneUC: milestoneUC}
+func NewPayPetalWebhookHandler(escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase, payoutUC domain.PayoutUsecase) *PayPetalWebhookHandler {
+	return &PayPetalWebhookHandler{escrowRepo: escrowRepo, milestoneUC: milestoneUC, payoutUC: payoutUC}
 }
 
 // RegisterRoutes is called directly on mux in main.go, deliberately outside
@@ -66,6 +68,13 @@ func (h *PayPetalWebhookHandler) Handle(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if domain.IsAutoPayoutReference(reference) {
+		// A payout's bank transfer moved on. PayPetal wants an answer within
+		// 15 seconds, so check on it (with our own token) after replying.
+		go h.payoutUC.ProcessAuto(context.Background())
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	h.reconcile(r.Context(), reference)
 	w.WriteHeader(http.StatusOK)
 }

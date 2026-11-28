@@ -10,8 +10,9 @@ import (
 // StartEscrowReconciler is the actual safety net behind payment confirmation:
 // PayPetal's webhooks are best-effort, and a user's browser can't be relied on
 // to stay open. It re-checks every locally-PENDING payment against PayPetal,
-// and settles releases whose outcome wasn't known at the time.
-func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase, checkInterval time.Duration) {
+// settles releases whose outcome wasn't known at the time, and moves
+// automatic payouts on.
+func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreementRepository, milestoneUC domain.MilestoneUsecase, payoutUC domain.PayoutUsecase, checkInterval time.Duration) {
 	ticker := time.NewTicker(checkInterval)
 	go func() {
 		defer ticker.Stop()
@@ -22,6 +23,7 @@ func StartEscrowReconciler(ctx context.Context, escrowRepo domain.EscrowAgreemen
 			case <-ticker.C:
 				reconcilePendingEscrow(ctx, escrowRepo, milestoneUC)
 				milestoneUC.ReconcileVault(ctx)
+				payoutUC.ProcessAuto(ctx)
 			}
 		}
 	}()

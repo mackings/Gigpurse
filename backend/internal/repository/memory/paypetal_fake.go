@@ -22,6 +22,18 @@ type PayPetalFake struct {
 	// RejectAccount is an account number the bank lookup refuses.
 	RejectAccount string
 	nextID        int
+
+	// Automatic payouts (paypetal_fake_payout.go).
+	SubWallet  FakeSubWallet
+	trustcores map[string]*trustCoreFake
+	linked     map[string]string
+	PayoutDown bool
+	// LoseCreateResponse makes the next payout funding go through but
+	// report a timeout.
+	LoseCreateResponse bool
+	// Creates and Completes count calls, so tests can prove nothing is
+	// funded or sent twice.
+	Creates, Completes int
 }
 
 func NewPayPetalFake() *PayPetalFake {

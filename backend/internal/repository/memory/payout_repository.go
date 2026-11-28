@@ -87,3 +87,14 @@ func (r *payoutRepository) Update(ctx context.Context, p *domain.Payout) error {
 	r.rows[p.ID] = *p
 	return nil
 }
+
+func (r *payoutRepository) UpdateIfStatus(ctx context.Context, p *domain.Payout, status string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cur, ok := r.rows[p.ID]; !ok || cur.Status != status {
+		return false, nil
+	}
+	p.UpdatedAt = time.Now()
+	r.rows[p.ID] = *p
+	return true, nil
+}

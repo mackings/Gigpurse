@@ -181,7 +181,7 @@ func (u *milestoneUsecase) confirmVaultRelease(ctx context.Context, agreement *d
 			continue
 		}
 		if p.Kind == domain.PayoutTalent {
-			agreement.PayoutStatus = "MANUAL_DUE"
+			agreement.PayoutStatus = "DUE"
 			_ = u.walletRepo.AddTransaction(ctx, &domain.Transaction{
 				UserID: agreement.InitiatorUserID, Type: "escrow_release", Amount: p.Amount,
 				Description: fmt.Sprintf("Payment released: %s", p.Title), Reference: agreement.ReferenceID,
@@ -189,7 +189,7 @@ func (u *milestoneUsecase) confirmVaultRelease(ctx context.Context, agreement *d
 			u.notify(ctx, p.UserID, "Payment released",
 				fmt.Sprintf("%s for '%s' has been released. GigPurse is sending it to your bank account — we'll tell you when it's on its way.", formatNaira(p.Amount), p.Title), p.ContractID)
 		} else {
-			agreement.RefundStatus = "MANUAL_DUE"
+			agreement.RefundStatus = "DUE"
 			u.notify(ctx, p.UserID, "Refund approved",
 				fmt.Sprintf("Your refund of %s for '%s' is approved. GigPurse is sending it to your bank account — we'll tell you when it's on its way.", formatNaira(p.Amount), p.Title), p.ContractID)
 			if agreement.PayoutStatus == "NONE" {

@@ -112,13 +112,19 @@ func main() {
 	dashboardUsecase := usecase.NewDashboardUsecase(jobUsecase, contractUsecase, reviewUsecase)
 	adminUsecase := usecase.NewAdminUsecase(db, userRepo, jobRepo, contractRepo, milestoneRepo, escrowAgreementRepo, jobUsecase, frontendBaseURL)
 	milestoneUsecase := usecase.NewMilestoneUsecase(milestoneRepo, contractRepo, walletRepo, notifRepo, chatRepo, hub, paypetalClient, userRepo, escrowAgreementRepo, frontendBaseURL, payoutRepo)
-	payoutUsecase := usecase.NewPayoutUsecase(payoutRepo, escrowAgreementRepo, walletRepo, userRepo, notifRepo)
+	// Automatic payouts come from this PayPetal sub-wallet (created on first
+	// use). Unset, every payout is left for an admin to pay by hand.
+	payoutSubWallet := os.Getenv("PAYPETAL_PAYOUT_SUBWALLET")
+	if payoutSubWallet == "" {
+		log.Println("PAYPETAL_PAYOUT_SUBWALLET not set — payouts must be sent by hand from Admin → Payouts.")
+	}
+	payoutUsecase := usecase.NewPayoutUsecase(payoutRepo, escrowAgreementRepo, walletRepo, userRepo, notifRepo, paypetalClient, payoutSubWallet, frontendBaseURL)
 	walletUsecase := usecase.NewWalletUsecase(walletRepo, userRepo, escrowAgreementRepo, jobRepo, milestoneRepo, jobUsecase, milestoneUsecase)
 	disputeUsecase := usecase.NewDisputeUsecase(disputeRepo, contractRepo, notifRepo, chatRepo, userRepo, jobRepo, walletRepo, milestoneUsecase, paypetalClient, escrowAgreementRepo)
 	payoutAccountUsecase := usecase.NewPayoutAccountUsecase(paypetalClient, userRepo, contractRepo, milestoneRepo, notifRepo)
 	milestoneUsecase.StartReminderScanner(context.Background(), time.Minute, 5*time.Minute, 24*time.Hour)
 	milestoneUsecase.StartReleaseNudgeScanner(context.Background(), 5*time.Minute)
-	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, milestoneUsecase, 30*time.Second)
+	usecase.StartEscrowReconciler(context.Background(), escrowAgreementRepo, milestoneUsecase, payoutUsecase, 30*time.Second)
 	chatUsecase.StartUnreadEmailScanner(context.Background(), 15*time.Minute, 24*time.Hour)
 
 	uploadDir := os.Getenv("MEDIA_UPLOAD_DIR")
@@ -145,7 +151,7 @@ func main() {
 	pricingHandler := delivery.NewPricingHandler()
 	payoutHandler := delivery.NewPayoutHandler(payoutUsecase)
 	payoutAccountHandler := delivery.NewPayoutAccountHandler(payoutAccountUsecase)
-	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(escrowAgreementRepo, milestoneUsecase)
+	paypetalWebhookHandler := delivery.NewPayPetalWebhookHandler(escrowAgreementRepo, milestoneUsecase, payoutUsecase)
 
 	// 5. Register HTTP Routes
 	mux := http.NewServeMux()

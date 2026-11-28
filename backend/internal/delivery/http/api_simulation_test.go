@@ -636,9 +636,14 @@ type testApp struct {
 	escrowRepo      domain.EscrowAgreementRepository
 	payoutRepo      domain.PayoutRepository
 	milestones      domain.MilestoneUsecase
+	payouts         domain.PayoutUsecase
 }
 
-func newTestApp() *testApp {
+func newTestApp() *testApp { return newTestAppWith("") }
+
+// newTestAppWith turns automatic payouts on when autoPayoutWallet names a
+// payout sub-wallet.
+func newTestAppWith(autoPayoutWallet string) *testApp {
 	userRepo := newMemoryUserRepo()
 	jobRepo := newMemoryJobRepo()
 	chatRepo := newMemoryChatRepo()
@@ -691,10 +696,11 @@ func newTestApp() *testApp {
 	delivery.NewWalletHandler(walletUsecase).RegisterRoutes(mux)
 	delivery.NewMilestoneHandler(milestoneUsecase, disputeUsecase).RegisterRoutes(mux)
 	delivery.NewPayoutAccountHandler(payoutAccountUsecase).RegisterRoutes(mux)
-	delivery.NewPayoutHandler(usecase.NewPayoutUsecase(payoutRepo, escrowRepo, walletRepo, userRepo, notifRepo)).RegisterRoutes(mux)
-	delivery.NewPayPetalWebhookHandler(escrowRepo, milestoneUsecase).RegisterRoutes(mux)
+	payoutUsecase := usecase.NewPayoutUsecase(payoutRepo, escrowRepo, walletRepo, userRepo, notifRepo, paypetalFake, autoPayoutWallet, testFrontendBaseURL)
+	delivery.NewPayoutHandler(payoutUsecase).RegisterRoutes(mux)
+	delivery.NewPayPetalWebhookHandler(escrowRepo, milestoneUsecase, payoutUsecase).RegisterRoutes(mux)
 
-	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo, payoutRepo: payoutRepo, milestones: milestoneUsecase}
+	return &testApp{mux: mux, resetRepo: resetRepo, emailVerifyRepo: emailVerifyRepo, paypetal: paypetalFake, userRepo: userRepo, escrowRepo: escrowRepo, payoutRepo: payoutRepo, milestones: milestoneUsecase, payouts: payoutUsecase}
 }
 
 type apiClient struct {

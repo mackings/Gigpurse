@@ -71,3 +71,12 @@ func (r *payoutRepository) Update(ctx context.Context, p *domain.Payout) error {
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": p.ID}, p)
 	return err
 }
+
+func (r *payoutRepository) UpdateIfStatus(ctx context.Context, p *domain.Payout, status string) (bool, error) {
+	p.UpdatedAt = time.Now()
+	res, err := r.collection.ReplaceOne(ctx, bson.M{"_id": p.ID, "status": status}, p)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}

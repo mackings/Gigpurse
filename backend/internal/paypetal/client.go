@@ -1,5 +1,6 @@
 // Package paypetal is a thin client for PayPetal's Merchant API — the
-// TrustVault escrow product specifically (see https://paypetal.readme.io).
+// TrustVault escrow, plus sub-wallet-funded TrustCore for payouts (see
+// https://paypetal.readme.io).
 // It is the only place in the codebase that speaks PayPetal's wire format
 // (its two different response envelope shapes, its string amounts, its JWT
 // login exchange); everything above this package deals in plain Naira
@@ -34,6 +35,14 @@ type API interface {
 	GetVaultAgreement(ctx context.Context, reference string) (*VaultState, error)
 	SendVaultReleaseCode(ctx context.Context, reference string) error
 	ReleaseVaultAgreement(ctx context.Context, reference, code string) error
+
+	GetSubWallet(ctx context.Context, reference string) (*SubWallet, error)
+	CreateSubWallet(ctx context.Context, name, reference string) (*SubWallet, error)
+	LinkPayoutAccount(ctx context.Context, customerID, accountNumber, bankCode string) error
+	CreateSubWalletPayout(ctx context.Context, in SubWalletPayout) error
+	GetTrustCore(ctx context.Context, reference string) (*TrustCore, error)
+	CompleteTrustCore(ctx context.Context, reference string) error
+	RefundTrustCore(ctx context.Context, reference string) error
 }
 
 type Client struct {

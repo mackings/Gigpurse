@@ -6,30 +6,48 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"gigpurse/internal/domain"
+	"gigpurse/internal/paypetal"
 )
 
 type payoutUsecase struct {
+	paypetalDeps
 	payoutRepo domain.PayoutRepository
 	escrowRepo domain.EscrowAgreementRepository
 	walletRepo domain.WalletRepository
-	userRepo   domain.UserRepository
 	notifRepo  domain.NotificationRepository
+
+	// Automatic payouts — off when subWalletRef is empty. See auto_payout.go.
+	subWalletRef string
+	redirectURL  string
+	// pass serialises everything that moves an automatic payout, so two
+	// passes (or a pass and an admin action) never act on one at once.
+	pass        sync.Mutex
+	walletMu    sync.Mutex
+	subWalletID string
 }
 
-func NewPayoutUsecase(payoutRepo domain.PayoutRepository, escrowRepo domain.EscrowAgreementRepository, walletRepo domain.WalletRepository, userRepo domain.UserRepository, notifRepo domain.NotificationRepository) domain.PayoutUsecase {
-	return &payoutUsecase{payoutRepo: payoutRepo, escrowRepo: escrowRepo, walletRepo: walletRepo, userRepo: userRepo, notifRepo: notifRepo}
+// NewPayoutUsecase: subWalletRef names the PayPetal sub-wallet automatic
+// payouts are paid from; leave it empty to pay everything by hand.
+func NewPayoutUsecase(payoutRepo domain.PayoutRepository, escrowRepo domain.EscrowAgreementRepository, walletRepo domain.WalletRepository, userRepo domain.UserRepository, notifRepo domain.NotificationRepository, client paypetal.API, subWalletRef, frontendBaseURL string) domain.PayoutUsecase {
+	return &payoutUsecase{
+		paypetalDeps: paypetalDeps{client: client, userRepo: userRepo},
+		payoutRepo:   payoutRepo, escrowRepo: escrowRepo, walletRepo: walletRepo, notifRepo: notifRepo,
+		subWalletRef: strings.TrimSpace(subWalletRef),
+		redirectURL:  strings.TrimRight(frontendBaseURL, "/") + "/wallet",
+	}
 }
 
 func (u *payoutUsecase) List(ctx context.Context, status string) ([]*domain.Payout, error) {
 	switch status {
 	case "":
 		status = "due"
-	case "pending", "due", "paid":
+	case "pending", "due", "sending", "stopping", "paid":
 	default:
-		return nil, errors.New("status must be pending, due, or paid")
+		return nil, errors.New("status must be pending, due, sending, stopping, or paid")
 	}
 	payouts, err := u.payoutRepo.ListByStatus(ctx, status)
 	if err != nil {
@@ -53,17 +71,29 @@ func (u *payoutUsecase) MarkPaid(ctx context.Context, adminID, payoutID, note st
 	if err != nil {
 		return nil, errors.New("payout not found")
 	}
-	won, err := u.payoutRepo.CompareAndSwapStatus(ctx, payoutID, "due", "paid")
-	if err != nil {
-		return nil, err
-	}
-	if !won {
+	if p.Status != "due" {
+		if p.Status == "sending" || p.Status == "stopping" {
+			return nil, errors.New("PayPetal is handling this payout — stop the automatic payout first")
+		}
 		return nil, fmt.Errorf("this payout is %s, not due", p.Status)
 	}
+	if !u.markPaid(ctx, p, "due", note, adminID) {
+		return nil, errors.New("this payout changed meanwhile — refresh and try again")
+	}
+	return p, nil
+}
+
+// markPaid records p as paid, if it's still in status from, and tells the
+// payee. Reports whether this call is what recorded it.
+func (u *payoutUsecase) markPaid(ctx context.Context, p *domain.Payout, from, note, paidBy string) bool {
 	now := time.Now()
-	p.Status, p.Note, p.PaidBy, p.PaidAt = "paid", note, adminID, &now
-	if err := u.payoutRepo.Update(ctx, p); err != nil {
-		return nil, err
+	p.Status, p.Note, p.PaidBy, p.PaidAt, p.AutoError, p.RetryAt = "paid", note, paidBy, &now, "", nil
+	won, err := u.payoutRepo.UpdateIfStatus(ctx, p, from)
+	if err != nil || !won {
+		if err != nil {
+			log.Printf("payout %s: recording paid failed: %v", p.ID, err)
+		}
+		return false
 	}
 
 	txType, title, message := "payment_received", "Payout sent",
@@ -87,11 +117,15 @@ func (u *payoutUsecase) MarkPaid(ctx context.Context, adminID, payoutID, note st
 		}
 		_ = u.escrowRepo.Update(ctx, agreement)
 	}
-	_ = u.notifRepo.Create(ctx, &domain.Notification{UserID: p.UserID, Title: title, Message: message, ContractID: p.ContractID, CreatedAt: now})
+	u.tell(ctx, p, title, message)
+	return true
+}
+
+func (u *payoutUsecase) tell(ctx context.Context, p *domain.Payout, title, message string) {
+	_ = u.notifRepo.Create(ctx, &domain.Notification{UserID: p.UserID, Title: title, Message: message, ContractID: p.ContractID, CreatedAt: time.Now()})
 	if user, err := u.userRepo.GetByID(ctx, p.UserID); err == nil && user.Email != "" {
 		if err := sendEmailFn(user.Email, title, message); err != nil {
 			log.Printf("payout %s: email failed: %v", p.ID, err)
 		}
 	}
-	return p, nil
 }

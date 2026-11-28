@@ -134,8 +134,8 @@ func (d paypetalDeps) requirePayoutAccount(user *domain.User) error {
 }
 
 // verifyPayoutAccount checks with PayPetal that the bank account on file can
-// still be resolved. Payouts are bank transfers an admin makes by hand, so a
-// dead account has to be caught before money is paid in, not after.
+// still be resolved. Payouts are bank transfers to it, so a dead account has
+// to be caught before money is paid in, not after.
 func (d paypetalDeps) verifyPayoutAccount(ctx context.Context, user *domain.User) error {
 	if err := d.requirePayoutAccount(user); err != nil {
 		return err
