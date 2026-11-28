@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gigpurse/internal/domain"
 	"gigpurse/internal/repository/memory"
@@ -53,6 +54,20 @@ func (f *escrowFixture) payout(id string) domain.Payout {
 }
 
 func (f *escrowFixture) runPayouts() { f.app.payouts.ProcessAuto(context.Background()) }
+
+// timePasses brings a payout's next automatic try forward to now.
+func (f *escrowFixture) timePasses(id string) {
+	f.t.Helper()
+	p := f.payout(id)
+	if p.RetryAt == nil {
+		f.t.Fatalf("payout %s has no retry scheduled", id)
+	}
+	past := time.Now().Add(-time.Second)
+	p.RetryAt = &past
+	if err := f.app.payoutRepo.Update(context.Background(), &p); err != nil {
+		f.t.Fatal(err)
+	}
+}
 
 func (f *escrowFixture) customerOf(userID string) string {
 	u, _ := f.app.userRepo.GetByID(context.Background(), userID)
@@ -110,62 +125,112 @@ func TestAutoPayout_PaysTalentOnce(t *testing.T) {
 	}
 }
 
-func TestAutoPayout_WaitsForTopUp(t *testing.T) {
+func TestAutoPayout_GoesOutAsSoonAsTheWalletIsToppedUp(t *testing.T) {
 	f := newAutoFixture(t)
 	pp := f.app.paypetal
 	pid, ref := f.released()
 	f.runPayouts()
 
 	p := f.payout(pid)
-	if p.Status != "due" || !strings.Contains(p.AutoError, "Top it up") || p.RetryAt == nil {
-		t.Fatalf("expected due with a top-up message, got %#v", p)
+	if p.Status != "due" || p.WaitingOn != "funds" || !strings.Contains(p.AutoError, "topped up") {
+		t.Fatalf("expected it waiting for a top-up, got %#v", p)
 	}
 	if pp.TrustCoreState(ref) != nil {
 		t.Fatal("nothing should be set aside without the balance")
 	}
-	f.runPayouts() // backing off
+	f.runPayouts()
+	f.runPayouts()
 	if pp.Creates != 1 {
-		t.Fatalf("expected one refused attempt while backing off, got %d", pp.Creates)
+		t.Fatalf("it shouldn't keep asking PayPetal while the balance hasn't moved, got %d attempts", pp.Creates)
 	}
 
+	// No admin: the next pass after the top-up sends it.
 	pp.TopUp(talentShare + memory.PayoutFee)
-	f.post("/admin/payouts/retry", f.musicianTok, map[string]any{"id": pid}, http.StatusForbidden, nil)
-	var got domain.Payout
-	f.post("/admin/payouts/retry", f.admTok, map[string]any{"id": pid}, http.StatusOK, &got)
-	if got.Status != "sending" || got.AutoError != "" || pp.TrustCoreState(ref).PayoutStatus != "PENDING" || pp.SubWalletBalance() != 0 {
-		t.Fatalf("expected Retry to send it at once, got %#v / %#v", got, pp.TrustCoreState(ref))
+	f.runPayouts()
+	if p := f.payout(pid); p.Status != "sending" || p.AutoError != "" || pp.TrustCoreState(ref).PayoutStatus != "PENDING" || pp.SubWalletBalance() != 0 {
+		t.Fatalf("expected it sent on the first pass after the top-up, got %#v / %#v", p, pp.TrustCoreState(ref))
+	}
+	pp.SettleTransfer(ref, "COMPLETED")
+	f.runPayouts()
+	if p := f.payout(pid); p.Status != "paid" {
+		t.Fatalf("expected paid, got %#v", p)
 	}
 }
 
-func TestAutoPayout_FailedTransfersStopForAnAdmin(t *testing.T) {
+func TestAutoPayout_FailedTransfersRetryOnTheirOwn(t *testing.T) {
 	f := newAutoFixture(t)
 	pp := f.app.paypetal
 	pp.TopUp(1000)
 	pid, ref := f.released()
 	f.runPayouts()
-	for i := 1; i < 5; i++ {
+	for i := 1; i <= 8; i++ { // well past any cap: it never gives up
 		pp.SettleTransfer(ref, "FAILED")
 		f.runPayouts()
-		if pp.Completes != i+1 {
-			t.Fatalf("after failure %d expected %d transfers, got %d", i, i+1, pp.Completes)
+		p := f.payout(pid)
+		if pp.Completes != i || p.Status != "sending" || p.WaitingOn != "transfer" || p.RetryAt == nil || p.Held {
+			t.Fatalf("failure %d: expected a retry scheduled, not sent at once: %d transfers, %#v", i, pp.Completes, p)
 		}
-	}
-	pp.SettleTransfer(ref, "FAILED")
-	f.runPayouts()
-	f.runPayouts()
-	p := f.payout(pid)
-	if pp.Completes != 5 || p.Status != "sending" || !strings.Contains(p.AutoError, "failed 5 times") {
-		t.Fatalf("expected it to stop after 5 failed transfers, got %d transfers, %#v", pp.Completes, p)
-	}
-
-	f.post("/admin/payouts/retry", f.admTok, map[string]any{"id": pid}, http.StatusOK, nil)
-	if pp.Completes != 6 {
-		t.Fatalf("Retry should send again, got %d transfers", pp.Completes)
+		if gap := time.Until(*p.RetryAt); gap > retryGapFor(i) || gap < retryGapFor(i)-time.Minute {
+			t.Fatalf("failure %d: retry in %v, want about %v", i, gap, retryGapFor(i))
+		}
+		f.runPayouts() // too early: nothing happens
+		if pp.Completes != i {
+			t.Fatalf("failure %d: resent before its retry time", i)
+		}
+		f.timePasses(pid)
+		f.runPayouts()
+		if pp.Completes != i+1 {
+			t.Fatalf("failure %d: expected it resent automatically, got %d transfers", i, pp.Completes)
+		}
 	}
 	pp.SettleTransfer(ref, "COMPLETED")
 	f.runPayouts()
 	if p := f.payout(pid); p.Status != "paid" || pp.TrustCoreCount() != 1 || pp.SubWalletBalance() != 1000-talentShare-memory.PayoutFee {
 		t.Fatalf("expected one agreement paid once, got %#v, %d agreements, balance %v", p, pp.TrustCoreCount(), pp.SubWalletBalance())
+	}
+	if w := f.wallet(f.musicianTok); w.TotalEarned != talentShare {
+		t.Fatalf("expected %v earned once, got %v", talentShare, w.TotalEarned)
+	}
+}
+
+// retryGapFor mirrors the engine's schedule: 1m, 5m, 15m, 30m, 1h, then 3h.
+func retryGapFor(failures int) time.Duration {
+	gaps := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute, time.Hour, 3 * time.Hour}
+	if failures > len(gaps) {
+		failures = len(gaps)
+	}
+	return gaps[failures-1]
+}
+
+func TestAutoPayout_GoesOutWhenTheTalentFixesTheirBank(t *testing.T) {
+	f := newAutoFixture(t)
+	pp := f.app.paypetal
+	pp.TopUp(1000)
+	pid, ref := f.released()
+	pp.RejectAccount = "0123456789" // the account on file stops verifying
+	f.runPayouts()
+	p := f.payout(pid)
+	if p.Status != "due" || p.WaitingOn != "account" || pp.TrustCoreState(ref) != nil {
+		t.Fatalf("expected it waiting on the talent's bank account with nothing set aside, got %#v", p)
+	}
+	f.runPayouts()
+	var notes []domain.Notification
+	f.get("/notifications", f.musicianTok, http.StatusOK, &notes)
+	asked := 0
+	for _, n := range notes {
+		if n.Title == "Update your bank account" {
+			asked++
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("expected the talent asked once to update their bank account, got %d", asked)
+	}
+
+	f.post("/payout-account", f.musicianTok, map[string]any{"bank_code": "000", "bank_name": "Fake Test Bank", "account_number": "0222222222"}, http.StatusOK, nil)
+	f.runPayouts()
+	tc := pp.TrustCoreState(ref)
+	if tc == nil || tc.PayoutStatus != "PENDING" || pp.LinkedAccount(f.customerOf(f.musicianID)) != "000/0222222222" {
+		t.Fatalf("expected it sent to the new account straight away, got %#v", tc)
 	}
 }
 
@@ -248,7 +313,7 @@ func TestAutoPayout_NeverReleasesSomeoneElsesAgreement(t *testing.T) {
 
 	f.runPayouts()
 	f.runPayouts()
-	if p := f.payout(pid); pp.Completes != 0 || p.Status != "sending" || !strings.Contains(p.AutoError, "Check it in the PayPetal dashboard") {
+	if p := f.payout(pid); pp.Completes != 0 || p.Status != "sending" || !p.Held || !strings.Contains(p.AutoError, "Check it in the PayPetal dashboard") {
 		t.Fatalf("expected it held for an admin, got %d transfers, %#v", pp.Completes, p)
 	}
 	var got domain.Payout

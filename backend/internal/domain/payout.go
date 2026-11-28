@@ -36,13 +36,23 @@ type Payout struct {
 	// Automatic payout. AutoRef is the PayPetal TrustCore reference, fixed
 	// per payout so a retry can never fund a second transfer.
 	AutoRef      string `json:"auto_ref,omitempty" bson:"auto_ref,omitempty"`
-	AutoError    string `json:"auto_error,omitempty" bson:"auto_error,omitempty"` // why it's stuck, for the admin
-	AutoAttempts int    `json:"auto_attempts,omitempty" bson:"auto_attempts,omitempty"`
+	AutoError    string `json:"auto_error,omitempty" bson:"auto_error,omitempty"`       // what it's waiting on, for the admin
+	AutoAttempts int    `json:"auto_attempts,omitempty" bson:"auto_attempts,omitempty"` // failures in a row; sets the retry gap
 	// AutoRound moves to a fresh AutoRef, only once PayPetal has handed the
 	// last one's money back.
 	AutoRound  int        `json:"-" bson:"auto_round,omitempty"`
 	RetryAt    *time.Time `json:"retry_at,omitempty" bson:"retry_at,omitempty"`
 	ManualOnly bool       `json:"manual_only,omitempty" bson:"manual_only,omitempty"` // an admin is paying this by hand
+	// WaitingOn is what the next automatic try waits for, besides RetryAt:
+	// "funds" (a top-up of the payout wallet), "account" (the payee fixing
+	// their bank account), "transfer" (retrying a failed bank transfer), or
+	// "" (a plain retry). The system retries on its own, indefinitely.
+	WaitingOn   string    `json:"waiting_on,omitempty" bson:"waiting_on,omitempty"`
+	BalanceSeen float64   `json:"-" bson:"balance_seen,omitempty"`
+	AccountSeen time.Time `json:"-" bson:"account_seen,omitempty"`
+	// Held: PayPetal's record didn't match this payout, so nothing more
+	// happens to it automatically until an admin has looked.
+	Held bool `json:"held,omitempty" bson:"held,omitempty"`
 
 	Note      string     `json:"note,omitempty" bson:"note,omitempty"` // bank transfer reference
 	PaidBy    string     `json:"paid_by,omitempty" bson:"paid_by,omitempty"`
@@ -97,7 +107,8 @@ type PayoutUsecase interface {
 	// ProcessAuto moves every automatic payout one step on. Safe to call
 	// often and concurrently.
 	ProcessAuto(ctx context.Context)
-	// RetryAuto clears a payout's back-off so it's tried again now.
+	// RetryAuto tries a payout again now: one that's held, taken over by an
+	// admin, or just waiting. Never needed for a payout to go out.
 	RetryAuto(ctx context.Context, payoutID string) (*Payout, error)
 	// PayByHand takes a payout off automatic payment, getting back any money
 	// already set aside for it, so an admin can pay it themselves.

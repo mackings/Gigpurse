@@ -28,6 +28,8 @@ type payoutUsecase struct {
 	pass        sync.Mutex
 	walletMu    sync.Mutex
 	subWalletID string
+	balance     float64
+	balanceAt   time.Time
 }
 
 // NewPayoutUsecase: subWalletRef names the PayPetal sub-wallet automatic
@@ -87,7 +89,7 @@ func (u *payoutUsecase) MarkPaid(ctx context.Context, adminID, payoutID, note st
 // payee. Reports whether this call is what recorded it.
 func (u *payoutUsecase) markPaid(ctx context.Context, p *domain.Payout, from, note, paidBy string) bool {
 	now := time.Now()
-	p.Status, p.Note, p.PaidBy, p.PaidAt, p.AutoError, p.RetryAt = "paid", note, paidBy, &now, "", nil
+	p.Status, p.Note, p.PaidBy, p.PaidAt, p.AutoError, p.RetryAt, p.WaitingOn = "paid", note, paidBy, &now, "", nil, ""
 	won, err := u.payoutRepo.UpdateIfStatus(ctx, p, from)
 	if err != nil || !won {
 		if err != nil {

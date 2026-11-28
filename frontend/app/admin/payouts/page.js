@@ -137,9 +137,16 @@ export default function AdminPayouts() {
                   <p className="text-xs text-muted-foreground mt-1">PayPetal is sending this to their bank.</p>
                 )}
                 {p.auto_error && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 flex items-start gap-1">
+                  <p
+                    className={`text-xs mt-1 flex items-start gap-1 ${
+                      p.held ? "text-rose-700 dark:text-rose-400" : "text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
                     <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
-                    {p.auto_error}
+                    <span>
+                      {p.auto_error}
+                      {!p.held && p.retry_at && p.waiting_on !== "funds" && ` Next try ${formatTime(p.retry_at)}.`}
+                    </span>
                   </p>
                 )}
                 {p.manual_only && p.status === "due" && (
@@ -148,7 +155,7 @@ export default function AdminPayouts() {
               </div>
               <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                 <p className="font-semibold text-foreground tabular-nums mr-1">{formatMoney(p.amount, { decimals: 2 })}</p>
-                {autoOn && (p.status === "sending" || (p.status === "due" && (p.auto_error || p.manual_only))) && (
+                {autoOn && (p.held || (p.status === "due" && p.manual_only)) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -157,7 +164,7 @@ export default function AdminPayouts() {
                     onClick={() => act("/admin/payouts/retry", p, "Sent to PayPetal again.")}
                   >
                     {busy === p.id + "/admin/payouts/retry" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                    {p.manual_only ? "Pay automatically" : "Retry now"}
+                    {p.manual_only ? "Pay automatically" : "Checked, try again"}
                   </Button>
                 )}
                 {autoOn && !p.manual_only && (p.status === "due" || p.status === "sending") && (
@@ -242,8 +249,9 @@ function AutoPayoutPanel({ auto }) {
             <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">{auto.error}</p>
           ) : (
             <p className="text-sm text-muted-foreground mt-0.5">
-              Top up the payout wallet by bank transfer to {auto.bank_name} · {auto.account_number} · {auto.account_name}. Each payout also
-              costs PayPetal&apos;s transfer fee.
+              Talents and refunds are paid automatically, and anything that fails is retried on its own. Keep the payout wallet topped up by
+              bank transfer to {auto.bank_name} · {auto.account_number} · {auto.account_name}; payouts waiting on it go out as soon as it
+              is. Each payout also costs PayPetal&apos;s transfer fee.
             </p>
           )}
         </div>
@@ -256,4 +264,12 @@ function AutoPayoutPanel({ auto }) {
       )}
     </div>
   );
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? `at ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+    : `on ${d.toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`;
 }
